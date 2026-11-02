@@ -27,3 +27,4 @@ enabled = true
 #   npx wrangler secret put IPINFO_TOKEN         # IPinfo Lite: ASN + country
 #   npx wrangler secret put GREYNOISE_API_KEY    # GreyNoise Community: noise / RIOT
 #   npx wrangler secret put ABUSEIPDB_API_KEY    # AbuseIPDB: abuse confidence
+#   npx wrangler secret put VIRUSTOTAL_API_KEY   # VirusTotal: multi-engine verdicts

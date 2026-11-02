@@ -26,6 +26,7 @@ export interface IpLookup {
   exposure: { ports: number[]; hostnames: string[]; vulns: string[]; tags: string[]; cpes: string[] } | null;
   reputation: { abuseConfidence: number; totalReports: number; distinctReporters: number; lastReportedAt: string | null; usageType: string | null; isTor: boolean; isWhitelisted: boolean } | null;
   greynoise: { noise: boolean; riot: boolean; classification: string; name: string | null; lastSeen: string | null; link: string | null; observed: boolean } | null;
+  virustotal: { malicious: number; suspicious: number; harmless: number; undetected: number; reputation: number | null; votesMalicious: number; votesHarmless: number; asOwner: string | null; lastAnalysis: string | null; link: string; observed: boolean } | null;
   flags: string[];
   providers: ProviderStatus[];
 }

@@ -171,6 +171,75 @@ describe('/api/ip/lookup: IPinfo Lite + GreyNoise', () => {
   });
 });
 
+describe('/api/ip/lookup: VirusTotal', () => {
+  const vtBase = (extra: ((u: URL, init?: RequestInit) => Response | undefined)[] = []) => [
+    doh({}),
+    (u: URL) => (u.hostname === 'ipwho.is' ? jsonRes({ success: true, country: 'United States', country_code: 'US', connection: { asn: 111, org: 'X' } }) : undefined),
+    (u: URL) => (u.hostname === 'stat.ripe.net' ? jsonRes({ data: { resource: '203.0.113.0/24', asns: [{ asn: 64500, holder: 'EXAMPLE' }] } }) : undefined),
+    (u: URL) => (u.hostname === 'internetdb.shodan.io' ? jsonRes({ ports: [] }) : undefined),
+    ...extra,
+  ];
+
+  it('surfaces verdict counts, flags malicious detections, and sends the key only to VirusTotal', async () => {
+    const seen: Record<string, Record<string, string>> = {};
+    mf = mockFetch(vtBase([
+      (u, init) => {
+        if (u.hostname !== 'www.virustotal.com') return undefined;
+        seen[u.hostname] = init?.headers as Record<string, string>;
+        return jsonRes({ data: { attributes: { last_analysis_stats: { malicious: 7, suspicious: 2, harmless: 60, undetected: 25 }, reputation: -12, as_owner: 'EXAMPLE-AS', last_analysis_date: 1790000000, total_votes: { harmless: 1, malicious: 4 } } } });
+      },
+    ]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=45.33.32.156', { env: { VIRUSTOTAL_API_KEY: 'key-vt' } })).body.data;
+    assert.equal(d.virustotal.malicious, 7);
+    assert.equal(d.virustotal.suspicious, 2);
+    assert.equal(d.virustotal.harmless, 60);
+    assert.equal(d.virustotal.undetected, 25);
+    assert.equal(d.virustotal.reputation, -12);
+    assert.equal(d.virustotal.asOwner, 'EXAMPLE-AS');
+    assert.equal(d.virustotal.observed, true);
+    assert.ok(typeof d.virustotal.lastAnalysis === 'string' && d.virustotal.lastAnalysis.startsWith('20'));
+    assert.equal(d.virustotal.link, 'https://www.virustotal.com/gui/ip-address/45.33.32.156');
+    assert.ok(d.flags.includes('VirusTotal: 7 engine(s) flag as malicious'));
+    assert.equal(seen['www.virustotal.com']['x-apikey'], 'key-vt');
+    for (const c of mf.calls.filter((c) => !c.includes('virustotal'))) assert.ok(!c.includes('key-vt'), 'key never appears in other URLs');
+    const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
+    assert.equal(st['VirusTotal (multi-engine verdicts)'].ok, true);
+  });
+
+  it('a clean IP adds no flag', async () => {
+    mf = mockFetch(vtBase([(u) => (u.hostname === 'www.virustotal.com' ? jsonRes({ data: { attributes: { last_analysis_stats: { malicious: 0, suspicious: 0, harmless: 70, undetected: 20 } } } }) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=45.33.32.157', { env: { VIRUSTOTAL_API_KEY: 'k' } })).body.data;
+    assert.equal(d.virustotal.malicious, 0);
+    assert.ok(!d.flags.some((f: string) => f.startsWith('VirusTotal')));
+  });
+
+  it('404 means "no record", not an error', async () => {
+    mf = mockFetch(vtBase([(u) => (u.hostname === 'www.virustotal.com' ? new Response(JSON.stringify({ error: { code: 'NotFoundError' } }), { status: 404 }) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=45.33.32.158', { env: { VIRUSTOTAL_API_KEY: 'k' } })).body.data;
+    assert.equal(d.virustotal.observed, false);
+    assert.equal(d.providers.find((p: any) => p.name.startsWith('VirusTotal')).ok, true);
+  });
+
+  it('rate limit degrades to a failed badge and the rest of the lookup still works', async () => {
+    mf = mockFetch(vtBase([(u) => (u.hostname === 'www.virustotal.com' ? new Response('', { status: 429 }) : undefined)]));
+    const r = await call(ipLookup, '/api/ip/lookup?q=45.33.32.159', { env: { VIRUSTOTAL_API_KEY: 'k' } });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.data.virustotal, null);
+    assert.equal(r.body.data.network.asn, 'AS64500');
+    const st = Object.fromEntries(r.body.data.providers.map((p: any) => [p.name, p]));
+    assert.match(st['VirusTotal (multi-engine verdicts)'].error, /rate limit/i);
+  });
+
+  it('without a key it is skipped and never contacted', async () => {
+    mf = mockFetch(vtBase());
+    const d = (await call(ipLookup, '/api/ip/lookup?q=45.33.32.160')).body.data;
+    assert.ok(!mf.calls.some((c) => c.includes('virustotal')));
+    assert.equal(d.virustotal, null);
+    const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
+    assert.equal(st['VirusTotal (multi-engine verdicts)'].skipped, true);
+  });
+});
+
 describe('/api/ip/lookup', () => {
   it('classifies private addresses locally and never calls third parties', async () => {
     mf = mockFetch([]);

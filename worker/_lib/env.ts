@@ -13,6 +13,8 @@ export interface Env {
   IPINFO_TOKEN?: string;
   /** GreyNoise Community API key (free): is this IP internet background noise / a known benign service? */
   GREYNOISE_API_KEY?: string;
+  /** VirusTotal API key (free tier: ~4 req/min, 500/day): multi-engine verdicts for the IP. */
+  VIRUSTOTAL_API_KEY?: string;
 }
 
 /** Minimal request context handed to every route handler and to the middleware. */

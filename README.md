@@ -44,6 +44,7 @@ npm run deploy                                       # typecheck + vite build + 
 npx wrangler secret put IPINFO_TOKEN                 # optional: IPinfo Lite (free), reliable ASN + country
 npx wrangler secret put GREYNOISE_API_KEY            # optional: GreyNoise Community (free), scanner/noise + RIOT
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
+npx wrangler secret put VIRUSTOTAL_API_KEY           # optional: VirusTotal (free, ~4 req/min), multi-engine verdicts
 ```
 
 Or use Workers Builds (dashboard → Workers & Pages → Create → Import a repository): build command `npm run build`,

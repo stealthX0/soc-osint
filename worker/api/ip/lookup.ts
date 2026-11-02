@@ -18,6 +18,13 @@ interface IpApiCo { error?: boolean; reason?: string; country_name?: string; cou
 interface RipeStat { data?: { resource?: string; asns?: { asn: number; holder: string }[]; announced?: boolean } }
 interface IpInfoLite { asn?: string; as_name?: string; as_domain?: string; country_code?: string; country?: string }
 interface GreyNoise { noise?: boolean; riot?: boolean; classification?: string; name?: string; link?: string; last_seen?: string }
+interface VirusTotalIp {
+  data?: { attributes?: {
+    last_analysis_stats?: { malicious?: number; suspicious?: number; harmless?: number; undetected?: number };
+    reputation?: number; as_owner?: string; last_analysis_date?: number;
+    total_votes?: { harmless?: number; malicious?: number };
+  } };
+}
 interface InternetDb { ports?: number[]; hostnames?: string[]; vulns?: string[]; tags?: string[]; cpes?: string[] }
 interface AbuseIpDb {
   data?: { abuseConfidenceScore: number; totalReports: number; numDistinctUsers: number; lastReportedAt: string | null; usageType: string | null; isTor?: boolean; isWhitelisted?: boolean | null };
@@ -55,11 +62,11 @@ export const onRequestGet = route(async (ctx) => {
   }
   const cls = classifyIP(ip)!;
 
-  const { value, hit } = await cached(ctx, `ip:${ip}:${[env.ABUSEIPDB_API_KEY, env.IPINFO_TOKEN, env.GREYNOISE_API_KEY].map((k) => (k ? 'k' : 'n')).join('')}`, async () => {
+  const { value, hit } = await cached(ctx, `ip:${ip}:${[env.ABUSEIPDB_API_KEY, env.IPINFO_TOKEN, env.GREYNOISE_API_KEY, env.VIRUSTOTAL_API_KEY].map((k) => (k ? 'k' : 'n')).join('')}`, async () => {
     const providers: ProviderStatus[] = [];
     const base: IpLookup = {
       ip, version: cls.version, scope: cls.scope, scopeLabel: cls.label, isPublic: cls.public, ptrName: ptrName(ip)!,
-      geo: null, network: null, reverseDns: [], exposure: null, reputation: null, greynoise: null, flags: [], providers,
+      geo: null, network: null, reverseDns: [], exposure: null, reputation: null, greynoise: null, virustotal: null, flags: [], providers,
     };
     if (!cls.public) return { value: base, ttl: 3600 };
 
@@ -68,7 +75,7 @@ export const onRequestGet = route(async (ctx) => {
       return Promise.resolve(null);
     };
 
-    const [whois, ripe, idb, abuse, ptr, ipinfo, grey] = await Promise.all([
+    const [whois, ripe, idb, abuse, ptr, ipinfo, grey, vt] = await Promise.all([
       track(providers, 'ipwho.is (geo/ASN)', () => fetchJson<IpWhoIs>(`https://ipwho.is/${encodeURIComponent(ip)}`)),
       track(providers, 'RIPEstat (prefix/ASN)', () => fetchJson<RipeStat>(`https://stat.ripe.net/data/prefix-overview/data.json?resource=${encodeURIComponent(ip)}`)),
       track(providers, 'Shodan InternetDB (exposure)', async () => {
@@ -99,6 +106,17 @@ export const onRequestGet = route(async (ctx) => {
             }
           })
         : skip('GreyNoise Community (noise/RIOT)', 'No GREYNOISE_API_KEY configured'),
+      env.VIRUSTOTAL_API_KEY
+        ? track(providers, 'VirusTotal (multi-engine verdicts)', async () => {
+            try {
+              return await fetchJson<VirusTotalIp>(`https://www.virustotal.com/api/v3/ip_addresses/${encodeURIComponent(ip)}`, { headers: { 'x-apikey': env.VIRUSTOTAL_API_KEY! } });
+            } catch (e) {
+              // 404 means VirusTotal has no record of this address: a valid answer, not a failure
+              if (e instanceof ApiError && e.code === 'NOT_FOUND') return {} as VirusTotalIp;
+              throw e;
+            }
+          })
+        : skip('VirusTotal (multi-engine verdicts)', 'No VIRUSTOTAL_API_KEY configured'),
     ]);
 
     // Geo: ipwho.is first, ipapi.co as fallback
@@ -162,6 +180,19 @@ export const onRequestGet = route(async (ctx) => {
         }
       : null;
 
+    const vtAttr = vt?.data?.attributes;
+    const virustotal: IpLookup['virustotal'] = vt
+      ? {
+          malicious: vtAttr?.last_analysis_stats?.malicious ?? 0, suspicious: vtAttr?.last_analysis_stats?.suspicious ?? 0,
+          harmless: vtAttr?.last_analysis_stats?.harmless ?? 0, undetected: vtAttr?.last_analysis_stats?.undetected ?? 0,
+          reputation: vtAttr?.reputation ?? null, votesMalicious: vtAttr?.total_votes?.malicious ?? 0, votesHarmless: vtAttr?.total_votes?.harmless ?? 0,
+          asOwner: vtAttr?.as_owner ?? null,
+          lastAnalysis: vtAttr?.last_analysis_date ? new Date(vtAttr.last_analysis_date * 1000).toISOString() : null,
+          link: `https://www.virustotal.com/gui/ip-address/${ip}`,
+          observed: !!vtAttr?.last_analysis_stats,
+        }
+      : null;
+
     const exposure = idb ? { ports: idb.ports ?? [], hostnames: idb.hostnames ?? [], vulns: idb.vulns ?? [], tags: idb.tags ?? [], cpes: idb.cpes ?? [] } : null;
     const reputation = abuse?.data
       ? {
@@ -175,12 +206,14 @@ export const onRequestGet = route(async (ctx) => {
     if (greynoise?.classification === 'malicious') flags.push('GreyNoise: malicious scanner');
     else if (greynoise?.noise && greynoise.classification !== 'benign') flags.push('Internet scanner (GreyNoise)');
     if (greynoise?.riot) flags.push('Common business service (RIOT)');
+    if (virustotal && virustotal.malicious > 0) flags.push(`VirusTotal: ${virustotal.malicious} engine(s) flag as malicious`);
+    else if (virustotal && virustotal.suspicious > 0) flags.push(`VirusTotal: ${virustotal.suspicious} engine(s) flag as suspicious`);
     if (geoDisagrees) flags.push('Geo providers disagree on country');
     if (reputation?.isTor || exposure?.tags.includes('tor')) flags.push('Tor exit node');
     for (const t of exposure?.tags ?? []) if (['vpn', 'proxy', 'cloud', 'cdn', 'scanner', 'self-signed', 'honeypot', 'compromised', 'malware'].includes(t) && !flags.includes(t)) flags.push(t);
     if ((exposure?.vulns.length ?? 0) > 0) flags.push(`${exposure!.vulns.length} known CVE(s) on exposed services`);
 
-    const out: IpLookup = { ...base, geo, network, reverseDns: ptr ?? [], exposure, reputation, greynoise, flags, providers };
+    const out: IpLookup = { ...base, geo, network, reverseDns: ptr ?? [], exposure, reputation, greynoise, virustotal, flags, providers };
     // never cache a result where the main providers failed
     const healthy = providers.filter((p) => !p.skipped).some((p) => p.ok);
     return { value: out, ttl: healthy && providers.filter((p) => !p.skipped && !p.ok).length <= 1 ? 600 : 0 };

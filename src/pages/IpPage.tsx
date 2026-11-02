@@ -116,6 +116,34 @@ export default function IpPage() {
                     ) : <p className="text-sm text-muted">Not observed scanning the internet and not in the RIOT list of common business services. An unlisted address is not necessarily harmless.</p>
                   ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting a <code className="font-mono">GREYNOISE_API_KEY</code> secret.</p>}
                 </Card>
+
+                <Card title="Multi-engine verdicts (VirusTotal)" className="md:col-span-2">
+                  {d.virustotal ? (
+                    d.virustotal.observed ? (
+                      (() => {
+                        const v = d.virustotal;
+                        const total = v.malicious + v.suspicious + v.harmless + v.undetected;
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <div className={`text-3xl font-bold ${v.malicious >= 5 ? 'text-rose' : v.malicious + v.suspicious > 0 ? 'text-amber' : 'text-green'}`}>{v.malicious}<span className="text-lg text-muted"> / {total}</span></div>
+                              <p className="text-sm text-muted">security vendors flagged this IP as malicious</p>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <Badge tone={v.malicious > 0 ? 'bad' : 'good'}>{v.malicious} malicious</Badge>
+                              <Badge tone={v.suspicious > 0 ? 'warn' : 'neutral'}>{v.suspicious} suspicious</Badge>
+                              <Badge tone="good">{v.harmless} harmless</Badge>
+                              <Badge>{v.undetected} undetected</Badge>
+                            </div>
+                            <KV rows={[['Community score', v.reputation !== null ? String(v.reputation) : null], ['Community votes', v.votesMalicious + v.votesHarmless > 0 ? `${v.votesMalicious} malicious / ${v.votesHarmless} harmless` : null], ['AS owner', v.asOwner], ['Last analysed', v.lastAnalysis]]} />
+                            <a href={v.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-teal hover:underline">Open in VirusTotal <Icon name="ext" size={13} /></a>
+                            <p className="text-[11px] text-faint">Detections come from third-party vendor engines and can include false positives, especially for shared hosting, CDN and cloud addresses. Zero detections does not prove an address is safe.</p>
+                          </div>
+                        );
+                      })()
+                    ) : <p className="text-sm text-muted">VirusTotal has no analysis on record for this address. That is not a clean verdict.</p>
+                  ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting a <code className="font-mono">VIRUSTOTAL_API_KEY</code> secret.</p>}
+                </Card>
               </div>
             )}
 
