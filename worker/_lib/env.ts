@@ -11,8 +11,8 @@ export interface Env {
   ABUSEIPDB_API_KEY?: string;
   /** ipapi.is API key (optional): the primary IP provider works without one, a key gives a higher quota. https://ipapi.is */
   IPAPI_IS_API_KEY?: string;
-  /** GreyNoise Community API key (free): is this IP internet background noise / a known benign service? */
-  GREYNOISE_API_KEY?: string;
+  /** Pulsedive API key: threat-intel risk rating, linked threats and feeds for the IP. https://pulsedive.com */
+  PULSEDIVE_API_KEY?: string;
   /** VirusTotal API key (free tier: ~4 req/min, 500/day): multi-engine verdicts for the IP. */
   VIRUSTOTAL_API_KEY?: string;
 }

@@ -10,7 +10,7 @@ import type { IpLookup } from '../../shared/types';
 const PIVOTS = (ip: string): [string, string][] => [
   ['VirusTotal', `https://www.virustotal.com/gui/ip-address/${ip}`],
   ['Shodan', `https://www.shodan.io/host/${ip}`],
-  ['GreyNoise', `https://viz.greynoise.io/ip/${ip}`],
+  ['Pulsedive', `https://pulsedive.com/indicator/?ioc=${btoa(ip)}`],
   ['AbuseIPDB', `https://www.abuseipdb.com/check/${ip}`],
   ['Cisco Talos', `https://talosintelligence.com/reputation_center/lookup?search=${ip}`],
   ['BGP.HE.net', `https://bgp.he.net/ip/${ip}`],
@@ -119,21 +119,30 @@ export default function IpPage() {
                   ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting an <code className="font-mono">ABUSEIPDB_API_KEY</code> secret. Use the pivot links below meanwhile.</p>}
                 </Card>
 
-                <Card title="Internet noise (GreyNoise)">
-                  {d.greynoise ? (
-                    d.greynoise.observed ? (
+                <Card title="Threat intel (Pulsedive)">
+                  {d.pulsedive ? (
+                    d.pulsedive.observed ? (
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge tone={d.greynoise.classification === 'malicious' ? 'bad' : d.greynoise.classification === 'benign' ? 'good' : 'neutral'}>{d.greynoise.classification}</Badge>
-                          {d.greynoise.noise && <Badge tone="warn" title="Seen scanning or attacking the internet">internet noise</Badge>}
-                          {d.greynoise.riot && <Badge tone="info" title="Rule It Out: a common business service such as a CDN or public DNS">RIOT: common service</Badge>}
+                          <Badge tone={d.pulsedive.risk === 'critical' || d.pulsedive.risk === 'high' ? 'bad' : d.pulsedive.risk === 'medium' ? 'warn' : d.pulsedive.risk === 'low' || d.pulsedive.risk === 'very low' ? 'good' : 'neutral'}>{d.pulsedive.risk} risk</Badge>
+                          {d.pulsedive.threats.length > 0 && <Badge tone="warn">{d.pulsedive.threats.length} linked threat{d.pulsedive.threats.length === 1 ? '' : 's'}</Badge>}
+                          {d.pulsedive.feeds.length > 0 && <Badge tone="info">{d.pulsedive.feeds.length} feed{d.pulsedive.feeds.length === 1 ? '' : 's'}</Badge>}
                         </div>
-                        <KV rows={[['Name', d.greynoise.name], ['Last seen', d.greynoise.lastSeen]]} />
-                        {d.greynoise.link && <a href={d.greynoise.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-teal hover:underline">Open in GreyNoise <Icon name="ext" size={13} /></a>}
-                        <p className="text-[11px] text-faint">&quot;Noise&quot; means the address was seen mass-scanning the internet. It is a triage hint, not proof of targeted activity against you.</p>
+                        {d.pulsedive.threats.length > 0 && (
+                          <div><p className="mb-1 text-xs text-muted">Linked threats</p>
+                            <div className="flex flex-wrap gap-1.5">{d.pulsedive.threats.map((t) => <Badge key={t.name} tone={t.risk === 'high' || t.risk === 'critical' ? 'bad' : 'neutral'} title={t.category ?? undefined}>{t.name}</Badge>)}</div></div>
+                        )}
+                        {d.pulsedive.feeds.length > 0 && <KV rows={[['Seen in feeds', d.pulsedive.feeds.map((f) => f.name).join(', ')]]} />}
+                        {d.pulsedive.riskFactors.length > 0 && (
+                          <div><p className="mb-1 text-xs text-muted">Risk factors</p>
+                            <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted">{d.pulsedive.riskFactors.map((r) => <li key={r.description}>{r.description}</li>)}</ul></div>
+                        )}
+                        <KV rows={[['Last seen', d.pulsedive.lastSeen], ['Last updated', d.pulsedive.lastUpdated]]} />
+                        <a href={d.pulsedive.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-teal hover:underline">Open in Pulsedive <Icon name="ext" size={13} /></a>
+                        <p className="text-[11px] text-faint">Risk is Pulsedive&apos;s own rating from feeds and scans. &quot;Unknown&quot; or &quot;none&quot; means no evidence was found, not that the address is safe.</p>
                       </div>
-                    ) : <p className="text-sm text-muted">Not observed scanning the internet and not in the RIOT list of common business services. An unlisted address is not necessarily harmless.</p>
-                  ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting a <code className="font-mono">GREYNOISE_API_KEY</code> secret.</p>}
+                    ) : <p className="text-sm text-muted">Pulsedive has no record of this address. That is not a clean verdict.</p>
+                  ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting a <code className="font-mono">PULSEDIVE_API_KEY</code> secret.</p>}
                 </Card>
 
                 <Card title="Multi-engine verdicts (VirusTotal)" className="md:col-span-2">

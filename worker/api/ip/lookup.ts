@@ -26,7 +26,12 @@ interface IpApiIs {
   asn?: { asn?: number | string; abuser_score?: string; route?: string; descr?: string; country?: string; org?: string; domain?: string; type?: string };
   location?: { country?: string; country_code?: string; state?: string; city?: string; zip?: string; latitude?: number; longitude?: number; timezone?: string };
 }
-interface GreyNoise { noise?: boolean; riot?: boolean; classification?: string; name?: string; link?: string; last_seen?: string }
+interface Pulsedive {
+  iid?: number; indicator?: string; risk?: string; risk_recommended?: string; stamp_seen?: string | null; stamp_updated?: string | null;
+  riskfactors?: { description?: string; risk?: string }[];
+  threats?: { name?: string; category?: string; risk?: string }[];
+  feeds?: { name?: string; category?: string; organization?: string }[];
+}
 interface VirusTotalIp {
   data?: { attributes?: {
     last_analysis_stats?: { malicious?: number; suspicious?: number; harmless?: number; undetected?: number };
@@ -71,11 +76,11 @@ export const onRequestGet = route(async (ctx) => {
   }
   const cls = classifyIP(ip)!;
 
-  const { value, hit } = await cached(ctx, `ip:${ip}:${[env.ABUSEIPDB_API_KEY, env.IPAPI_IS_API_KEY, env.GREYNOISE_API_KEY, env.VIRUSTOTAL_API_KEY].map((k) => (k ? 'k' : 'n')).join('')}`, async () => {
+  const { value, hit } = await cached(ctx, `ip:${ip}:${[env.ABUSEIPDB_API_KEY, env.IPAPI_IS_API_KEY, env.PULSEDIVE_API_KEY, env.VIRUSTOTAL_API_KEY].map((k) => (k ? 'k' : 'n')).join('')}`, async () => {
     const providers: ProviderStatus[] = [];
     const base: IpLookup = {
       ip, version: cls.version, scope: cls.scope, scopeLabel: cls.label, isPublic: cls.public, ptrName: ptrName(ip)!,
-      geo: null, network: null, netType: null, geoSource: null, reverseDns: [], exposure: null, reputation: null, greynoise: null, virustotal: null, flags: [], providers,
+      geo: null, network: null, netType: null, geoSource: null, reverseDns: [], exposure: null, reputation: null, pulsedive: null, virustotal: null, flags: [], providers,
     };
     if (!cls.public) return { value: base, ttl: 3600 };
 
@@ -84,7 +89,7 @@ export const onRequestGet = route(async (ctx) => {
       return Promise.resolve(null);
     };
 
-    const [ipapiis, ripe, idb, abuse, ptr, grey, vt] = await Promise.all([
+    const [ipapiis, ripe, idb, abuse, ptr, pd, vt] = await Promise.all([
       // Primary geo/ASN/network-type provider. Works without a key; a key (if configured) is sent only to ipapi.is.
       track(providers, 'ipapi.is (geo/ASN/network type)', async () => {
         const qs = `q=${encodeURIComponent(ip)}${env.IPAPI_IS_API_KEY ? `&key=${encodeURIComponent(env.IPAPI_IS_API_KEY)}` : ''}`;
@@ -107,17 +112,18 @@ export const onRequestGet = route(async (ctx) => {
             fetchJson<AbuseIpDb>(`https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90`, { headers: { Key: env.ABUSEIPDB_API_KEY! } }))
         : skip('AbuseIPDB (reputation)', 'No ABUSEIPDB_API_KEY configured'),
       track(providers, 'DNS PTR', async () => (await resolve(ptrName(ip)!, 'PTR')).answers.filter((a) => a.type === 'PTR').map((a) => a.data)),
-      env.GREYNOISE_API_KEY
-        ? track(providers, 'GreyNoise Community (noise/RIOT)', async () => {
+      env.PULSEDIVE_API_KEY
+        ? track(providers, 'Pulsedive (threat intel)', async () => {
             try {
-              return await fetchJson<GreyNoise>(`https://api.greynoise.io/v3/community/${encodeURIComponent(ip)}`, { headers: { key: env.GREYNOISE_API_KEY! } });
+              // Pulsedive takes the key as a query parameter; it is sent only to pulsedive.com.
+              return await fetchJson<Pulsedive>(`https://pulsedive.com/api/indicator.php?indicator=${encodeURIComponent(ip)}&key=${encodeURIComponent(env.PULSEDIVE_API_KEY!)}`);
             } catch (e) {
-              // 404 means "not observed scanning the internet and not in RIOT": a valid, useful answer
-              if (e instanceof ApiError && e.code === 'NOT_FOUND') return { noise: false, riot: false, classification: 'unknown', observed: false } as GreyNoise & { observed: boolean };
+              // 404 means Pulsedive has no record of this address: a valid answer, not a failure
+              if (e instanceof ApiError && e.code === 'NOT_FOUND') return {} as Pulsedive;
               throw e;
             }
           })
-        : skip('GreyNoise Community (noise/RIOT)', 'No GREYNOISE_API_KEY configured'),
+        : skip('Pulsedive (threat intel)', 'No PULSEDIVE_API_KEY configured'),
       env.VIRUSTOTAL_API_KEY
         ? track(providers, 'VirusTotal (multi-engine verdicts)', async () => {
             try {
@@ -209,10 +215,15 @@ export const onRequestGet = route(async (ctx) => {
       };
     }
 
-    const greynoise: IpLookup['greynoise'] = grey
+    const cap = <T,>(a: T[] | undefined, n: number) => (Array.isArray(a) ? a.slice(0, n) : []);
+    const pulsedive: IpLookup['pulsedive'] = pd
       ? {
-          noise: !!grey.noise, riot: !!grey.riot, classification: grey.classification ?? 'unknown', name: grey.name ?? null,
-          lastSeen: grey.last_seen ?? null, link: grey.link ?? null, observed: (grey as { observed?: boolean }).observed !== false,
+          risk: pd.risk ?? 'unknown', riskRecommended: pd.risk_recommended ?? null, observed: !!(pd.iid || pd.risk),
+          lastSeen: pd.stamp_seen ?? null, lastUpdated: pd.stamp_updated ?? null,
+          link: `https://pulsedive.com/indicator/?ioc=${btoa(ip)}`,
+          threats: cap(pd.threats, 12).filter((t) => t.name).map((t) => ({ name: t.name!, category: t.category ?? null, risk: t.risk ?? null })),
+          feeds: cap(pd.feeds, 12).filter((f) => f.name).map((f) => ({ name: f.name!, category: f.category ?? null, organization: f.organization ?? null })),
+          riskFactors: cap(pd.riskfactors, 12).filter((r) => r.description).map((r) => ({ description: r.description!, risk: r.risk ?? null })),
         }
       : null;
 
@@ -239,9 +250,7 @@ export const onRequestGet = route(async (ctx) => {
 
     const flags: string[] = [];
     if (reputation && reputation.abuseConfidence >= 50) flags.push('Reported as abusive');
-    if (greynoise?.classification === 'malicious') flags.push('GreyNoise: malicious scanner');
-    else if (greynoise?.noise && greynoise.classification !== 'benign') flags.push('Internet scanner (GreyNoise)');
-    if (greynoise?.riot) flags.push('Common business service (RIOT)');
+    if (pulsedive?.observed && ['medium', 'high', 'critical'].includes(pulsedive.risk)) flags.push(`Pulsedive: ${pulsedive.risk} risk`);
     if (virustotal && virustotal.malicious > 0) flags.push(`VirusTotal: ${virustotal.malicious} engine(s) flag as malicious`);
     else if (virustotal && virustotal.suspicious > 0) flags.push(`VirusTotal: ${virustotal.suspicious} engine(s) flag as suspicious`);
     if (netType?.isTor || reputation?.isTor || exposure?.tags.includes('tor')) flags.push('Tor exit node');
@@ -252,7 +261,7 @@ export const onRequestGet = route(async (ctx) => {
     for (const t of exposure?.tags ?? []) if (['vpn', 'proxy', 'cloud', 'cdn', 'scanner', 'self-signed', 'honeypot', 'compromised', 'malware'].includes(t) && !flags.some((f) => f.toLowerCase().startsWith(t))) flags.push(t);
     if ((exposure?.vulns.length ?? 0) > 0) flags.push(`${exposure!.vulns.length} known CVE(s) on exposed services`);
 
-    const out: IpLookup = { ...base, geo, network, netType, geoSource, reverseDns: ptr ?? [], exposure, reputation, greynoise, virustotal, flags, providers };
+    const out: IpLookup = { ...base, geo, network, netType, geoSource, reverseDns: ptr ?? [], exposure, reputation, pulsedive, virustotal, flags, providers };
     // never cache a result where the main providers failed
     const healthy = providers.filter((p) => !p.skipped).some((p) => p.ok);
     return { value: out, ttl: healthy && providers.filter((p) => !p.skipped && !p.ok).length <= 1 ? 3600 : 0 };

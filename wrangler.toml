@@ -25,6 +25,6 @@ enabled = true
 
 # Optional secrets (never commit). Each provider is skipped, and shown as such in the UI, when its key is absent:
 #   npx wrangler secret put IPAPI_IS_API_KEY     # ipapi.is (primary IP provider works without it; a key raises the quota)
-#   npx wrangler secret put GREYNOISE_API_KEY    # GreyNoise Community: noise / RIOT
+#   npx wrangler secret put PULSEDIVE_API_KEY    # Pulsedive: threat-intel risk, linked threats and feeds
 #   npx wrangler secret put ABUSEIPDB_API_KEY    # AbuseIPDB: abuse confidence
 #   npx wrangler secret put VIRUSTOTAL_API_KEY   # VirusTotal: multi-engine verdicts

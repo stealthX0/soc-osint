@@ -33,7 +33,12 @@ export interface IpLookup {
   reverseDns: string[];
   exposure: { ports: number[]; hostnames: string[]; vulns: string[]; tags: string[]; cpes: string[] } | null;
   reputation: { abuseConfidence: number; totalReports: number; distinctReporters: number; lastReportedAt: string | null; usageType: string | null; isTor: boolean; isWhitelisted: boolean } | null;
-  greynoise: { noise: boolean; riot: boolean; classification: string; name: string | null; lastSeen: string | null; link: string | null; observed: boolean } | null;
+  pulsedive: {
+    risk: string; riskRecommended: string | null; observed: boolean; lastSeen: string | null; lastUpdated: string | null; link: string;
+    threats: { name: string; category: string | null; risk: string | null }[];
+    feeds: { name: string; category: string | null; organization: string | null }[];
+    riskFactors: { description: string; risk: string | null }[];
+  } | null;
   virustotal: { malicious: number; suspicious: number; harmless: number; undetected: number; reputation: number | null; votesMalicious: number; votesHarmless: number; asOwner: string | null; lastAnalysis: string | null; link: string; observed: boolean } | null;
   flags: string[];
   providers: ProviderStatus[];

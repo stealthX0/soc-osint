@@ -209,63 +209,77 @@ describe('/api/ip/lookup: ipapi.is primary', () => {
   });
 });
 
-describe('/api/ip/lookup: GreyNoise', () => {
-  const keys = { GREYNOISE_API_KEY: 'key-grey' };
+describe('/api/ip/lookup: Pulsedive', () => {
   const base = (extra: ((u: URL, init?: RequestInit) => Response | undefined)[] = []) => [
+    ...extra,
     doh({}),
     (u: URL) => (u.hostname === 'api.ipapi.is' ? jsonRes(ipapiIs()) : undefined),
     (u: URL) => (u.hostname === 'stat.ripe.net' ? jsonRes({ data: { resource: '8.8.8.0/24', asns: [{ asn: 15169, holder: 'GOOGLE' }] } }) : undefined),
     (u: URL) => (u.hostname === 'internetdb.shodan.io' ? jsonRes({ ports: [] }) : undefined),
-    ...extra,
   ];
-
-  it('RIOT result is surfaced and the key goes only to GreyNoise', async () => {
-    const seen: Record<string, Record<string, string>> = {};
-    mf = mockFetch(base([
-      (u, init) => { if (u.hostname === 'api.greynoise.io') { seen[u.hostname] = init?.headers as Record<string, string>; return jsonRes({ noise: false, riot: true, classification: 'benign', name: 'Google Public DNS', link: 'https://viz.greynoise.io/ip/8.8.8.8', last_seen: '2026-10-30' }); } },
-    ]));
-    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.8', { env: keys })).body.data;
-    assert.equal(d.greynoise.riot, true);
-    assert.equal(d.greynoise.classification, 'benign');
-    assert.equal(d.greynoise.observed, true);
-    assert.ok(d.flags.includes('Common business service (RIOT)'));
-    assert.equal(seen['api.greynoise.io'].key, 'key-grey');
-    for (const c of mf.calls.filter((c) => !c.includes('greynoise'))) assert.ok(!c.includes('key-grey'), 'key never appears in other URLs');
-    const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
-    assert.equal(st['GreyNoise Community (noise/RIOT)'].ok, true);
+  const pdBody = (over: Record<string, unknown> = {}) => ({
+    iid: 42, indicator: '8.8.8.8', type: 'ip', risk: 'high', risk_recommended: 'high', stamp_seen: '2026-10-30 10:00:00', stamp_updated: '2026-10-31 11:00:00',
+    riskfactors: [{ rfid: 1, description: 'found in threat feeds', risk: 'high' }],
+    threats: [{ tid: 1, name: 'Mirai', category: 'botnet', risk: 'high' }],
+    feeds: [{ fid: 2, name: 'Botnet C2 IPs', category: 'malware', organization: 'abuse.ch' }],
+    ...over,
   });
 
-  it('GreyNoise 404 means "not observed", not an error', async () => {
-    mf = mockFetch(base([(u) => (u.hostname === 'api.greynoise.io' ? new Response(JSON.stringify({ message: 'IP not observed' }), { status: 404 }) : undefined)]));
-    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.9', { env: { GREYNOISE_API_KEY: 'k' } })).body.data;
-    assert.equal(d.greynoise.observed, false);
-    assert.equal(d.greynoise.noise, false);
-    assert.equal(d.providers.find((p: any) => p.name.startsWith('GreyNoise')).ok, true);
+  it('surfaces risk, threats, feeds and risk factors, flags medium+ risk, and the key goes only to pulsedive.com', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'pulsedive.com' ? jsonRes(pdBody()) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.8', { env: { PULSEDIVE_API_KEY: 'key-pd' } })).body.data;
+    assert.equal(d.pulsedive.risk, 'high');
+    assert.equal(d.pulsedive.observed, true);
+    assert.deepEqual(d.pulsedive.threats, [{ name: 'Mirai', category: 'botnet', risk: 'high' }]);
+    assert.equal(d.pulsedive.feeds[0].organization, 'abuse.ch');
+    assert.equal(d.pulsedive.riskFactors[0].description, 'found in threat feeds');
+    assert.ok(d.pulsedive.link.startsWith('https://pulsedive.com/indicator/?ioc='));
+    assert.ok(d.flags.includes('Pulsedive: high risk'));
+    const pdCall = mf.calls.find((c) => c.includes('pulsedive.com'))!;
+    assert.ok(pdCall.includes('/api/indicator.php') && pdCall.includes('indicator=8.8.8.8') && pdCall.includes('key=key-pd'));
+    for (const c of mf.calls.filter((c) => !c.includes('pulsedive.com'))) assert.ok(!c.includes('key-pd'), 'key never appears in other URLs');
+    assert.equal(d.providers.find((p: any) => p.name.startsWith('Pulsedive')).ok, true);
   });
 
-  it('malicious scanners are flagged', async () => {
-    mf = mockFetch(base([(u) => (u.hostname === 'api.greynoise.io' ? jsonRes({ noise: true, riot: false, classification: 'malicious', name: 'unknown' }) : undefined)]));
-    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.10', { env: { GREYNOISE_API_KEY: 'k' } })).body.data;
-    assert.ok(d.flags.includes('GreyNoise: malicious scanner'));
+  it('low / none risk adds no flag', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'pulsedive.com' ? jsonRes(pdBody({ risk: 'low', threats: [], feeds: [], riskfactors: [] })) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.9', { env: { PULSEDIVE_API_KEY: 'k' } })).body.data;
+    assert.equal(d.pulsedive.risk, 'low');
+    assert.ok(!d.flags.some((f: string) => f.startsWith('Pulsedive')));
   });
 
-  it('rate limit degrades to a failed badge and the rest of the lookup still works', async () => {
-    mf = mockFetch(base([(u) => (u.hostname === 'api.greynoise.io' ? new Response('', { status: 429 }) : undefined)]));
-    const r = await call(ipLookup, '/api/ip/lookup?q=8.8.8.11', { env: keys });
+  it('404 means "no record", not an error', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'pulsedive.com' ? new Response(JSON.stringify({ error: 'Indicator not found.' }), { status: 404 }) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.10', { env: { PULSEDIVE_API_KEY: 'k' } })).body.data;
+    assert.equal(d.pulsedive.observed, false);
+    assert.equal(d.providers.find((p: any) => p.name.startsWith('Pulsedive')).ok, true);
+  });
+
+  it('rate limit / bad key degrade to a failed badge and the rest of the lookup still works', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'pulsedive.com' ? new Response('', { status: 429 }) : undefined)]));
+    const r = await call(ipLookup, '/api/ip/lookup?q=8.8.8.11', { env: { PULSEDIVE_API_KEY: 'k' } });
     assert.equal(r.status, 200);
-    assert.equal(r.body.data.network.asn, 'AS15169');
-    assert.equal(r.body.data.greynoise, null);
-    const st = Object.fromEntries(r.body.data.providers.map((p: any) => [p.name, p]));
-    assert.match(st['GreyNoise Community (noise/RIOT)'].error, /rate limit/i);
+    assert.equal(r.body.data.pulsedive, null);
+    assert.equal(r.body.data.geo.countryCode, 'US');
+    assert.match(r.body.data.providers.find((p: any) => p.name.startsWith('Pulsedive')).error, /rate limit/i);
   });
 
-  it('without a key it is skipped and never contacted', async () => {
+  it('caps very long threat/feed lists and tolerates missing fields', async () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ name: `t${i}`, category: 'x', risk: 'low' }));
+    mf = mockFetch(base([(u) => (u.hostname === 'pulsedive.com' ? jsonRes({ iid: 1, risk: 'medium', threats: [...many, { category: 'nameless' }] }) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.12', { env: { PULSEDIVE_API_KEY: 'k' } })).body.data;
+    assert.equal(d.pulsedive.threats.length, 12);
+    assert.deepEqual(d.pulsedive.feeds, []);
+    assert.deepEqual(d.pulsedive.riskFactors, []);
+  });
+
+  it('without a key it is skipped and never contacted; GreyNoise is gone', async () => {
     mf = mockFetch(base());
-    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.12')).body.data;
-    assert.ok(!mf.calls.some((c) => /greynoise/.test(c)));
-    const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
-    assert.equal(st['GreyNoise Community (noise/RIOT)'].skipped, true);
-    assert.equal(d.greynoise, null);
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.13', { env: { GREYNOISE_API_KEY: 'legacy' } as any })).body.data;
+    assert.ok(!mf.calls.some((c) => /pulsedive|greynoise/.test(c)));
+    assert.equal(d.pulsedive, null);
+    assert.equal(d.providers.find((p: any) => p.name.startsWith('Pulsedive')).skipped, true);
+    assert.ok(!d.providers.some((p: any) => /greynoise/i.test(p.name)));
   });
 });
 
