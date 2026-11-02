@@ -9,8 +9,8 @@ export interface Env {
   ALLOWED_ORIGINS?: string;
   /** Optional provider keys. Every provider degrades gracefully when its key is absent. */
   ABUSEIPDB_API_KEY?: string;
-  /** IPinfo Lite token (free): reliable ASN + country. https://ipinfo.io/lite */
-  IPINFO_TOKEN?: string;
+  /** ipapi.is API key (optional): the primary IP provider works without one, a key gives a higher quota. https://ipapi.is */
+  IPAPI_IS_API_KEY?: string;
   /** GreyNoise Community API key (free): is this IP internet background noise / a known benign service? */
   GREYNOISE_API_KEY?: string;
   /** VirusTotal API key (free tier: ~4 req/min, 500/day): multi-engine verdicts for the IP. */

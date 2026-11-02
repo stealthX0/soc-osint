@@ -12,8 +12,8 @@ A free, account-less web app that merges several public data sources into readab
      │   worker/index.ts → routes.ts → worker/api/{ip,dns,domain,email,network,util}/*.ts   (each wrapped in route())
      │   worker/_lib: doh, safeFetch (SSRF guard), cache, ratelimit, spf
      ▼
- External providers: Cloudflare/Google/Quad9 DoH · ipwho.is · ipapi.co · RIPEstat · Shodan InternetDB ·
-                     IPinfo Lite + GreyNoise Community + AbuseIPDB (optional keys) · RDAP (rdap.org) · crt.sh (Certificate Transparency)
+ External providers: Cloudflare/Google/Quad9 DoH · ipapi.is (primary; ipwho.is / ipapi.co fallbacks) · RIPEstat · Shodan InternetDB ·
+                     GreyNoise Community + AbuseIPDB (optional keys) · RDAP (rdap.org) · crt.sh (Certificate Transparency)
 ```
 
 ## Layout
@@ -41,7 +41,7 @@ npm test
 ```bash
 npx wrangler login
 npm run deploy                                       # typecheck + vite build + wrangler deploy
-npx wrangler secret put IPINFO_TOKEN                 # optional: IPinfo Lite (free), reliable ASN + country
+npx wrangler secret put IPAPI_IS_API_KEY             # optional: ipapi.is key (primary IP provider works without one; a key raises the quota)
 npx wrangler secret put GREYNOISE_API_KEY            # optional: GreyNoise Community (free), scanner/noise + RIOT
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
 npx wrangler secret put VIRUSTOTAL_API_KEY           # optional: VirusTotal (free, ~4 req/min), multi-engine verdicts
@@ -60,7 +60,7 @@ All endpoints return `{ ok: true, data, meta }` or `{ ok: false, error: { code, 
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/ip/lookup?q=` | geo (ipwho.is), ASN/country (IPinfo Lite, if keyed, wins on conflicts), prefix, Shodan InternetDB exposure, PTR, GreyNoise and AbuseIPDB (if keyed). Omit `q` for the caller's IP. Private ranges never leave the server |
+| `GET /api/ip/lookup?q=` | geo + ASN + VPN/proxy/Tor/datacenter flags (ipapi.is primary; ipwho.is then ipapi.co only as fallbacks), announced prefix (RIPEstat), Shodan InternetDB exposure, PTR, GreyNoise and AbuseIPDB (if keyed). Omit `q` for the caller's IP. Private ranges never leave the server |
 | `GET /api/dns/lookup?name=&type=&resolver=` | `type` = ALL or a record type; an IP is converted to a PTR query |
 | `GET /api/dns/propagation?name=&type=` | compares Cloudflare, Google and Quad9 |
 | `GET /api/domain/whois?domain=` | RDAP (structured WHOIS successor) |
@@ -79,7 +79,7 @@ All endpoints return `{ ok: true, data, meta }` or `{ ok: false, error: { code, 
   redirects followed manually with each hop re-validated, size/time/redirect caps. Residual risk: DNS rebinding between check and connect; Workers cannot reach private networks, which bounds impact.
 * **Passive vs active:** DNS, RDAP, CT, IP and e-mail lookups never contact the target. `/domain/http` and `/network/latency` do, and the UI says so.
 * **Rate limiting:** cost-weighted per client (probes cost more). Without a KV binding it is per-isolate (best effort).
-* **Secrets:** provider keys live only in Worker secrets; each key is sent only to its own provider. IPinfo uses a `Authorization: Bearer` header and GreyNoise a `key` header; request shapes follow the providers' public docs but have not been exercised live.
+* **Secrets:** provider keys live only in Worker secrets; each key is sent only to its own provider. ipapi.is takes its key as a `key` query parameter, GreyNoise a `key` header; request shapes follow the providers' public docs but have not been exercised live.
 * **Privacy:** no accounts, no analytics. Recent lookups and playbook progress live in `localStorage` only.
 
 ## Known limitations (by design of the platform)

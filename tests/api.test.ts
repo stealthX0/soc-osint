@@ -90,46 +90,149 @@ describe('/api/dns/propagation', () => {
   });
 });
 
-describe('/api/ip/lookup: IPinfo Lite + GreyNoise', () => {
-  const keys = { IPINFO_TOKEN: 'tok-ipinfo', GREYNOISE_API_KEY: 'key-grey' };
+const ipapiIs = (over: Record<string, unknown> = {}) => ({
+  ip: '8.8.8.8', is_datacenter: false, is_vpn: false, is_proxy: false, is_tor: false, is_mobile: false, is_crawler: false, is_abuser: false,
+  company: { name: 'Google LLC', abuser_score: '0.0039 (Low)', domain: 'google.com', type: 'hosting' },
+  asn: { asn: 15169, route: '8.8.8.0/24', org: 'Google LLC', domain: 'google.com', abuser_score: '0.0008 (Low)', type: 'hosting' },
+  location: { country: 'United States', country_code: 'US', state: 'California', city: 'Mountain View', zip: '94043', latitude: 37.4, longitude: -122.1, timezone: 'America/Los_Angeles' },
+  ...over,
+});
+
+describe('/api/ip/lookup: ipapi.is primary', () => {
+  // overrides go first: the first matching handler wins
+  const base = (extra: ((u: URL, init?: RequestInit) => Response | undefined)[] = []) => [
+    ...extra,
+    doh({}),
+    (u: URL) => (u.hostname === 'api.ipapi.is' ? jsonRes(ipapiIs()) : undefined),
+    (u: URL) => (u.hostname === 'stat.ripe.net' ? jsonRes({ data: { resource: '8.8.8.0/24', asns: [{ asn: 15169, holder: 'GOOGLE' }] } }) : undefined),
+    (u: URL) => (u.hostname === 'internetdb.shodan.io' ? jsonRes({ ports: [] }) : undefined),
+  ];
+  const names = (d: any) => Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
+
+  it('fills geo, network and network-type from ipapi.is and never contacts the fallbacks', async () => {
+    mf = mockFetch(base());
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.8')).body.data;
+    assert.equal(d.geoSource, 'ipapi.is');
+    assert.equal(d.geo.countryCode, 'US');
+    assert.equal(d.geo.city, 'Mountain View');
+    assert.equal(d.geo.postal, '94043');
+    assert.equal(d.geo.timezone, 'America/Los_Angeles');
+    assert.equal(d.network.asn, 'AS15169');
+    assert.equal(d.network.org, 'Google LLC');
+    assert.equal(d.network.prefix, '8.8.8.0/24');
+    assert.equal(d.netType.isVpn, false);
+    assert.equal(d.netType.companyType, 'hosting');
+    assert.ok(!mf.calls.some((c) => /ipwho\.is|ipapi\.co/.test(c)), 'fallbacks are not called when the primary works');
+    assert.equal(names(d)['ipapi.is (geo/ASN/network type)'].ok, true);
+    assert.ok(!names(d)['ipwho.is (fallback geo/ASN)']);
+  });
+
+  it('surfaces VPN / proxy / Tor / datacenter / abuser signals as flags', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'api.ipapi.is' ? jsonRes(ipapiIs({ is_vpn: true, vpn: { service: 'NordVPN' }, is_datacenter: true, datacenter: { datacenter: 'M247' }, is_tor: true, is_abuser: true })) : undefined)]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.4.4')).body.data;
+    assert.ok(d.flags.includes('VPN (NordVPN)'));
+    assert.ok(d.flags.includes('Datacenter (M247)'));
+    assert.ok(d.flags.includes('Tor exit node'));
+    assert.ok(d.flags.includes('Flagged as abuser (ipapi.is)'));
+    assert.equal(d.flags.filter((f: string) => f === 'Tor exit node').length, 1, 'no duplicate flags');
+    assert.equal(d.netType.vpnService, 'NordVPN');
+  });
+
+  it('is keyless by default; a configured key is sent only to ipapi.is', async () => {
+    mf = mockFetch(base());
+    await call(ipLookup, '/api/ip/lookup?q=8.8.8.9');
+    const first = mf.calls.find((c) => c.includes('ipapi.is'))!;
+    assert.ok(!first.includes('key='));
+    mf = mockFetch(base());
+    await call(ipLookup, '/api/ip/lookup?q=8.8.8.10', { env: { IPAPI_IS_API_KEY: 'secret-key' } });
+    assert.ok(mf.calls.find((c) => c.includes('api.ipapi.is'))!.includes('key=secret-key'));
+    for (const c of mf.calls.filter((c) => !c.includes('api.ipapi.is'))) assert.ok(!c.includes('secret-key'), 'key never appears in other URLs');
+  });
+
+  it('falls back to ipwho.is when ipapi.is is rate limited', async () => {
+    mf = mockFetch(base([
+      (u) => (u.hostname === 'api.ipapi.is' ? new Response('', { status: 429 }) : undefined),
+      (u) => (u.hostname === 'ipwho.is' ? jsonRes({ success: true, country: 'Germany', country_code: 'DE', city: 'Berlin', region: 'Berlin', connection: { asn: 3320, org: 'Deutsche Telekom' } }) : undefined),
+    ]));
+    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.11')).body.data;
+    assert.equal(d.geoSource, 'ipwho.is');
+    assert.equal(d.geo.countryCode, 'DE');
+    assert.equal(d.network.org, 'Deutsche Telekom');
+    assert.equal(d.netType, null);
+    assert.match(names(d)['ipapi.is (geo/ASN/network type)'].error, /rate limit/i);
+    assert.equal(names(d)['ipwho.is (fallback geo/ASN)'].ok, true);
+    assert.ok(!mf.calls.some((c) => c.includes('ipapi.co')), 'ipapi.co only when ipwho.is also fails');
+  });
+
+  it('treats an ipapi.is error body as a failure and falls through the whole chain to ipapi.co', async () => {
+    mf = mockFetch(base([
+      (u) => (u.hostname === 'api.ipapi.is' ? jsonRes({ error: 'Daily limit reached' }) : undefined),
+      (u) => (u.hostname === 'ipwho.is' ? jsonRes({ success: false, message: 'Rate limit reached' }) : undefined),
+      (u) => (u.hostname === 'ipapi.co' ? jsonRes({ country_name: 'France', country_code: 'FR', city: 'Paris', asn: 'AS3215', org: 'Orange' }) : undefined),
+    ]));
+    const r = await call(ipLookup, '/api/ip/lookup?q=8.8.8.12');
+    const d = r.body.data;
+    assert.equal(r.status, 200);
+    assert.equal(d.geoSource, 'ipapi.co');
+    assert.equal(d.geo.countryCode, 'FR');
+    assert.equal(names(d)['ipapi.is (geo/ASN/network type)'].ok, false);
+    assert.equal(names(d)['ipwho.is (fallback geo/ASN)'].ok, false);
+    assert.equal(names(d)['ipapi.co (fallback geo)'].ok, true);
+  });
+
+  it('when every geo provider fails the lookup still returns RIPEstat and Shodan data, and is not cached', async () => {
+    mf = mockFetch(base([
+      (u) => (u.hostname === 'api.ipapi.is' ? new Response('', { status: 500 }) : undefined),
+      (u) => (u.hostname === 'ipwho.is' ? new Response('', { status: 500 }) : undefined),
+      (u) => (u.hostname === 'ipapi.co' ? new Response('', { status: 500 }) : undefined),
+    ]));
+    const r = await call(ipLookup, '/api/ip/lookup?q=8.8.8.13');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.data.geo, null);
+    assert.equal(r.body.data.geoSource, null);
+    assert.equal(r.body.data.network.asn, 'AS15169'); // RIPEstat
+  });
+
+  it('tolerates a sparse ipapi.is body (missing fields) without throwing', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'api.ipapi.is' ? jsonRes({ ip: '8.8.8.14', location: { country_code: 'US' } }) : undefined)]));
+    const r = await call(ipLookup, '/api/ip/lookup?q=8.8.8.14');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.data.geo.countryCode, 'US');
+    assert.equal(r.body.data.geo.latitude, null);
+    assert.equal(r.body.data.netType.isVpn, false);
+  });
+
+  it('IPinfo is gone: no token is read and api.ipinfo.io is never contacted', async () => {
+    mf = mockFetch(base());
+    await call(ipLookup, '/api/ip/lookup?q=8.8.8.15', { env: { IPINFO_TOKEN: 'legacy' } as any });
+    assert.ok(!mf.calls.some((c) => /ipinfo/.test(c)));
+  });
+});
+
+describe('/api/ip/lookup: GreyNoise', () => {
+  const keys = { GREYNOISE_API_KEY: 'key-grey' };
   const base = (extra: ((u: URL, init?: RequestInit) => Response | undefined)[] = []) => [
     doh({}),
-    (u: URL) => (u.hostname === 'ipwho.is' ? jsonRes({ success: true, country: 'United States', country_code: 'US', city: 'Mountain View', region: 'California', latitude: 1, longitude: 2, connection: { asn: 111, org: 'OldOrg' } }) : undefined),
+    (u: URL) => (u.hostname === 'api.ipapi.is' ? jsonRes(ipapiIs()) : undefined),
     (u: URL) => (u.hostname === 'stat.ripe.net' ? jsonRes({ data: { resource: '8.8.8.0/24', asns: [{ asn: 15169, holder: 'GOOGLE' }] } }) : undefined),
     (u: URL) => (u.hostname === 'internetdb.shodan.io' ? jsonRes({ ports: [] }) : undefined),
     ...extra,
   ];
 
-  it('IPinfo wins ASN/org; GreyNoise RIOT result is surfaced; each key goes only to its own host', async () => {
+  it('RIOT result is surfaced and the key goes only to GreyNoise', async () => {
     const seen: Record<string, Record<string, string>> = {};
     mf = mockFetch(base([
-      (u, init) => { if (u.hostname === 'api.ipinfo.io') { seen[u.hostname] = init?.headers as Record<string, string>; return jsonRes({ asn: 'AS15169', as_name: 'Google LLC', as_domain: 'google.com', country_code: 'US', country: 'United States' }); } },
       (u, init) => { if (u.hostname === 'api.greynoise.io') { seen[u.hostname] = init?.headers as Record<string, string>; return jsonRes({ noise: false, riot: true, classification: 'benign', name: 'Google Public DNS', link: 'https://viz.greynoise.io/ip/8.8.8.8', last_seen: '2026-10-30' }); } },
     ]));
     const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.8', { env: keys })).body.data;
-    assert.equal(d.network.asn, 'AS15169');
-    assert.equal(d.network.org, 'Google LLC');
-    assert.equal(d.network.domain, 'google.com');
-    assert.equal(d.geo.city, 'Mountain View'); // city still comes from ipwho.is when countries agree
     assert.equal(d.greynoise.riot, true);
     assert.equal(d.greynoise.classification, 'benign');
     assert.equal(d.greynoise.observed, true);
     assert.ok(d.flags.includes('Common business service (RIOT)'));
-    assert.equal(seen['api.ipinfo.io'].Authorization, 'Bearer tok-ipinfo');
     assert.equal(seen['api.greynoise.io'].key, 'key-grey');
-    for (const calls of mf.calls.filter((c) => !c.includes('ipinfo') && !c.includes('greynoise'))) assert.ok(!calls.includes('tok-ipinfo') && !calls.includes('key-grey'), 'keys never appear in other URLs');
+    for (const c of mf.calls.filter((c) => !c.includes('greynoise'))) assert.ok(!c.includes('key-grey'), 'key never appears in other URLs');
     const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
-    assert.equal(st['IPinfo Lite (ASN/country)'].ok, true);
     assert.equal(st['GreyNoise Community (noise/RIOT)'].ok, true);
-  });
-
-  it('drops the city and flags it when providers disagree on country', async () => {
-    mf = mockFetch(base([(u) => (u.hostname === 'api.ipinfo.io' ? jsonRes({ asn: 'AS1', as_name: 'X', country_code: 'DE', country: 'Germany' }) : undefined)]));
-    const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.4.4', { env: { IPINFO_TOKEN: 't' } })).body.data;
-    assert.equal(d.geo.countryCode, 'DE');
-    assert.equal(d.geo.city, null);
-    assert.equal(d.geo.latitude, null);
-    assert.ok(d.flags.includes('Geo providers disagree on country'));
   });
 
   it('GreyNoise 404 means "not observed", not an error', async () => {
@@ -146,26 +249,21 @@ describe('/api/ip/lookup: IPinfo Lite + GreyNoise', () => {
     assert.ok(d.flags.includes('GreyNoise: malicious scanner'));
   });
 
-  it('bad key / rate limit degrades to a failed badge and the rest of the lookup still works', async () => {
-    mf = mockFetch(base([
-      (u) => (u.hostname === 'api.ipinfo.io' ? new Response('', { status: 401 }) : undefined),
-      (u) => (u.hostname === 'api.greynoise.io' ? new Response('', { status: 429 }) : undefined),
-    ]));
+  it('rate limit degrades to a failed badge and the rest of the lookup still works', async () => {
+    mf = mockFetch(base([(u) => (u.hostname === 'api.greynoise.io' ? new Response('', { status: 429 }) : undefined)]));
     const r = await call(ipLookup, '/api/ip/lookup?q=8.8.8.11', { env: keys });
     assert.equal(r.status, 200);
-    assert.equal(r.body.data.network.asn, 'AS15169'); // fell back to RIPEstat
+    assert.equal(r.body.data.network.asn, 'AS15169');
     assert.equal(r.body.data.greynoise, null);
     const st = Object.fromEntries(r.body.data.providers.map((p: any) => [p.name, p]));
-    assert.equal(st['IPinfo Lite (ASN/country)'].ok, false);
     assert.match(st['GreyNoise Community (noise/RIOT)'].error, /rate limit/i);
   });
 
-  it('without keys both providers are skipped and never contacted', async () => {
+  it('without a key it is skipped and never contacted', async () => {
     mf = mockFetch(base());
     const d = (await call(ipLookup, '/api/ip/lookup?q=8.8.8.12')).body.data;
-    assert.ok(!mf.calls.some((c) => /ipinfo\.io|greynoise/.test(c)));
+    assert.ok(!mf.calls.some((c) => /greynoise/.test(c)));
     const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
-    assert.equal(st['IPinfo Lite (ASN/country)'].skipped, true);
     assert.equal(st['GreyNoise Community (noise/RIOT)'].skipped, true);
     assert.equal(d.greynoise, null);
   });
@@ -174,7 +272,7 @@ describe('/api/ip/lookup: IPinfo Lite + GreyNoise', () => {
 describe('/api/ip/lookup: VirusTotal', () => {
   const vtBase = (extra: ((u: URL, init?: RequestInit) => Response | undefined)[] = []) => [
     doh({}),
-    (u: URL) => (u.hostname === 'ipwho.is' ? jsonRes({ success: true, country: 'United States', country_code: 'US', connection: { asn: 111, org: 'X' } }) : undefined),
+    (u: URL) => (u.hostname === 'api.ipapi.is' ? jsonRes(ipapiIs({ asn: { asn: 64500, org: 'EXAMPLE' } })) : undefined),
     (u: URL) => (u.hostname === 'stat.ripe.net' ? jsonRes({ data: { resource: '203.0.113.0/24', asns: [{ asn: 64500, holder: 'EXAMPLE' }] } }) : undefined),
     (u: URL) => (u.hostname === 'internetdb.shodan.io' ? jsonRes({ ports: [] }) : undefined),
     ...extra,
@@ -256,7 +354,7 @@ describe('/api/ip/lookup', () => {
   it('merges providers and reports per-provider status', async () => {
     mf = mockFetch([
       doh({ '8.8.8.8.in-addr.arpa': { PTR: ['dns.google.'] } }),
-      (u) => u.hostname === 'ipwho.is' ? jsonRes({ success: true, country: 'United States', country_code: 'US', region: 'California', city: 'Mountain View', latitude: 37.4, longitude: -122.1, timezone: { id: 'America/Los_Angeles' }, connection: { asn: 15169, org: 'Google LLC', isp: 'Google LLC', domain: 'google.com' } }) : undefined,
+      (u) => u.hostname === 'api.ipapi.is' ? jsonRes(ipapiIs()) : undefined,
       (u) => u.hostname === 'stat.ripe.net' ? jsonRes({ data: { resource: '8.8.8.0/24', asns: [{ asn: 15169, holder: 'GOOGLE' }] } }) : undefined,
       (u) => u.hostname === 'internetdb.shodan.io' ? jsonRes({ ports: [53, 443], hostnames: ['dns.google'], vulns: [], tags: ['cloud'], cpes: [] }) : undefined,
       (u) => u.hostname === 'api.abuseipdb.com' ? jsonRes({ data: { abuseConfidenceScore: 0, totalReports: 0, numDistinctUsers: 0, lastReportedAt: null, usageType: 'Data Center/Web Hosting/Transit' } }) : undefined,
@@ -277,6 +375,7 @@ describe('/api/ip/lookup', () => {
   it('degrades gracefully: provider failures are reported, others still returned; InternetDB 404 is not an error', async () => {
     mf = mockFetch([
       doh({}),
+      (u) => u.hostname === 'api.ipapi.is' ? new Response('', { status: 500 }) : undefined,
       (u) => u.hostname === 'ipwho.is' ? new Response('', { status: 500 }) : undefined,
       (u) => u.hostname === 'ipapi.co' ? jsonRes({ country_name: 'Germany', country_code: 'DE', city: 'Berlin', asn: 'AS3320', org: 'Deutsche Telekom' }) : undefined,
       (u) => u.hostname === 'stat.ripe.net' ? new Response('', { status: 429 }) : undefined,
@@ -289,7 +388,8 @@ describe('/api/ip/lookup', () => {
     assert.equal(d.network.asn, 'AS3320');
     assert.deepEqual(d.exposure.ports, []); // 404 = never seen by Shodan
     const st = Object.fromEntries(d.providers.map((p: any) => [p.name, p]));
-    assert.equal(st['ipwho.is (geo/ASN)'].ok, false);
+    assert.equal(st['ipapi.is (geo/ASN/network type)'].ok, false);
+    assert.equal(st['ipwho.is (fallback geo/ASN)'].ok, false);
     assert.equal(st['RIPEstat (prefix/ASN)'].ok, false);
     assert.equal(st['Shodan InternetDB (exposure)'].ok, true);
     assert.equal(st['AbuseIPDB (reputation)'].skipped, true);

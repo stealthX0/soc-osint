@@ -16,7 +16,16 @@ interface IpWhoIs {
 }
 interface IpApiCo { error?: boolean; reason?: string; country_name?: string; country_code?: string; region?: string; city?: string; postal?: string; latitude?: number; longitude?: number; timezone?: string; asn?: string; org?: string }
 interface RipeStat { data?: { resource?: string; asns?: { asn: number; holder: string }[]; announced?: boolean } }
-interface IpInfoLite { asn?: string; as_name?: string; as_domain?: string; country_code?: string; country?: string }
+/** ipapi.is: location + ASN + VPN/proxy/Tor/datacenter signals in one call. Every field is optional; we only read what exists. */
+interface IpApiIs {
+  error?: string; is_bogon?: boolean;
+  is_mobile?: boolean; is_crawler?: boolean; is_datacenter?: boolean; is_tor?: boolean; is_proxy?: boolean; is_vpn?: boolean; is_abuser?: boolean;
+  company?: { name?: string; abuser_score?: string; domain?: string; type?: string; network?: string };
+  datacenter?: { datacenter?: string; network?: string; region?: string; service?: string };
+  vpn?: { service?: string };
+  asn?: { asn?: number | string; abuser_score?: string; route?: string; descr?: string; country?: string; org?: string; domain?: string; type?: string };
+  location?: { country?: string; country_code?: string; state?: string; city?: string; zip?: string; latitude?: number; longitude?: number; timezone?: string };
+}
 interface GreyNoise { noise?: boolean; riot?: boolean; classification?: string; name?: string; link?: string; last_seen?: string }
 interface VirusTotalIp {
   data?: { attributes?: {
@@ -62,11 +71,11 @@ export const onRequestGet = route(async (ctx) => {
   }
   const cls = classifyIP(ip)!;
 
-  const { value, hit } = await cached(ctx, `ip:${ip}:${[env.ABUSEIPDB_API_KEY, env.IPINFO_TOKEN, env.GREYNOISE_API_KEY, env.VIRUSTOTAL_API_KEY].map((k) => (k ? 'k' : 'n')).join('')}`, async () => {
+  const { value, hit } = await cached(ctx, `ip:${ip}:${[env.ABUSEIPDB_API_KEY, env.IPAPI_IS_API_KEY, env.GREYNOISE_API_KEY, env.VIRUSTOTAL_API_KEY].map((k) => (k ? 'k' : 'n')).join('')}`, async () => {
     const providers: ProviderStatus[] = [];
     const base: IpLookup = {
       ip, version: cls.version, scope: cls.scope, scopeLabel: cls.label, isPublic: cls.public, ptrName: ptrName(ip)!,
-      geo: null, network: null, reverseDns: [], exposure: null, reputation: null, greynoise: null, virustotal: null, flags: [], providers,
+      geo: null, network: null, netType: null, geoSource: null, reverseDns: [], exposure: null, reputation: null, greynoise: null, virustotal: null, flags: [], providers,
     };
     if (!cls.public) return { value: base, ttl: 3600 };
 
@@ -75,8 +84,15 @@ export const onRequestGet = route(async (ctx) => {
       return Promise.resolve(null);
     };
 
-    const [whois, ripe, idb, abuse, ptr, ipinfo, grey, vt] = await Promise.all([
-      track(providers, 'ipwho.is (geo/ASN)', () => fetchJson<IpWhoIs>(`https://ipwho.is/${encodeURIComponent(ip)}`)),
+    const [ipapiis, ripe, idb, abuse, ptr, grey, vt] = await Promise.all([
+      // Primary geo/ASN/network-type provider. Works without a key; a key (if configured) is sent only to ipapi.is.
+      track(providers, 'ipapi.is (geo/ASN/network type)', async () => {
+        const qs = `q=${encodeURIComponent(ip)}${env.IPAPI_IS_API_KEY ? `&key=${encodeURIComponent(env.IPAPI_IS_API_KEY)}` : ''}`;
+        const r = await fetchJson<IpApiIs>(`https://api.ipapi.is/?${qs}`);
+        if (r.error) throw new ApiError(502, 'UPSTREAM_ERROR', `ipapi.is: ${String(r.error).slice(0, 120)}`);
+        if (!r.location && !r.asn) throw new ApiError(502, 'UPSTREAM_ERROR', 'ipapi.is returned no location or ASN data.');
+        return r;
+      }),
       track(providers, 'RIPEstat (prefix/ASN)', () => fetchJson<RipeStat>(`https://stat.ripe.net/data/prefix-overview/data.json?resource=${encodeURIComponent(ip)}`)),
       track(providers, 'Shodan InternetDB (exposure)', async () => {
         try {
@@ -91,10 +107,6 @@ export const onRequestGet = route(async (ctx) => {
             fetchJson<AbuseIpDb>(`https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90`, { headers: { Key: env.ABUSEIPDB_API_KEY! } }))
         : skip('AbuseIPDB (reputation)', 'No ABUSEIPDB_API_KEY configured'),
       track(providers, 'DNS PTR', async () => (await resolve(ptrName(ip)!, 'PTR')).answers.filter((a) => a.type === 'PTR').map((a) => a.data)),
-      env.IPINFO_TOKEN
-        ? track(providers, 'IPinfo Lite (ASN/country)', () =>
-            fetchJson<IpInfoLite>(`https://api.ipinfo.io/lite/${encodeURIComponent(ip)}`, { headers: { Authorization: `Bearer ${env.IPINFO_TOKEN}` } }))
-        : skip('IPinfo Lite (ASN/country)', 'No IPINFO_TOKEN configured'),
       env.GREYNOISE_API_KEY
         ? track(providers, 'GreyNoise Community (noise/RIOT)', async () => {
             try {
@@ -119,57 +131,81 @@ export const onRequestGet = route(async (ctx) => {
         : skip('VirusTotal (multi-engine verdicts)', 'No VIRUSTOTAL_API_KEY configured'),
     ]);
 
-    // Geo: ipwho.is first, ipapi.co as fallback
+    // Geo/network: ipapi.is is primary. Fallbacks are tried in order, and only when needed, to spare their free quotas:
+    // ipwho.is first, then ipapi.co.
     let geo: IpLookup['geo'] = null;
     let network: IpLookup['network'] = null;
-    if (whois?.success) {
+    let netType: IpLookup['netType'] = null;
+    let geoSource: IpLookup['geoSource'] = null;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+    if (ipapiis) {
+      const loc = ipapiis.location;
       geo = {
-        country: whois.country ?? null, countryCode: whois.country_code ?? null, region: whois.region ?? null, city: whois.city ?? null,
-        postal: whois.postal ?? null, latitude: whois.latitude ?? null, longitude: whois.longitude ?? null, timezone: whois.timezone?.id ?? null,
+        country: loc?.country ?? null, countryCode: loc?.country_code ?? null, region: loc?.state ?? null, city: loc?.city ?? null,
+        postal: loc?.zip ?? null, latitude: num(loc?.latitude), longitude: num(loc?.longitude), timezone: loc?.timezone ?? null,
       };
-      if (whois.connection) {
-        network = { asn: whois.connection.asn ? `AS${whois.connection.asn}` : null, org: whois.connection.org ?? null, isp: whois.connection.isp ?? null, domain: whois.connection.domain ?? null, prefix: null };
+      const a = ipapiis.asn;
+      network = {
+        asn: a?.asn !== undefined && a?.asn !== null && String(a.asn) !== '' ? `AS${String(a.asn).replace(/^AS/i, '')}` : null,
+        org: a?.org ?? a?.descr ?? ipapiis.company?.name ?? null,
+        isp: ipapiis.company?.name ?? null,
+        domain: a?.domain ?? ipapiis.company?.domain ?? null,
+        prefix: a?.route ?? null,
+      };
+      netType = {
+        isVpn: !!ipapiis.is_vpn, isProxy: !!ipapiis.is_proxy, isTor: !!ipapiis.is_tor, isDatacenter: !!ipapiis.is_datacenter,
+        isMobile: !!ipapiis.is_mobile, isCrawler: !!ipapiis.is_crawler, isAbuser: !!ipapiis.is_abuser,
+        companyName: ipapiis.company?.name ?? null, companyType: ipapiis.company?.type ?? a?.type ?? null,
+        companyAbuserScore: ipapiis.company?.abuser_score ?? null, asnAbuserScore: a?.abuser_score ?? null,
+        datacenter: ipapiis.datacenter?.datacenter ?? null, vpnService: ipapiis.vpn?.service ?? null,
+      };
+      geoSource = 'ipapi.is';
+    }
+
+    if (!geo) {
+      const whois = await track(providers, 'ipwho.is (fallback geo/ASN)', async () => {
+        const r = await fetchJson<IpWhoIs>(`https://ipwho.is/${encodeURIComponent(ip)}`);
+        if (!r.success) throw new ApiError(502, 'UPSTREAM_ERROR', `ipwho.is: ${r.message ?? 'lookup failed'}`);
+        return r;
+      });
+      if (whois) {
+        geo = {
+          country: whois.country ?? null, countryCode: whois.country_code ?? null, region: whois.region ?? null, city: whois.city ?? null,
+          postal: whois.postal ?? null, latitude: whois.latitude ?? null, longitude: whois.longitude ?? null, timezone: whois.timezone?.id ?? null,
+        };
+        if (whois.connection) {
+          network = { asn: whois.connection.asn ? `AS${whois.connection.asn}` : null, org: whois.connection.org ?? null, isp: whois.connection.isp ?? null, domain: whois.connection.domain ?? null, prefix: null };
+        }
+        geoSource = 'ipwho.is';
       }
-    } else {
-      const fallback = await track(providers, 'ipapi.co (fallback geo)', () => fetchJson<IpApiCo>(`https://ipapi.co/${encodeURIComponent(ip)}/json/`));
-      if (fallback && !fallback.error) {
+    }
+
+    if (!geo) {
+      const fallback = await track(providers, 'ipapi.co (fallback geo)', async () => {
+        const r = await fetchJson<IpApiCo>(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+        if (r.error) throw new ApiError(502, 'UPSTREAM_ERROR', `ipapi.co: ${r.reason ?? 'lookup failed'}`);
+        return r;
+      });
+      if (fallback) {
         geo = {
           country: fallback.country_name ?? null, countryCode: fallback.country_code ?? null, region: fallback.region ?? null, city: fallback.city ?? null,
           postal: fallback.postal ?? null, latitude: fallback.latitude ?? null, longitude: fallback.longitude ?? null, timezone: fallback.timezone ?? null,
         };
         network = { asn: fallback.asn ?? null, org: fallback.org ?? null, isp: null, domain: null, prefix: null };
+        geoSource = 'ipapi.co';
       }
     }
+
     // RIPEstat refines/cross-checks ASN + announced prefix
     if (ripe?.data) {
       const a = ripe.data.asns?.[0];
       network = {
-        asn: a ? `AS${a.asn}` : network?.asn ?? null,
+        asn: network?.asn ?? (a ? `AS${a.asn}` : null), // the primary provider's ASN wins; RIPEstat fills the gap and supplies the announced prefix
         org: network?.org ?? a?.holder ?? null,
         isp: network?.isp ?? null,
         domain: network?.domain ?? null,
-        prefix: ripe.data.resource ?? null,
-      };
-    }
-
-    // IPinfo Lite is the more reliable source for ASN and country, so it wins those fields.
-    // City-level fields come from ipwho.is; if the two disagree on country the city is dropped rather than shown wrongly.
-    let geoDisagrees = false;
-    if (ipinfo && (ipinfo.asn || ipinfo.country_code)) {
-      if (geo && geo.countryCode && ipinfo.country_code && geo.countryCode !== ipinfo.country_code) {
-        geoDisagrees = true;
-        geo = { country: ipinfo.country ?? null, countryCode: ipinfo.country_code, region: null, city: null, postal: null, latitude: null, longitude: null, timezone: null };
-      } else if (geo) {
-        geo = { ...geo, country: ipinfo.country ?? geo.country, countryCode: ipinfo.country_code ?? geo.countryCode };
-      } else if (ipinfo.country_code) {
-        geo = { country: ipinfo.country ?? null, countryCode: ipinfo.country_code, region: null, city: null, postal: null, latitude: null, longitude: null, timezone: null };
-      }
-      network = {
-        asn: ipinfo.asn ?? network?.asn ?? null,
-        org: ipinfo.as_name ?? network?.org ?? null,
-        isp: network?.isp ?? null,
-        domain: ipinfo.as_domain ?? network?.domain ?? null,
-        prefix: network?.prefix ?? null,
+        prefix: ripe.data.resource ?? network?.prefix ?? null,
       };
     }
 
@@ -208,15 +244,18 @@ export const onRequestGet = route(async (ctx) => {
     if (greynoise?.riot) flags.push('Common business service (RIOT)');
     if (virustotal && virustotal.malicious > 0) flags.push(`VirusTotal: ${virustotal.malicious} engine(s) flag as malicious`);
     else if (virustotal && virustotal.suspicious > 0) flags.push(`VirusTotal: ${virustotal.suspicious} engine(s) flag as suspicious`);
-    if (geoDisagrees) flags.push('Geo providers disagree on country');
-    if (reputation?.isTor || exposure?.tags.includes('tor')) flags.push('Tor exit node');
-    for (const t of exposure?.tags ?? []) if (['vpn', 'proxy', 'cloud', 'cdn', 'scanner', 'self-signed', 'honeypot', 'compromised', 'malware'].includes(t) && !flags.includes(t)) flags.push(t);
+    if (netType?.isTor || reputation?.isTor || exposure?.tags.includes('tor')) flags.push('Tor exit node');
+    if (netType?.isVpn) flags.push(netType.vpnService ? `VPN (${netType.vpnService})` : 'VPN');
+    if (netType?.isProxy) flags.push('Proxy');
+    if (netType?.isDatacenter) flags.push(netType.datacenter ? `Datacenter (${netType.datacenter})` : 'Datacenter / hosting');
+    if (netType?.isAbuser) flags.push('Flagged as abuser (ipapi.is)');
+    for (const t of exposure?.tags ?? []) if (['vpn', 'proxy', 'cloud', 'cdn', 'scanner', 'self-signed', 'honeypot', 'compromised', 'malware'].includes(t) && !flags.some((f) => f.toLowerCase().startsWith(t))) flags.push(t);
     if ((exposure?.vulns.length ?? 0) > 0) flags.push(`${exposure!.vulns.length} known CVE(s) on exposed services`);
 
-    const out: IpLookup = { ...base, geo, network, reverseDns: ptr ?? [], exposure, reputation, greynoise, virustotal, flags, providers };
+    const out: IpLookup = { ...base, geo, network, netType, geoSource, reverseDns: ptr ?? [], exposure, reputation, greynoise, virustotal, flags, providers };
     // never cache a result where the main providers failed
     const healthy = providers.filter((p) => !p.skipped).some((p) => p.ok);
-    return { value: out, ttl: healthy && providers.filter((p) => !p.skipped && !p.ok).length <= 1 ? 600 : 0 };
+    return { value: out, ttl: healthy && providers.filter((p) => !p.skipped && !p.ok).length <= 1 ? 3600 : 0 };
   });
   return ok(value, { cached: hit });
 });

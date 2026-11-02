@@ -22,6 +22,14 @@ export interface IpLookup {
   ptrName: string;
   geo: { country: string | null; countryCode: string | null; region: string | null; city: string | null; postal: string | null; latitude: number | null; longitude: number | null; timezone: string | null } | null;
   network: { asn: string | null; org: string | null; isp: string | null; domain: string | null; prefix: string | null } | null;
+  /** Network-type signals from ipapi.is (null when ipapi.is was unavailable and a fallback geo provider was used). */
+  netType: {
+    isVpn: boolean; isProxy: boolean; isTor: boolean; isDatacenter: boolean; isMobile: boolean; isCrawler: boolean; isAbuser: boolean;
+    companyName: string | null; companyType: string | null; companyAbuserScore: string | null; asnAbuserScore: string | null;
+    datacenter: string | null; vpnService: string | null;
+  } | null;
+  /** Which provider supplied the location/network fields. */
+  geoSource: 'ipapi.is' | 'ipwho.is' | 'ipapi.co' | null;
   reverseDns: string[];
   exposure: { ports: number[]; hostnames: string[]; vulns: string[]; tags: string[]; cpes: string[] } | null;
   reputation: { abuseConfidence: number; totalReports: number; distinctReporters: number; lastReportedAt: string | null; usageType: string | null; isTor: boolean; isWhitelisted: boolean } | null;

@@ -63,11 +63,30 @@ export default function IpPage() {
                       ['Time zone', d.geo.timezone],
                     ]} />
                   ) : <p className="text-sm text-faint">No geolocation data from any provider.</p>}
-                  <p className="mt-3 text-[11px] text-faint">IP geolocation is approximate (often city-level at best) and unreliable for mobile, VPN and cloud addresses.</p>
+                  <p className="mt-3 text-[11px] text-faint">IP geolocation is approximate (often city-level at best) and unreliable for mobile, VPN and cloud addresses.{d.geoSource && <> Source: {d.geoSource}{d.geoSource !== 'ipapi.is' ? ' (fallback)' : ''}.</>}</p>
                 </Card>
                 <Card title="Network">
                   {d.network ? <KV rows={[['ASN', d.network.asn], ['Organisation', d.network.org], ['ISP', d.network.isp], ['Domain', d.network.domain], ['Announced prefix', d.network.prefix]]} mono /> : <p className="text-sm text-faint">No ASN data.</p>}
                   <div className="mt-3 border-t border-line pt-3"><KV rows={[['Reverse DNS', d.reverseDns.length ? d.reverseDns.join(', ') : <span className="text-faint">none</span>], ['PTR name', <span key="p" className="text-faint">{d.ptrName}</span>]]} mono /></div>
+                </Card>
+
+                <Card title="Network type (ipapi.is)">
+                  {d.netType ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {d.netType.isVpn && <Badge tone="warn">VPN</Badge>}
+                        {d.netType.isProxy && <Badge tone="warn">proxy</Badge>}
+                        {d.netType.isTor && <Badge tone="bad">Tor</Badge>}
+                        {d.netType.isDatacenter && <Badge tone="info">datacenter / hosting</Badge>}
+                        {d.netType.isMobile && <Badge tone="info">mobile network</Badge>}
+                        {d.netType.isCrawler && <Badge tone="neutral">known crawler</Badge>}
+                        {d.netType.isAbuser && <Badge tone="bad">abuser</Badge>}
+                        {!(d.netType.isVpn || d.netType.isProxy || d.netType.isTor || d.netType.isDatacenter || d.netType.isMobile || d.netType.isCrawler || d.netType.isAbuser) && <Badge tone="good">no anonymiser / hosting signals</Badge>}
+                      </div>
+                      <KV rows={[['Company', d.netType.companyName], ['Type', d.netType.companyType], ['Datacenter', d.netType.datacenter], ['VPN service', d.netType.vpnService], ['Company abuser score', d.netType.companyAbuserScore], ['ASN abuser score', d.netType.asnAbuserScore]]} />
+                      <p className="text-[11px] text-faint">Classifications are inferred from address ranges and can be wrong. A VPN or datacenter flag means traffic is likely not from a typical home user, not that it is malicious.</p>
+                    </div>
+                  ) : <p className="text-sm text-faint">Not available. ipapi.is did not answer, so a fallback provider supplied the location.</p>}
                 </Card>
 
                 <Card title="Passive exposure (Shodan InternetDB)">
