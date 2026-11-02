@@ -3,6 +3,12 @@
  * upstream free-tier quotas. Works without any binding; silently no-ops if
  * the Cache API is unavailable (e.g. under plain Node in tests).
  */
+/**
+ * Bump when the shape of any cached value changes. The Cache API outlives deployments, so without a
+ * version an old Worker's entries (same key, old JSON shape) are served to the new code until their TTL ends.
+ */
+export const CACHE_VERSION = 'v2';
+
 export interface CacheCtx { waitUntil(p: Promise<unknown>): void }
 
 export interface Cacheable<T> { value: T; /** seconds; 0 disables caching of this result */ ttl: number }
@@ -15,7 +21,7 @@ export async function cached<T>(
   const store: Cache | undefined = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
   if (!store) return { value: (await compute()).value, hit: false };
 
-  const req = new Request(`https://cache.internal.invalid/${encodeURIComponent(key)}`);
+  const req = new Request(`https://cache.internal.invalid/${CACHE_VERSION}/${encodeURIComponent(key)}`);
   try {
     const hit = await store.match(req);
     if (hit) return { value: (await hit.json()) as T, hit: true };
