@@ -1,0 +1,71 @@
+{
+ "tools": 452,
+ "categories": 12,
+ "playbooks": 8,
+ "passive": 306,
+ "active": 120,
+ "free": 331,
+ "withApi": 149,
+ "perCategory": [
+  {
+   "id": "email-address",
+   "name": "Email Address",
+   "count": 30
+  },
+  {
+   "id": "domain-name",
+   "name": "Domain Name",
+   "count": 127
+  },
+  {
+   "id": "ip-mac-address",
+   "name": "IP & MAC Address",
+   "count": 56
+  },
+  {
+   "id": "cloud-infrastructure",
+   "name": "Cloud Infrastructure",
+   "count": 22
+  },
+  {
+   "id": "malicious-file-analysis",
+   "name": "Malicious File Analysis",
+   "count": 32
+  },
+  {
+   "id": "cyber-threat-intelligence",
+   "name": "Cyber Threat Intelligence",
+   "count": 59
+  },
+  {
+   "id": "archives",
+   "name": "Archives",
+   "count": 16
+  },
+  {
+   "id": "dark-web",
+   "name": "Dark Web",
+   "count": 12
+  },
+  {
+   "id": "encoding-decoding",
+   "name": "Encoding / Decoding",
+   "count": 16
+  },
+  {
+   "id": "tools",
+   "name": "Tools",
+   "count": 25
+  },
+  {
+   "id": "documentation-evidence-capture",
+   "name": "Documentation / Evidence Capture",
+   "count": 14
+  },
+  {
+   "id": "opsec",
+   "name": "OpSec",
+   "count": 43
+  }
+ ]
+}

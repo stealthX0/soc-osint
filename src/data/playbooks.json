@@ -1,0 +1,402 @@
+[
+ {
+  "id": "ip",
+  "title": "Suspicious IP address",
+  "summary": "Triage an IP from an alert or log: reputation, owner, exposure and related infrastructure.",
+  "steps": [
+   {
+    "title": "Check reputation",
+    "detail": "See whether the address is already known as malicious, a scanner or harmless background noise.",
+    "toolIds": [
+     191
+    ]
+   },
+   {
+    "title": "Identify owner and location",
+    "detail": "Find the ASN, network owner and rough location. Hosting providers, VPNs and Tor exits change how you read the alert.",
+    "toolIds": [
+     183
+    ]
+   },
+   {
+    "title": "See what it exposes",
+    "detail": "Passive scan data shows open ports, banners and certificates without touching the host.",
+    "toolIds": [
+     67
+    ]
+   },
+   {
+    "title": "Pivot to related domains",
+    "detail": "Reverse DNS and co-hosted domains can reveal the campaign or service behind the address.",
+    "toolIds": [
+     185
+    ]
+   },
+   {
+    "title": "Check threat intelligence",
+    "detail": "Look for reports, pulses or indicators that mention the address.",
+    "toolIds": [
+     309
+    ]
+   },
+   {
+    "title": "Probe it directly (only if in scope)",
+    "detail": "Port scans and similar probes touch the target and leave logs on their side. Do this only with authorisation.",
+    "toolIds": [
+     171
+    ],
+    "active": true
+   },
+   {
+    "title": "Capture evidence",
+    "detail": "Screenshot results and keep timestamps before the data changes.",
+    "toolIds": [
+     404
+    ]
+   }
+  ]
+ },
+ {
+  "id": "phish",
+  "title": "Phishing email or link",
+  "summary": "Work through a reported phishing message: the link, the domain, the sender and any attachment.",
+  "steps": [
+   {
+    "title": "Expand the link safely",
+    "detail": "Reveal where shortened or redirecting links really go without opening them in your own browser.",
+    "toolIds": [
+     137
+    ]
+   },
+   {
+    "title": "Scan the URL",
+    "detail": "Get a rendered screenshot, requests made and reputation verdicts from a hosted sandbox.",
+    "toolIds": [
+     71
+    ]
+   },
+   {
+    "title": "Check known phishing feeds",
+    "detail": "See if the URL or domain has already been reported.",
+    "toolIds": [
+     295
+    ]
+   },
+   {
+    "title": "Look for lookalike domains",
+    "detail": "Generate and check typosquats of the brand being imitated.",
+    "toolIds": [
+     119
+    ]
+   },
+   {
+    "title": "Check domain age and owner",
+    "detail": "Newly registered domains and hidden registrants are common in phishing.",
+    "toolIds": [
+     30
+    ]
+   },
+   {
+    "title": "Check the sender",
+    "detail": "Test the sending address, mail server reputation and whether it appears in breaches.",
+    "toolIds": [
+     19
+    ]
+   },
+   {
+    "title": "Analyse attachments",
+    "detail": "Look up the file hash first, then detonate it in a sandbox if it is unknown.",
+    "toolIds": [
+     241
+    ]
+   },
+   {
+    "title": "Preserve evidence",
+    "detail": "Save the page and the headers before the site is taken down.",
+    "toolIds": [
+     398
+    ]
+   }
+  ]
+ },
+ {
+  "id": "file",
+  "title": "Unknown file or malware sample",
+  "summary": "Triage a suspicious file: hash lookup, sandboxing, format-specific checks, deobfuscation and context.",
+  "steps": [
+   {
+    "title": "Look up the hash",
+    "detail": "Search by hash first. A known sample saves you a sandbox run and avoids uploading sensitive files.",
+    "toolIds": [
+     241
+    ]
+   },
+   {
+    "title": "Run it in a sandbox",
+    "detail": "Upload only files you are allowed to share. Hosted sandboxes may make the sample public.",
+    "toolIds": [
+     243
+    ]
+   },
+   {
+    "title": "Document and script specifics",
+    "detail": "For Office documents, scan for malicious macros and exploits. For PDFs or Android packages, use a format-specific tool instead.",
+    "toolIds": [
+     259
+    ]
+   },
+   {
+    "title": "Deobfuscate and decode",
+    "detail": "Unpack encoded strings, scripts and XOR-obfuscated payloads.",
+    "toolIds": [
+     368
+    ]
+   },
+   {
+    "title": "Inspect network traffic",
+    "detail": "Review captured network traffic for command-and-control and downloads.",
+    "toolIds": [
+     207
+    ]
+   },
+   {
+    "title": "Identify the family and ransomware",
+    "detail": "Match behaviour to known families and techniques.",
+    "toolIds": [
+     239
+    ]
+   },
+   {
+    "title": "Reverse engineer (if needed)",
+    "detail": "Static analysis for samples that need a deeper look.",
+    "toolIds": [
+     264
+    ]
+   }
+  ]
+ },
+ {
+  "id": "domain",
+  "title": "Domain investigation",
+  "summary": "Profile a domain: registration, DNS history, subdomains, certificates, technology and reputation.",
+  "steps": [
+   {
+    "title": "Registration records",
+    "detail": "Who registered it, when, and what else do they own?",
+    "toolIds": [
+     30
+    ]
+   },
+   {
+    "title": "Passive DNS history",
+    "detail": "See past resolutions and related infrastructure without querying the target.",
+    "toolIds": [
+     88
+    ]
+   },
+   {
+    "title": "Find subdomains",
+    "detail": "Map the visible attack surface.",
+    "toolIds": [
+     64
+    ]
+   },
+   {
+    "title": "Certificate transparency",
+    "detail": "Certificates reveal hostnames and related domains.",
+    "toolIds": [
+     83
+    ]
+   },
+   {
+    "title": "Identify technology and ownership clues",
+    "detail": "Shared analytics IDs and tech stacks link sites together.",
+    "toolIds": [
+     74
+    ]
+   },
+   {
+    "title": "Check reputation",
+    "detail": "See whether security vendors flag the domain.",
+    "toolIds": [
+     91
+    ]
+   },
+   {
+    "title": "Review history",
+    "detail": "Compare past versions of the site.",
+    "toolIds": [
+     331
+    ]
+   }
+  ]
+ },
+ {
+  "id": "email",
+  "title": "Email address or identity",
+  "summary": "Investigate an email address: validity, breaches, linked accounts and the organisation behind it.",
+  "steps": [
+   {
+    "title": "Validate the address",
+    "detail": "Check it exists, isn't disposable and what its reputation looks like.",
+    "toolIds": [
+     20
+    ]
+   },
+   {
+    "title": "Check breaches",
+    "detail": "Find leaked credentials and infostealer exposure linked to the address.",
+    "toolIds": [
+     25
+    ]
+   },
+   {
+    "title": "Find linked accounts",
+    "detail": "See which services and profiles the address is registered with.",
+    "toolIds": [
+     10
+    ]
+   },
+   {
+    "title": "Understand the organisation",
+    "detail": "Work out the company's email format and related addresses.",
+    "toolIds": [
+     2
+    ]
+   },
+   {
+    "title": "Pivot on the domain",
+    "detail": "Look at who owns the address's domain.",
+    "toolIds": [
+     42
+    ]
+   }
+  ]
+ },
+ {
+  "id": "vuln",
+  "title": "Vulnerability and CVE triage",
+  "summary": "Assess a CVE or advisory: severity, exploit availability, exposure and attacker techniques.",
+  "steps": [
+   {
+    "title": "Read the advisory",
+    "detail": "Confirm affected versions and the vendor's severity rating.",
+    "toolIds": [
+     269
+    ]
+   },
+   {
+    "title": "Check for public exploits",
+    "detail": "Public exploit code raises urgency.",
+    "toolIds": [
+     285
+    ]
+   },
+   {
+    "title": "Measure internet exposure",
+    "detail": "See how many hosts run the affected software.",
+    "toolIds": [
+     67
+    ]
+   },
+   {
+    "title": "Map to attacker techniques",
+    "detail": "Connect the vulnerability to known tactics for detection ideas.",
+    "toolIds": [
+     325
+    ]
+   },
+   {
+    "title": "Check default credentials",
+    "detail": "For devices and appliances, default passwords are often the real risk.",
+    "toolIds": [
+     278
+    ]
+   }
+  ]
+ },
+ {
+  "id": "dark",
+  "title": "Dark web and leak monitoring",
+  "summary": "Look for mentions of your organisation on hidden services and leak sources, with safe access.",
+  "steps": [
+   {
+    "title": "Set up safe access",
+    "detail": "Use an isolated, anonymising environment before touching hidden services.",
+    "toolIds": [
+     386
+    ]
+   },
+   {
+    "title": "Check for leaks first",
+    "detail": "Start with indexed breach data before browsing anything.",
+    "toolIds": [
+     25
+    ]
+   },
+   {
+    "title": "Search hidden services",
+    "detail": "Find .onion content that mentions your organisation.",
+    "toolIds": [
+     352
+    ]
+   },
+   {
+    "title": "Assess the service",
+    "detail": "Check an onion site for metadata leaks and reachability.",
+    "toolIds": [
+     348
+    ]
+   },
+   {
+    "title": "Understand the landscape",
+    "detail": "Background and community guidance.",
+    "toolIds": [
+     353
+    ]
+   },
+   {
+    "title": "Capture evidence",
+    "detail": "Document findings with timestamps.",
+    "toolIds": [
+     404
+    ]
+   }
+  ]
+ },
+ {
+  "id": "preflight",
+  "title": "Pre-investigation OpSec check",
+  "summary": "Before you start: make sure your browser and network don't reveal who you are, and set up evidence capture.",
+  "steps": [
+   {
+    "title": "Test for leaks",
+    "detail": "Confirm your IP, DNS and WebRTC are not exposing your real identity.",
+    "toolIds": [
+     425
+    ]
+   },
+   {
+    "title": "Check your browser fingerprint",
+    "detail": "See what a site learns about your browser.",
+    "toolIds": [
+     447
+    ]
+   },
+   {
+    "title": "Use anonymising tools if the case needs it",
+    "detail": "Route traffic through Tor or use a dedicated environment.",
+    "toolIds": [
+     345
+    ]
+   },
+   {
+    "title": "Set up evidence capture",
+    "detail": "Have screenshots and page saving ready before you begin.",
+    "toolIds": [
+     404
+    ]
+   }
+  ]
+ }
+]

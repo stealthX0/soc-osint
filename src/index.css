@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #080e1d;
+  --color-bg2: #0b1325;
+  --color-panel: #0e172b;
+  --color-panel2: #121d36;
+  --color-line: #1c2a47;
+  --color-line2: #26375a;
+  --color-fg: #d8e2f6;
+  --color-muted: #8193b8;
+  --color-faint: #56688d;
+  --color-teal: #2dd4bf;
+  --color-sky: #38bdf8;
+  --color-indigo: #818cf8;
+  --color-amber: #fbbf24;
+  --color-rose: #f87171;
+  --color-green: #34d399;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+html, body, #root { min-height: 100%; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, #10234a 0%, transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, #0b2d3a 0%, transparent 55%),
+    var(--color-bg);
+  background-attachment: fixed;
+  color: var(--color-fg);
+  font: 14px/1.5 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: rgba(45, 212, 191, .3); }
+@layer base {
+  :focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; border-radius: 6px; }
+}
+* { scrollbar-width: thin; scrollbar-color: var(--color-line2) transparent; }
+button { font: inherit; }
+kbd { font: 11px var(--font-mono); color: var(--color-muted); border: 1px solid var(--color-line2); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; background: rgba(255,255,255,.03); }

@@ -1,0 +1,29 @@
+name = "threatlens"
+main = "worker/index.ts"
+compatibility_date = "2025-09-01"
+
+# The built React app. The Worker runs first ONLY for /api/*; everything else is served
+# straight from the static assets (free, no Worker invocation) with SPA fallback to index.html.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# Optional: cross-isolate rate limiting. Create with `npx wrangler kv namespace create RATE_LIMIT`
+# and paste the id below. Without it the API falls back to per-isolate memory counters.
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT"
+# id = "<your-kv-namespace-id>"
+
+[vars]
+RATE_LIMIT_PER_MIN = "60"
+# ALLOWED_ORIGINS = "https://example.com"
+
+[observability]
+enabled = true
+
+# Optional secrets (never commit). Each provider is skipped, and shown as such in the UI, when its key is absent:
+#   npx wrangler secret put IPINFO_TOKEN         # IPinfo Lite: ASN + country
+#   npx wrangler secret put GREYNOISE_API_KEY    # GreyNoise Community: noise / RIOT
+#   npx wrangler secret put ABUSEIPDB_API_KEY    # AbuseIPDB: abuse confidence
