@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local `npm run dev:api` (never commit .dev.vars).
+# Every key is optional: a provider without a key is skipped and shown as such in the UI.
+IPAPI_IS_API_KEY=
+PULSEDIVE_API_KEY=
+ABUSEIPDB_API_KEY=
+VIRUSTOTAL_API_KEY=
