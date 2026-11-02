@@ -119,7 +119,7 @@ export default function IpPage() {
                   ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting an <code className="font-mono">ABUSEIPDB_API_KEY</code> secret. Use the pivot links below meanwhile.</p>}
                 </Card>
 
-                <Card title="Internet noise (GreyNoise)" className="md:col-span-2">
+                <Card title="Internet noise (GreyNoise)">
                   {d.greynoise ? (
                     d.greynoise.observed ? (
                       <div className="space-y-3">
