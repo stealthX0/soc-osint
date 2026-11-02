@@ -262,9 +262,12 @@ export const onRequestGet = route(async (ctx) => {
     if ((exposure?.vulns.length ?? 0) > 0) flags.push(`${exposure!.vulns.length} known CVE(s) on exposed services`);
 
     const out: IpLookup = { ...base, geo, network, netType, geoSource, reverseDns: ptr ?? [], exposure, reputation, pulsedive, virustotal, flags, providers };
-    // never cache a result where the main providers failed
-    const healthy = providers.filter((p) => !p.skipped).some((p) => p.ok);
-    return { value: out, ttl: healthy && providers.filter((p) => !p.skipped && !p.ok).length <= 1 ? 3600 : 0 };
+    // Cache fully healthy results for an hour. If any provider that actually ran failed (bad key, quota, outage),
+    // keep the result only briefly, so fixing a key or a recovered provider shows up quickly instead of after an hour.
+    const ran = providers.filter((p) => !p.skipped);
+    const failed = ran.filter((p) => !p.ok).length;
+    const ttl = ran.some((p) => p.ok) ? (failed === 0 ? 3600 : 120) : 0;
+    return { value: out, ttl };
   });
   return ok(value, { cached: hit });
 });
