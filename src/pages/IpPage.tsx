@@ -5,7 +5,7 @@ import { Result } from '../components/Result';
 import { useApi } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
 import { pushRecent } from '../lib/storage';
-import type { IpLookup } from '../../shared/types';
+import type { IpLookup, ProviderStatus } from '../../shared/types';
 
 const PIVOTS = (ip: string): [string, string][] => [
   ['VirusTotal', `https://www.virustotal.com/gui/ip-address/${ip}`],
@@ -15,6 +15,26 @@ const PIVOTS = (ip: string): [string, string][] => [
   ['Cisco Talos', `https://talosintelligence.com/reputation_center/lookup?search=${ip}`],
   ['BGP.HE.net', `https://bgp.he.net/ip/${ip}`],
 ];
+
+/**
+ * Empty state for an optional provider card. A missing key (provider skipped) and a failed call
+ * (bad key, quota, outage) look identical when the data is null, so read the provider status.
+ */
+function NotAvailable({ providers, provider, secret, extra }: { providers: ProviderStatus[]; provider: string; secret: string; extra?: string }) {
+  const p = providers.find((x) => x.name.startsWith(provider));
+  if (p && !p.skipped && !p.ok) {
+    return (
+      <p className="text-sm text-amber">
+        {provider} lookup failed{p.error ? `: ${p.error}` : '.'} Check that the <code className="font-mono">{secret}</code> secret holds a valid key, then try again in a couple of minutes.
+      </p>
+    );
+  }
+  return (
+    <p className="text-sm text-faint">
+      Not available. The site operator can enable this by setting {/^[AEIOU]/.test(secret) ? 'an' : 'a'} <code className="font-mono">{secret}</code> secret.{extra}
+    </p>
+  );
+}
 
 const SCOPE_TONE = { public: 'good', private: 'warn', loopback: 'warn', 'link-local': 'warn', cgnat: 'warn', multicast: 'warn', documentation: 'neutral', reserved: 'neutral', unspecified: 'neutral' } as const;
 
@@ -116,7 +136,7 @@ export default function IpPage() {
                       </div>
                       <KV rows={[['Reports', `${d.reputation.totalReports} from ${d.reputation.distinctReporters} reporter(s)`], ['Last reported', d.reputation.lastReportedAt], ['Usage type', d.reputation.usageType], ['Tor exit', d.reputation.isTor ? 'yes' : null], ['Allow-listed', d.reputation.isWhitelisted ? 'yes' : null]]} />
                     </div>
-                  ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting an <code className="font-mono">ABUSEIPDB_API_KEY</code> secret. Use the pivot links below meanwhile.</p>}
+                  ) : <NotAvailable providers={d.providers} provider="AbuseIPDB" secret="ABUSEIPDB_API_KEY" extra=" Use the pivot links below meanwhile." />}
                 </Card>
 
                 <Card title="Threat intel (Pulsedive)">
@@ -142,7 +162,7 @@ export default function IpPage() {
                         <p className="text-[11px] text-faint">Risk is Pulsedive&apos;s own rating from feeds and scans. &quot;Unknown&quot; or &quot;none&quot; means no evidence was found, not that the address is safe.</p>
                       </div>
                     ) : <p className="text-sm text-muted">Pulsedive has no record of this address. That is not a clean verdict.</p>
-                  ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting a <code className="font-mono">PULSEDIVE_API_KEY</code> secret.</p>}
+                  ) : <NotAvailable providers={d.providers} provider="Pulsedive" secret="PULSEDIVE_API_KEY" />}
                 </Card>
 
                 <Card title="Multi-engine verdicts (VirusTotal)" className="md:col-span-2">
@@ -170,7 +190,7 @@ export default function IpPage() {
                         );
                       })()
                     ) : <p className="text-sm text-muted">VirusTotal has no analysis on record for this address. That is not a clean verdict.</p>
-                  ) : <p className="text-sm text-faint">Not available. The site operator can enable this by setting a <code className="font-mono">VIRUSTOTAL_API_KEY</code> secret.</p>}
+                  ) : <NotAvailable providers={d.providers} provider="VirusTotal" secret="VIRUSTOTAL_API_KEY" />}
                 </Card>
               </div>
             )}
