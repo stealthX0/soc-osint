@@ -24,7 +24,7 @@ describe('/api/domain/ssl: ctlogs.dev primary, crt.sh fallback', () => {
     mf = mockFetch([(u, init) => {
       if (!isCtlogs(u)) return undefined;
       auth = new Headers(init?.headers).get('authorization');
-      if (u.pathname.startsWith('/v1/domain/*.')) return jsonRes({ rows: [], has_next: false, next_cursor: '' });
+      if (u.pathname.startsWith('/v1/domain/%2A.')) return jsonRes({ rows: [], has_next: false, next_cursor: '' });
       return jsonRes({ rows: [row('1'), row('2', { issuer: 'R10', not_before: iso(-200), not_after: iso(-110) }), row('1')], has_next: false, next_cursor: '', history_window_days: 90, history_truncated: true });
     }]);
     const r = await call('/api/domain/ssl?domain=example.com', { CTLOGS_API_KEY: 'secret-key' });
@@ -47,7 +47,7 @@ describe('/api/domain/ssl: ctlogs.dev primary, crt.sh fallback', () => {
     mf = mockFetch([(u, init) => {
       if (!isCtlogs(u)) return undefined;
       if (new Headers(init?.headers).get('authorization')) headerSeen = false;
-      if (u.pathname.startsWith('/v1/domain/*.')) return jsonRes({ rows: [row('w', { match: '*.example.com' })], has_next: false, next_cursor: '' });
+      if (u.pathname.startsWith('/v1/domain/%2A.')) return jsonRes({ rows: [row('w', { match: '*.example.com' })], has_next: false, next_cursor: '' });
       return u.searchParams.get('after') === 'c1'
         ? jsonRes({ rows: [row('2')], has_next: false, next_cursor: '' })
         : jsonRes({ rows: [row('1')], has_next: true, next_cursor: 'c1' });
@@ -86,6 +86,41 @@ describe('/api/domain/ssl: ctlogs.dev primary, crt.sh fallback', () => {
       assert.ok(r.body.data.issues.some((i: any) => /ctlogs\.dev was unavailable/.test(i.message)));
     });
   }
+
+  it('keeps the ctlogs.dev result when the wildcard check is rejected (HTTP 400)', async () => {
+    let probePath = '';
+    mf = mockFetch([(u) => {
+      if (!isCtlogs(u)) return undefined;
+      if (u.pathname.startsWith('/v1/domain/%2A.')) { probePath = u.pathname; return jsonRes({ error: 'bad name' }, 400); }
+      return jsonRes({ rows: [row('1')], has_next: false, next_cursor: '' });
+    }]);
+    const r = await call('/api/domain/ssl?domain=probe-400.com');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.data.source, 'ctlogs.dev');
+    assert.equal(r.body.data.total, 1);
+    assert.equal(r.body.data.wildcard, false);
+    assert.equal(probePath, '/v1/domain/%2A.probe-400.com');
+    assert.ok(!mf.calls.some((c) => c.includes('crt.sh')));
+  });
+
+  it('keeps page 1 when a later page is refused', async () => {
+    mf = mockFetch([(u) => {
+      if (!isCtlogs(u)) return undefined;
+      if (u.pathname.startsWith('/v1/domain/%2A.')) return jsonRes({ rows: [], has_next: false, next_cursor: '' });
+      return u.searchParams.get('after') ? jsonRes({ error: 'slow down' }, 429) : jsonRes({ rows: [row('1'), row('2')], has_next: true, next_cursor: 'c1' });
+    }]);
+    const d = (await call('/api/domain/ssl?domain=page-two.com')).body.data;
+    assert.equal(d.source, 'ctlogs.dev');
+    assert.equal(d.total, 2);
+    assert.ok(d.issues.some((i: any) => /stopped answering for the next page/.test(i.message) && /slow down/.test(i.message)));
+  });
+
+  it("shows ctlogs.dev's own error text when it has to fall back", async () => {
+    mf = mockFetch([(u) => (isCtlogs(u) ? jsonRes({ error: 'malformed domain' }, 400) : undefined), (u) => (u.hostname === 'crt.sh' ? jsonRes(crtRows) : undefined)]);
+    const d = (await call('/api/domain/ssl?domain=bad-request.com')).body.data;
+    assert.equal(d.source, 'crt.sh');
+    assert.ok(d.issues.some((i: any) => /HTTP 400: malformed domain/.test(i.message)));
+  });
 
   it('reports both providers when both fail', async () => {
     mf = mockFetch([(u) => (isCtlogs(u) ? new Response('', { status: 503 }) : undefined), (u) => (u.hostname === 'crt.sh' ? new Response('', { status: 502 }) : undefined)]);

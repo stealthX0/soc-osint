@@ -44,25 +44,39 @@ async function ctGet(path: string, key: string | undefined): Promise<CtPage> {
   const headers: Record<string, string> = { 'user-agent': USER_AGENT, accept: 'application/json' };
   if (key) headers.authorization = `Bearer ${key}`;
   const res = await fetch(`${CTLOGS}${path}`, { headers, signal: AbortSignal.timeout(CTLOGS_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try { const j = (await res.json()) as { error?: unknown }; if (typeof j.error === 'string') detail = `: ${j.error.replace(/[\u0000-\u001f]/g, ' ').slice(0, 120)}`; } catch { /* no JSON body */ }
+    throw new Error(`HTTP ${res.status}${detail}`);
+  }
   const json = (await res.json()) as CtPage;
   if (!json || typeof json !== 'object') throw new Error('unexpected response');
   return json;
 }
 
-/** Follows next_cursor for up to `max` pages. Any failure throws, so the caller can fall back to crt.sh. */
+/**
+ * Follows next_cursor for up to `max` pages. If the first page fails this throws, so the caller falls back
+ * to crt.sh. If a later page fails (rate limit, keyless paging limit...) the pages already fetched are kept.
+ */
 async function ctPaged(path: string, key: string | undefined, max: number) {
   const pages: CtPage[] = [];
   let cursor = '';
+  let stopped: string | null = null;
   for (let i = 0; i < max; i++) {
-    const page = await ctGet(cursor ? `${path}${path.includes('?') ? '&' : '?'}after=${encodeURIComponent(cursor)}` : path, key);
-    if (!('rows' in page) && !('hosts' in page)) throw new Error('unexpected response');
-    pages.push(page);
-    if (!page.has_next || !page.next_cursor) break;
-    cursor = page.next_cursor;
+    try {
+      const page = await ctGet(cursor ? `${path}${path.includes('?') ? '&' : '?'}after=${encodeURIComponent(cursor)}` : path, key);
+      if (!('rows' in page) && !('hosts' in page)) throw new Error('unexpected response');
+      pages.push(page);
+      if (!page.has_next || !page.next_cursor) break;
+      cursor = page.next_cursor;
+    } catch (e) {
+      if (i === 0) throw e;
+      stopped = e instanceof Error ? e.message : 'failed';
+      break;
+    }
   }
   const last = pages[pages.length - 1];
-  return { pages, more: !!(last.has_next && last.next_cursor), first: pages[0] };
+  return { pages, more: !!(last.has_next && last.next_cursor) || stopped !== null, stopped, first: pages[0] };
 }
 
 async function fromCtlogs(domain: string, wantSubs: boolean, key: string | undefined): Promise<Fetched> {
@@ -90,13 +104,19 @@ async function fromCtlogs(domain: string, wantSubs: boolean, key: string | undef
     subdomains = [...names].sort().slice(0, 1000);
     hostsMore = hosts.more;
   } else {
-    wildcard = ((await ctGet(`/domain/${encodeURIComponent(`*.${domain}`)}`, key)).rows ?? []).length > 0;
+    // Best effort: a failure here must never discard the certificate list we already have.
+    try {
+      wildcard = ((await ctGet(`/domain/%2A.${enc}`, key)).rows ?? []).length > 0;
+    } catch {
+      wildcard = false;
+    }
   }
 
   const issues: Issue[] = [];
   const days = certs.first.history_window_days;
   if (certs.first.history_truncated) issues.push({ level: 'info', message: `Older certificates exist beyond ctlogs.dev's ${days ?? 90}-day expiry window. crt.sh has the full history.` });
-  if (certs.more) issues.push({ level: 'info', message: `Showing the newest ${entries.length} certificates; more are logged for this name.` });
+  if (certs.stopped) issues.push({ level: 'info', message: `Showing the first ${entries.length} certificates; ctlogs.dev stopped answering for the next page (${certs.stopped}).` });
+  else if (certs.more) issues.push({ level: 'info', message: `Showing the newest ${entries.length} certificates; more are logged for this name.` });
   if (hostsMore) issues.push({ level: 'info', message: 'The subdomain list is capped; more hostnames have certificates under this domain.' });
   return {
     source: 'ctlogs.dev', entries, subdomains, wildcard, issues,
