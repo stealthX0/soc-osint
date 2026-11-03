@@ -13,7 +13,7 @@ A free, account-less web app that merges several public data sources into readab
      │   worker/_lib: doh, safeFetch (SSRF guard), cache, ratelimit, spf
      ▼
  External providers: Cloudflare/Google/Quad9 DoH · ipapi.is (primary; ipwho.is / ipapi.co fallbacks) · RIPEstat · Shodan InternetDB ·
-                     Pulsedive + AbuseIPDB (optional keys) · RDAP (rdap.org) · crt.sh (Certificate Transparency)
+                     Pulsedive + AbuseIPDB (optional keys) · RDAP (rdap.org) · ctlogs.dev (Certificate Transparency, primary) with crt.sh as fallback
 ```
 
 ## Layout
@@ -44,6 +44,7 @@ npm run deploy                                       # typecheck + vite build + 
 npx wrangler secret put IPAPI_IS_API_KEY             # optional: ipapi.is key (primary IP provider works without one; a key raises the quota)
 npx wrangler secret put PULSEDIVE_API_KEY             # optional: Pulsedive, threat-intel risk rating, linked threats and feeds
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
+npx wrangler secret put CTLOGS_API_KEY               # optional: ctlogs.dev, primary Certificate Transparency source (free key: account.ctlogs.dev)
 npx wrangler secret put VIRUSTOTAL_API_KEY           # optional: VirusTotal (free, ~4 req/min), multi-engine verdicts
 ```
 
@@ -64,7 +65,7 @@ All endpoints return `{ ok: true, data, meta }` or `{ ok: false, error: { code, 
 | `GET /api/dns/lookup?name=&type=&resolver=` | `type` = ALL or a record type; an IP is converted to a PTR query |
 | `GET /api/dns/propagation?name=&type=` | compares Cloudflare, Google and Quad9 |
 | `GET /api/domain/whois?domain=` | RDAP (structured WHOIS successor) |
-| `GET /api/domain/ssl?domain=&subdomains=1` | Certificate Transparency history via crt.sh |
+| `GET /api/domain/ssl?domain=&subdomains=1` | Certificate Transparency history via ctlogs.dev (optional `CTLOGS_API_KEY`), falling back to crt.sh if ctlogs.dev errors, times out or is rate limited. The response says which one answered |
 | `GET /api/domain/http?target=` | **active**: redirect chain, security-header grade, cookies, HTTP→HTTPS check |
 | `GET /api/email/auth?domain=&selectors=` | SPF (recursive lookup count), DKIM probe, DMARC (with parent fallback), MX, MTA-STS, grade |
 | `POST /api/email/headers` | `{ "headers": "..." }`: hop trace, auth results, spoofing findings. Nothing stored |

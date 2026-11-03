@@ -13,6 +13,8 @@ export interface Env {
   IPAPI_IS_API_KEY?: string;
   /** Pulsedive API key: threat-intel risk rating, linked threats and feeds for the IP. https://pulsedive.com */
   PULSEDIVE_API_KEY?: string;
+  /** ctlogs.dev API key (optional): primary Certificate Transparency source. Works keyless with a small shared quota; a free key from https://account.ctlogs.dev raises it. */
+  CTLOGS_API_KEY?: string;
   /** VirusTotal API key (free tier: ~4 req/min, 500/day): multi-engine verdicts for the IP. */
   VIRUSTOTAL_API_KEY?: string;
 }

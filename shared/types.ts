@@ -78,7 +78,7 @@ export interface WhoisResult {
 }
 
 export interface CertEntry {
-  id: number;
+  id: number | string;
   commonName: string;
   names: string[];
   issuer: string;
@@ -91,6 +91,8 @@ export interface CertEntry {
 }
 export interface CertResult {
   domain: string;
+  /** Which Certificate Transparency provider answered: ctlogs.dev (primary) or crt.sh (fallback). */
+  source: 'ctlogs.dev' | 'crt.sh';
   total: number;
   active: number;
   certificates: CertEntry[];

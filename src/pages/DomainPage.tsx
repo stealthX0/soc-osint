@@ -73,7 +73,7 @@ export default function DomainPage() {
         <Result state={ssl} idle={<Empty>Enter a domain to list the certificates publicly logged for it.</Empty>}>
           {(d) => (
             <div className="space-y-4">
-              <Card><div className="flex flex-wrap items-center gap-3"><Copyable value={d.domain} /><Badge tone={d.active ? 'good' : 'warn'}>{d.active} valid now</Badge><Badge>{d.total} logged</Badge>{d.wildcard && <Badge tone="info">wildcard issued</Badge>}</div>
+              <Card><div className="flex flex-wrap items-center gap-3"><Copyable value={d.domain} /><Badge tone={d.active ? 'good' : 'warn'}>{d.active} valid now</Badge><Badge>{d.total} logged</Badge><Badge tone={d.source === 'crt.sh' ? 'warn' : 'neutral'}>{d.source === 'crt.sh' ? 'via crt.sh (fallback)' : 'via ctlogs.dev'}</Badge>{d.wildcard && <Badge tone="info">wildcard issued</Badge>}</div>
                 <p className="mt-2 text-xs text-faint">{d.note}</p></Card>
               <Card title="Findings"><IssueList issues={d.issues} empty="No certificate issues found." /></Card>
               {d.issuers.length > 0 && <Card title="Issuers"><div className="flex flex-wrap gap-1.5">{d.issuers.map((i) => <Badge key={i.issuer}>{i.issuer} · {i.count}</Badge>)}</div></Card>}
