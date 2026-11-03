@@ -72,9 +72,6 @@ export default function ResourcesPage() {
   const toolId = params.get('tool') !== null ? Number(params.get('tool')) : null;
   const cat = params.get('cat') !== null ? Number(params.get('cat')) : null;
   const sub = params.get('sub') !== null ? Number(params.get('sub')) : null;
-  const opsec = (params.get('opsec') as Filters['opsec']) || null;
-  const pricing = (params.get('pricing') as Filters['pricing']) || null;
-  const flags = (params.get('flags')?.split(',').filter(Boolean) ?? []) as Flag[];
 
   const index = useMemo(() => buildIndex(RESOURCES), []);
   const [text, setText] = useState(q);
@@ -94,13 +91,13 @@ export default function ResourcesPage() {
     const id = window.setTimeout(() => set({ q: text }, true), 220);
     return () => window.clearTimeout(id);
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => setShown(PAGE), [deferred, cat, sub, opsec, pricing, flags.join()]);
+  useEffect(() => setShown(PAGE), [deferred, cat, sub]);
 
-  const filters: Filters = { ...NO_FILTERS, category: cat, sub, opsec, pricing, flags };
-  const results = useMemo(() => searchIndex(filterTools(index, filters), q), [index, q, cat, sub, opsec, pricing, flags.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filters: Filters = { ...NO_FILTERS, category: cat, sub };
+  const results = useMemo(() => searchIndex(filterTools(index, filters), q), [index, q, cat, sub]); // eslint-disable-line react-hooks/exhaustive-deps
   const selected: Tool | undefined = toolId !== null ? RESOURCES.tools[toolId] : undefined;
   const selectedIt = selected ? index[selected.id] : undefined;
-  const anyFilter = cat !== null || opsec || pricing || flags.length > 0;
+  const anyFilter = cat !== null;
 
   const chip = (active: boolean, label: string, onClick: () => void) => (
     <button key={label} onClick={onClick} aria-pressed={active} className={`rounded-full border px-2.5 py-1 text-xs transition ${active ? 'border-teal/50 bg-teal/15 text-teal' : 'border-line2 text-muted hover:text-fg'}`}>{label}</button>
@@ -114,24 +111,15 @@ export default function ResourcesPage() {
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-teal" />
           <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search tools: phishing, whois, sandbox, breach…" aria-label="Search resources" spellCheck={false} className="h-10 w-full rounded-lg border border-line2 bg-bg2 pl-9 pr-3 text-sm placeholder:text-faint focus:border-teal/60" />
         </div>
-        {anyFilter && <button onClick={() => set({ cat: null, sub: null, opsec: null, pricing: null, flags: null })} className="text-xs text-muted hover:text-fg">Clear filters</button>}
+        {anyFilter && <button onClick={() => set({ cat: null, sub: null })} className="text-xs text-muted hover:text-fg">Clear filters</button>}
       </div>
 
       {cat !== null && (
-        <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Sub-categories">
+        <div className="mb-4 flex flex-wrap gap-1.5" aria-label="Sub-categories">
           {chip(sub === null, `All ${RESOURCES.categories[cat].name}`, () => set({ sub: null }))}
           {RESOURCES.categories[cat].subs.map((s, i) => chip(sub === i, `${s.name} (${s.toolIds.length})`, () => set({ sub: String(i) })))}
         </div>
       )}
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {chip(opsec === 'passive', 'Passive', () => set({ opsec: opsec === 'passive' ? null : 'passive' }))}
-        {chip(opsec === 'active', 'Active', () => set({ opsec: opsec === 'active' ? null : 'active' }))}
-        <span className="mx-1 w-px bg-line" />
-        {chip(pricing === 'free', 'Free', () => set({ pricing: pricing === 'free' ? null : 'free' }))}
-        {chip(pricing === 'freemium', 'Freemium', () => set({ pricing: pricing === 'freemium' ? null : 'freemium' }))}
-        <span className="mx-1 w-px bg-line" />
-        {(['api', 'local', 'reg'] as Flag[]).map((f) => chip(flags.includes(f), FLAG_LABEL[f]!, () => set({ flags: (flags.includes(f) ? flags.filter((x) => x !== f) : [...flags, f]).join(',') || null })))}
-      </div>
 
       <p className="mb-2 text-xs text-faint" aria-live="polite">{results.length} result{results.length === 1 ? '' : 's'}{q ? ` for “${q}”` : ''}</p>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">

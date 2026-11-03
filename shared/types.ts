@@ -66,7 +66,6 @@ export interface WhoisResult {
   domain: string;
   registered: boolean;
   registrar: { name: string | null; ianaId: string | null; url: string | null; abuseEmail: string | null; abusePhone: string | null } | null;
-  registrant: { name: string | null; organization: string | null; country: string | null; redacted: boolean } | null;
   dates: { registered: string | null; updated: string | null; expires: string | null };
   ageDays: number | null;
   daysToExpiry: number | null;

@@ -28,12 +28,6 @@ const vcard = (e: RdapEntity | undefined, field: string): string | null => {
   if (Array.isArray(v)) return v.filter(Boolean).join(', ') || null; // adr is an array
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 };
-const adrCountry = (e: RdapEntity | undefined): string | null => {
-  const adr = e?.vcardArray?.[1]?.find((f) => f[0] === 'adr');
-  const arr = adr?.[3];
-  return Array.isArray(arr) && typeof arr[6] === 'string' && arr[6] ? arr[6] : null;
-};
-const REDACTED = /redacted|privacy|withheld|not disclosed|data protected/i;
 
 /** GET /api/domain/whois?domain=example.com  (RDAP: the structured successor to WHOIS port 43) */
 export const onRequestGet = route(async (ctx) => {
@@ -52,7 +46,7 @@ export const onRequestGet = route(async (ctx) => {
     }
     if (res.status === 404) {
       const out: WhoisResult = {
-        domain, registered: false, registrar: null, registrant: null, dates: { registered: null, updated: null, expires: null },
+        domain, registered: false, registrar: null, dates: { registered: null, updated: null, expires: null },
         ageDays: null, daysToExpiry: null, status: [], nameservers: [], dnssecSigned: null, rdapUrl: null,
         issues: [{ level: 'info', message: 'No RDAP record: the domain is unregistered, or its TLD does not publish RDAP data.' }],
       };
@@ -63,7 +57,6 @@ export const onRequestGet = route(async (ctx) => {
 
     const event = (a: string) => r.events?.find((e) => e.eventAction === a)?.eventDate ?? null;
     const registrarEnt = r.entities?.find((e) => e.roles?.includes('registrar'));
-    const registrantEnt = r.entities?.find((e) => e.roles?.includes('registrant'));
     const abuse = registrarEnt?.entities?.find((e) => e.roles?.includes('abuse'));
     const dates = { registered: event('registration'), updated: event('last changed'), expires: event('expiration') };
     const now = Date.now();
@@ -81,8 +74,6 @@ export const onRequestGet = route(async (ctx) => {
     if (status.some((s) => /hold/i.test(s))) issues.push({ level: 'warn', message: 'Domain is on hold, so it may not resolve.' });
     if (r.secureDNS?.delegationSigned === false) issues.push({ level: 'info', message: 'DNSSEC is not enabled for this domain.' });
 
-    const registrantName = vcard(registrantEnt, 'fn');
-    const registrantOrg = vcard(registrantEnt, 'org');
     const out: WhoisResult = {
       domain: r.ldhName?.toLowerCase() ?? domain,
       registered: true,
@@ -94,9 +85,6 @@ export const onRequestGet = route(async (ctx) => {
             abuseEmail: vcard(abuse, 'email'),
             abusePhone: vcard(abuse, 'tel')?.replace(/^tel:/, '') ?? null,
           }
-        : null,
-      registrant: registrantEnt
-        ? { name: registrantName, organization: registrantOrg, country: adrCountry(registrantEnt), redacted: [registrantName, registrantOrg].some((v) => !!v && REDACTED.test(v)) || (!registrantName && !registrantOrg) }
         : null,
       dates, ageDays, daysToExpiry, status,
       nameservers: (r.nameservers ?? []).map((n) => (n.ldhName ?? '').toLowerCase()).filter(Boolean).sort(),

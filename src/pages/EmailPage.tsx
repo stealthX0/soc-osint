@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, DataTable, IssueList, ProviderStrip, JsonToggle, Empty, Tabs, Grade, Copyable, CopyButton, fmtDate } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, DataTable, IssueList, ProviderStrip, Empty, Tabs, Grade, Copyable, CopyButton, fmtDate } from '../components/ui';
 import { Result } from '../components/Result';
 import { Icon } from '../components/icons';
 import { useApi, useAction } from '../lib/hooks';
@@ -46,7 +46,6 @@ function HeaderAnalyzer() {
               {a.originIp && <p className="mb-3 text-sm">Likely origin: <Copyable value={a.originIp} ioc /> <a className="ml-2 text-teal hover:underline" href={`/ip?q=${a.originIp}`} onClick={(e) => { e.preventDefault(); navigate(`/ip?q=${a.originIp}`); }}>look up</a></p>}
               <DataTable head={['#', 'From', 'By', 'Protocol', 'IPs', 'Time', 'Delay']} rows={a.hops.map((h) => [h.index, <span key="f" className="break-all font-mono text-xs">{h.from ?? '—'}</span>, <span key="b" className="break-all font-mono text-xs">{h.by ?? '—'}</span>, h.with ?? '—', <span key="i" className="font-mono text-xs">{h.ips.map((ip) => <span key={ip} className={h.publicIps.includes(ip) ? 'text-fg' : 'text-faint'}>{ip} </span>)}</span>, fmtDate(h.timestamp)?.replace(' UTC', '') ?? '—', dur(h.delaySeconds)])} empty="No Received headers found." />
             </Card>
-            <JsonToggle data={a} />
           </div>
         )}
       </Result>
@@ -102,7 +101,6 @@ export default function EmailPage() {
                 </Card>
                 <Card title="Mail servers (MX)">{d.mx.length ? <DataTable head={['Priority', 'Host']} rows={d.mx.map((m) => [m.priority, <span key="h" className="font-mono text-[13px]">{m.host}</span>])} /> : <p className="text-sm text-muted">No MX records: the domain does not accept mail.</p>}</Card>
                 <ProviderStrip providers={d.providers} />
-                <JsonToggle data={d} />
               </div>
             )}
           </Result>

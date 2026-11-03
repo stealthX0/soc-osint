@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, DataTable, JsonToggle, Empty, Tabs, CopyButton } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, DataTable, Empty, Tabs, CopyButton } from '../components/ui';
 import { Result } from '../components/Result';
 import { useApi } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
@@ -58,7 +58,6 @@ export default function UtilitiesPage() {
                   ]} />
                   <p className="mt-3 text-xs text-faint">{d.scopeLabel}</p>
                 </Card>
-                <JsonToggle data={d} />
               </div>
             )}
           </Result>

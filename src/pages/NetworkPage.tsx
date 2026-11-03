@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, DataTable, JsonToggle, Empty, Tabs, Copyable } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, DataTable, Empty, Tabs, Copyable } from '../components/ui';
 import { Result } from '../components/Result';
 import { Icon } from '../components/icons';
 import { useApi } from '../lib/hooks';
@@ -49,7 +49,6 @@ export default function NetworkPage() {
                 ) : <Card><p className="text-sm text-rose">All {d.samples.length} requests failed.</p></Card>}
                 <Card title="Samples"><DataTable head={['#', 'Result', 'Status', 'TTFB', 'Total']} rows={d.samples.map((s, i) => [i + 1, <Badge key="r" tone={s.ok ? 'good' : 'bad'}>{s.ok ? 'ok' : 'failed'}</Badge>, s.status ?? s.error ?? '—', s.ttfbMs !== undefined ? `${s.ttfbMs} ms` : '—', s.totalMs !== undefined ? `${s.totalMs} ms` : '—'])} /></Card>
                 <Card title="Vantage point"><KV rows={[['Target', d.address ? `${d.target} (${d.address})` : d.target], ['Measured from', d.vantage.colo ? `Cloudflare ${d.vantage.colo}${d.vantage.country ? ` · ${d.vantage.country}` : ''}` : 'Cloudflare edge']]} /><p className="mt-2 text-xs text-faint">{d.vantage.note}</p></Card>
-                <JsonToggle data={d} />
               </div>
             )}
           </Result>
@@ -67,7 +66,6 @@ export default function NetworkPage() {
                 <Card title={d.cidr}>
                   <KV mono rows={[['Network', d.network], ['Netmask', d.netmask], ['Wildcard', d.wildcard], ['Broadcast', d.broadcast], ['First host', d.firstHost], ['Last host', d.lastHost], ['Total addresses', BigInt(d.totalAddresses).toLocaleString('en-US')], ['Usable hosts', BigInt(d.usableHosts).toLocaleString('en-US')], ['Scope', d.scope]]} />
                 </Card>
-                <JsonToggle data={d} />
               </div>
             )}
           </Result>

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { PageHeader, LookupForm, Card, Badge, DataTable, ProviderStrip, JsonToggle, Empty, Tabs, CopyButton } from '../components/ui';
+import { PageHeader, LookupForm, Card, Badge, DataTable, ProviderStrip, Empty, Tabs, CopyButton } from '../components/ui';
 import { Result } from '../components/Result';
 import { useApi } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
@@ -59,7 +59,6 @@ export default function DnsPage() {
                 </Card>
               ))}
               <ProviderStrip providers={d.providers} />
-              <JsonToggle data={d} />
             </div>
           )}
         </Result>
@@ -82,7 +81,6 @@ export default function DnsPage() {
                 ))}
               </div>
               <p className="text-xs text-faint">{d.note}</p>
-              <JsonToggle data={d} />
             </div>
           )}
         </Result>

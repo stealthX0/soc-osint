@@ -442,7 +442,9 @@ describe('/api/domain/whois', () => {
     assert.equal(d.registrar.ianaId, '376');
     assert.equal(d.registrar.abuseEmail, 'abuse@iana.org');
     assert.deepEqual(d.nameservers, ['a.iana-servers.net', 'b.iana-servers.net']);
-    assert.equal(d.registrant.redacted, true);
+    assert.ok(!('registrant' in d), 'registrant data is neither parsed nor returned');
+    assert.ok(!JSON.stringify(d).includes('REDACTED FOR PRIVACY'));
+    assert.ok(Array.isArray(d.status));
     assert.equal(d.dnssecSigned, true);
     assert.ok(d.ageDays > 10000);
     assert.ok(d.daysToExpiry >= 19 && d.daysToExpiry <= 20);

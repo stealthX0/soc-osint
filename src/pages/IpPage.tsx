@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, Copyable, IssueList, ProviderStrip, JsonToggle, DataTable, Empty } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, Copyable, IssueList, ProviderStrip, DataTable, Empty } from '../components/ui';
 import { Icon } from '../components/icons';
 import { Result } from '../components/Result';
 import { useApi } from '../lib/hooks';
@@ -204,7 +204,6 @@ export default function IpPage() {
             </Card>
 
             <ProviderStrip providers={d.providers} />
-            <JsonToggle data={d} />
           </div>
         )}
       </Result>

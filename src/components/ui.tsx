@@ -234,22 +234,6 @@ export function ProviderStrip({ providers }: { providers: ProviderStatus[] }) {
   );
 }
 
-export function JsonToggle({ data }: { data: unknown }) {
-  const [open, setOpen] = useState(false);
-  const text = JSON.stringify(data, null, 2);
-  return (
-    <div className="mt-4">
-      <button onClick={() => setOpen(!open)} className="text-xs text-muted underline-offset-2 hover:text-teal hover:underline">{open ? 'Hide' : 'Show'} raw JSON</button>
-      {open && (
-        <div className="relative mt-2">
-          <div className="absolute right-2 top-2"><CopyButton text={text} /></div>
-          <pre className="max-h-96 overflow-auto rounded-lg border border-line bg-bg2 p-3 font-mono text-xs text-muted">{text}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function DataTable({ head, rows, empty = 'No records.' }: { head: string[]; rows: ReactNode[][]; empty?: string }) {
   if (!rows.length) return <p className="text-sm text-faint">{empty}</p>;
   return (

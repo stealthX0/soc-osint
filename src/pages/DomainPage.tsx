@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, DataTable, IssueList, ProviderStrip, JsonToggle, Empty, Tabs, Grade, fmtDate, Copyable } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, DataTable, IssueList, ProviderStrip, Empty, Tabs, Grade, fmtDate, Copyable } from '../components/ui';
 import { Result } from '../components/Result';
 import { useApi } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
@@ -57,13 +57,11 @@ export default function DomainPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <Card title="Registration"><KV rows={[['Registered', fmtDate(d.dates.registered)], ['Last changed', fmtDate(d.dates.updated)], ['Expires', d.dates.expires && `${fmtDate(d.dates.expires)}${d.daysToExpiry !== null ? ` (${d.daysToExpiry} days)` : ''}`]]} /></Card>
                   <Card title="Registrar"><KV rows={[['Name', d.registrar?.name], ['IANA ID', d.registrar?.ianaId], ['Abuse e-mail', d.registrar?.abuseEmail], ['Abuse phone', d.registrar?.abusePhone]]} /></Card>
-                  <Card title="Registrant">{d.registrant?.redacted ? <p className="text-sm text-muted">Redacted for privacy (typical since GDPR).</p> : <KV rows={[['Name', d.registrant?.name], ['Organisation', d.registrant?.organization], ['Country', d.registrant?.country]]} />}</Card>
+                  <Card title="EPP status"><div className="flex flex-wrap gap-1.5">{d.status.map((s) => <Badge key={s} tone={/prohibited/i.test(s) ? 'good' : /hold|pendingdelete|redemption/i.test(s) ? 'warn' : 'neutral'}>{s}</Badge>)}{!d.status.length && <span className="text-sm text-faint">none</span>}</div></Card>
                   <Card title="Name servers">{d.nameservers.length ? <ul className="space-y-1 font-mono text-[13px]">{d.nameservers.map((n) => <li key={n}>{n}</li>)}</ul> : <p className="text-sm text-faint">None listed.</p>}</Card>
-                  <Card title="EPP status" className="md:col-span-2"><div className="flex flex-wrap gap-1.5">{d.status.map((s) => <Badge key={s}>{s}</Badge>)}{!d.status.length && <span className="text-sm text-faint">none</span>}</div></Card>
                 </div>
               )}
               <Card title="Findings"><IssueList issues={d.issues} /></Card>
-              <JsonToggle data={d} />
             </div>
           )}
         </Result>
@@ -84,7 +82,6 @@ export default function DomainPage() {
                   c.issuer, fmtDate(c.notBefore)?.slice(0, 10), fmtDate(c.notAfter)?.slice(0, 10)])} /></div>
               </Card>
               {d.subdomains && <Card title={`Subdomains seen in certificates (${d.subdomains.length})`}><div className="flex max-h-72 flex-wrap gap-1.5 overflow-auto">{d.subdomains.map((s) => <Badge key={s}>{s}</Badge>)}</div></Card>}
-              <JsonToggle data={d} />
             </div>
           )}
         </Result>
@@ -113,7 +110,6 @@ export default function DomainPage() {
               {d.server.length > 0 && <Card title="Technology disclosure"><KV mono rows={d.server.map((s) => [s.header, s.value])} /></Card>}
               {d.cookies.length > 0 && <Card title="Cookies"><DataTable head={['Name', 'Secure', 'HttpOnly', 'SameSite']} rows={d.cookies.map((c) => [<span key="n" className="font-mono text-xs">{c.name}</span>, c.secure ? 'yes' : <span key="s" className="text-amber">no</span>, c.httpOnly ? 'yes' : 'no', c.sameSite ?? '—'])} /></Card>}
               <Card title="Findings"><IssueList issues={d.issues} /></Card>
-              <JsonToggle data={d} />
             </div>
           )}
         </Result>
