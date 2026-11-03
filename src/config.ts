@@ -1,5 +1,5 @@
-export const SITE_NAME = 'ThreatLens';
-export const TAGLINE = 'Network intelligence & cybersecurity toolkit';
+export const SITE_NAME = 'Spectrix';
+export const TAGLINE = 'Network Intelligence & CyberSec Toolkit';
 
 export interface NavItem { to: string; label: string; icon: string; blurb: string; group: 'tools' | 'library' }
 
@@ -10,6 +10,6 @@ export const NAV: NavItem[] = [
   { to: '/email', label: 'Email Intelligence', icon: 'mail', blurb: 'SPF, DKIM, DMARC and header analysis', group: 'tools' },
   { to: '/network', label: 'Network Diagnostics', icon: 'pulse', blurb: 'HTTP latency and subnet calculator', group: 'tools' },
   { to: '/utilities', label: 'Utilities', icon: 'wrench', blurb: 'IP conversion, range to CIDR, defang', group: 'tools' },
-  { to: '/resources', label: 'Resource Directory', icon: 'library', blurb: 'Curated OSINT tools and references', group: 'library' },
   { to: '/playbooks', label: 'Playbooks', icon: 'list', blurb: 'Step-by-step investigation routes', group: 'library' },
+  { to: '/resources', label: 'Resource Directory', icon: 'library', blurb: 'Curated OSINT tools and references', group: 'library' },
 ];

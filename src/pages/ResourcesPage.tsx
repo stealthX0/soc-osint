@@ -20,8 +20,8 @@ const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./,
 function ToolRow({ it, selected, onSelect }: { it: IndexedTool; selected: boolean; onSelect: () => void }) {
   const t = it.tool;
   return (
-    <li>
-      <button onClick={onSelect} aria-pressed={selected} className={`w-full rounded-xl border p-3 text-left transition ${selected ? 'border-teal/50 bg-teal/[.07]' : 'border-line bg-panel/90 hover:border-line2'}`}>
+    <li className={`rounded-xl border transition ${selected ? 'border-teal/50 bg-teal/[.07]' : 'border-line bg-panel/90 hover:border-line2'}`}>
+      <button onClick={onSelect} aria-pressed={selected} className="block w-full rounded-t-xl p-3 pb-1 text-left">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium">{t.name}</span>
           {t.opsec && <Badge tone={t.opsec === 'passive' ? 'good' : 'warn'}>{t.opsec}</Badge>}
@@ -29,8 +29,10 @@ function ToolRow({ it, selected, onSelect }: { it: IndexedTool; selected: boolea
           {t.flags.includes('api') && <Badge tone="info">API</Badge>}
         </div>
         {t.description && <p className="mt-1 line-clamp-2 text-sm text-muted">{t.description}</p>}
-        <p className="mt-1 truncate text-[11px] text-faint">{it.path.join(' › ')} · {host(t.url)}</p>
       </button>
+      <div className="px-3 pb-3">
+        <a href={t.url} target="_blank" rel="noopener noreferrer" title={t.url} className="inline-block max-w-full truncate align-top text-xs text-teal hover:underline">{host(t.url)}</a>
+      </div>
     </li>
   );
 }
@@ -115,13 +117,9 @@ export default function ResourcesPage() {
         {anyFilter && <button onClick={() => set({ cat: null, sub: null, opsec: null, pricing: null, flags: null })} className="text-xs text-muted hover:text-fg">Clear filters</button>}
       </div>
 
-      <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Categories">
-        {chip(cat === null, 'All', () => set({ cat: null, sub: null }))}
-        {RESOURCES.categories.map((c, i) => chip(cat === i, c.name, () => set({ cat: String(i), sub: null })))}
-      </div>
       {cat !== null && (
         <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Sub-categories">
-          {chip(sub === null, 'All sub-categories', () => set({ sub: null }))}
+          {chip(sub === null, `All ${RESOURCES.categories[cat].name}`, () => set({ sub: null }))}
           {RESOURCES.categories[cat].subs.map((s, i) => chip(sub === i, `${s.name} (${s.toolIds.length})`, () => set({ sub: String(i) })))}
         </div>
       )}

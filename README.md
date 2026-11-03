@@ -1,4 +1,4 @@
-# ThreatLens: network intelligence & cybersecurity toolkit
+# Spectrix: network intelligence & cybersecurity toolkit
 
 A free, account-less web app that merges several public data sources into readable reports for **IP**, **DNS**,
 **domain**, **e-mail authentication** and **network diagnostics**, plus a curated **resource directory** of

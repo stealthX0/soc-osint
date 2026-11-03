@@ -19,7 +19,7 @@ import { isValidHostname } from '../../shared/domain';
 const ALLOWED_PORTS = new Set([80, 443, 8080, 8443]);
 const BLOCKED_SUFFIX = /\.(local|localhost|internal|lan|home|corp|intranet|private|arpa|onion)$/i;
 
-export const USER_AGENT = 'ThreatLens/1.0 (passive-network-diagnostics)';
+export const USER_AGENT = 'Spectrix/1.0 (passive-network-diagnostics)';
 
 export async function resolveAddresses(host: string): Promise<string[]> {
   const [a, aaaa] = await Promise.allSettled([resolve(host, 'A'), resolve(host, 'AAAA')]);

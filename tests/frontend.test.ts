@@ -92,3 +92,14 @@ describe('router matchPath', () => {
     assert.equal(matchPath('/playbooks/:id', '/playbooks'), null);
   });
 });
+
+describe('sidebar category menu', () => {
+  it('stats.json lists the categories in the same order as resources.json (the menu links by index)', () => {
+    const stats = JSON.parse(readFileSync(new URL('../src/data/stats.json', import.meta.url), 'utf8')) as { perCategory: { id: string; name: string }[] };
+    assert.equal(stats.perCategory.length, data.categories.length);
+    data.categories.forEach((c, i) => {
+      assert.equal(stats.perCategory[i].id, c.id);
+      assert.equal(stats.perCategory[i].name, c.name);
+    });
+  });
+});
