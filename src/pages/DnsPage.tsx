@@ -7,7 +7,7 @@ import { pushRecent } from '../lib/storage';
 import type { DnsLookup, DnsPropagation } from '../../shared/types';
 
 const TYPES = ['ALL', 'A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA', 'CAA', 'SRV', 'PTR', 'DNSKEY', 'DS'];
-const SOURCES: Record<string, string> = { cloudflare: 'Cloudflare 1.1.1.1', google: 'Google 8.8.8.8', quad9: 'Quad9 9.9.9.9' };
+const SOURCES: Record<string, string> = { cloudflare: 'Cloudflare 1.1.1.1', google: 'Google 8.8.8.8' };
 
 const statusTone = (s: string) => (s === 'NOERROR' ? 'good' : s === 'NXDOMAIN' ? 'warn' : 'bad');
 
@@ -63,7 +63,7 @@ export default function DnsPage() {
           )}
         </Result>
       ) : (
-        <Result state={prop} idle={<Empty>Enter a domain to compare what Cloudflare, Google and Quad9 currently return.</Empty>}>
+        <Result state={prop} idle={<Empty>Enter a domain to compare what Cloudflare and Google currently return.</Empty>}>
           {(d) => (
             <div className="space-y-4">
               <Card>

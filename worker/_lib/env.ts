@@ -17,6 +17,12 @@ export interface Env {
   CTLOGS_API_KEY?: string;
   /** VirusTotal API key (free tier: ~4 req/min, 500/day): multi-engine verdicts for the IP. */
   VIRUSTOTAL_API_KEY?: string;
+  /** Optional overrides for the global per-provider quota budgets (see takeProviderBudget). Defaults match free tiers. */
+  VIRUSTOTAL_RPM?: string;
+  VIRUSTOTAL_DAILY?: string;
+  ABUSEIPDB_DAILY?: string;
+  PULSEDIVE_RPM?: string;
+  PULSEDIVE_DAILY?: string;
 }
 
 /** Minimal request context handed to every route handler and to the middleware. */

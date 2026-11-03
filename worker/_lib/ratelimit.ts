@@ -2,7 +2,7 @@ import type { Env } from './env';
 
 export interface RateResult { allowed: boolean; limit: number; remaining: number; resetSeconds: number }
 
-const WINDOW_SECONDS = 60;
+const DEFAULT_WINDOW_SECONDS = 60;
 const memory = new Map<string, { count: number; expires: number }>();
 
 /**
@@ -13,8 +13,15 @@ const memory = new Map<string, { count: number; expires: number }>();
  * - Without KV it falls back to per-isolate memory, which still stops a single client hammering
  *   one isolate but is NOT a global limit. For hard guarantees add a Cloudflare WAF rate-limiting rule.
  */
-export async function rateLimit(env: Env, clientId: string, cost: number, now = Date.now()): Promise<RateResult> {
-  const limit = Math.max(1, Number(env.RATE_LIMIT_PER_MIN) || 60);
+export async function rateLimit(
+  env: Env,
+  clientId: string,
+  cost: number,
+  now = Date.now(),
+  opts: { limit?: number; windowSeconds?: number } = {},
+): Promise<RateResult> {
+  const WINDOW_SECONDS = opts.windowSeconds ?? DEFAULT_WINDOW_SECONDS;
+  const limit = opts.limit ?? Math.max(1, Number(env.RATE_LIMIT_PER_MIN) || 60);
   const windowId = Math.floor(now / 1000 / WINDOW_SECONDS);
   const key = `rl:${clientId}:${windowId}`;
   const resetSeconds = (windowId + 1) * WINDOW_SECONDS - Math.floor(now / 1000);
@@ -50,4 +57,42 @@ export function costFor(pathname: string): number {
   if (pathname.startsWith('/api/email/auth')) return 2;
   if (pathname.startsWith('/api/health')) return 0;
   return 1;
+}
+
+/** Test hook: clears the in-memory fallback counters. */
+export function resetRateLimitMemory(): void {
+  memory.clear();
+}
+
+/**
+ * Upstream free-tier quotas. These are *global* budgets (not per client): once a provider's budget is
+ * spent the lookup simply skips that provider instead of burning the key or getting it throttled.
+ * Defaults match the free tiers; raise them for paid keys with <PROVIDER>_RPM / <PROVIDER>_DAILY vars.
+ * Without a RATE_LIMIT KV binding the counters are per-isolate, so they are best-effort.
+ */
+const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
+  virustotal: { rpm: 4, daily: 450 }, // free tier: 4/min, 500/day
+  abuseipdb: { daily: 900 }, // free tier: 1000/day
+  pulsedive: {},
+};
+
+export async function takeProviderBudget(env: Env, provider: string, now = Date.now()): Promise<{ ok: boolean; why?: string }> {
+  const base = PROVIDER_BUDGETS[provider] ?? {};
+  const vars = env as unknown as Record<string, string | undefined>;
+  const override = (suffix: string): number | undefined => {
+    const n = Number(vars[`${provider.toUpperCase()}_${suffix}`]);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+  };
+  const rpm = override('RPM') ?? base.rpm;
+  const daily = override('DAILY') ?? base.daily;
+
+  if (rpm) {
+    const r = await rateLimit(env, `pb:${provider}:min`, 1, now, { limit: rpm, windowSeconds: 60 });
+    if (!r.allowed) return { ok: false, why: `Request budget reached (${rpm}/min); retry in ${r.resetSeconds}s` };
+  }
+  if (daily) {
+    const r = await rateLimit(env, `pb:${provider}:day`, 1, now, { limit: daily, windowSeconds: 86_400 });
+    if (!r.allowed) return { ok: false, why: `Daily request budget reached (${daily}/day); resets at 00:00 UTC` };
+  }
+  return { ok: true };
 }

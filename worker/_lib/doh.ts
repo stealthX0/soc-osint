@@ -9,11 +9,10 @@ export const RECORD_TYPES: RecordType[] = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAM
 
 const TYPE_NUM: Record<number, string> = { 1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR', 15: 'MX', 16: 'TXT', 28: 'AAAA', 33: 'SRV', 43: 'DS', 48: 'DNSKEY', 257: 'CAA' };
 
-export interface Resolver { id: 'cloudflare' | 'google' | 'quad9'; name: string; url: string }
+export interface Resolver { id: 'cloudflare' | 'google'; name: string; url: string }
 export const RESOLVERS: Record<Resolver['id'], Resolver> = {
   cloudflare: { id: 'cloudflare', name: 'Cloudflare 1.1.1.1', url: 'https://cloudflare-dns.com/dns-query' },
   google: { id: 'google', name: 'Google 8.8.8.8', url: 'https://dns.google/resolve' },
-  quad9: { id: 'quad9', name: 'Quad9 9.9.9.9', url: 'https://dns.quad9.net:5053/dns-query' },
 };
 
 export interface DnsRecord { name: string; type: string; ttl: number; data: string }

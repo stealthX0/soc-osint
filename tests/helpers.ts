@@ -24,7 +24,7 @@ export const jsonRes = (body: unknown, status = 200, headers: Record<string, str
 export function doh(table: Record<string, Record<string, string[]>>, opts: { ad?: boolean } = {}): Handler {
   const TYPE: Record<string, number> = { A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16, AAAA: 28, CAA: 257 };
   return (url) => {
-    if (!/cloudflare-dns\.com|dns\.google|dns\.quad9\.net/.test(url.hostname)) return undefined;
+    if (!/cloudflare-dns\.com|dns\.google/.test(url.hostname)) return undefined;
     const name = url.searchParams.get('name')!.toLowerCase();
     const type = url.searchParams.get('type')!;
     const rows = table[name]?.[type];

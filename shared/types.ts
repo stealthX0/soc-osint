@@ -1,4 +1,4 @@
-/** Wire types shared by the Pages Functions (producers) and the React app (consumers). */
+/** Wire types shared by the Worker API (producers) and the React app (consumers). */
 import type { Issue } from './emailAuth';
 import type { HeaderAudit, CookieInfo } from './security';
 import type { IPScope } from './ip';

@@ -4,6 +4,7 @@ import { cached } from '../../_lib/cache';
 import { param, requireIP } from '../../_lib/input';
 import { fetchJson } from '../../_lib/safeFetch';
 import { resolve } from '../../_lib/doh';
+import { takeProviderBudget } from '../../_lib/ratelimit';
 import type { Env } from '../../_lib/env';
 import { classifyIP, normalizeIP, ptrName } from '../../../shared/ip';
 import type { IpLookup, ProviderStatus } from '../../../shared/types';
@@ -39,6 +40,7 @@ interface VirusTotalIp {
     total_votes?: { harmless?: number; malicious?: number };
   } };
 }
+const CVE_RE = /^CVE-\d{4}-\d{4,}$/i;
 interface InternetDb { ports?: number[]; hostnames?: string[]; vulns?: string[]; tags?: string[]; cpes?: string[] }
 interface AbuseIpDb {
   data?: { abuseConfidenceScore: number; totalReports: number; numDistinctUsers: number; lastReportedAt: string | null; usageType: string | null; isTor?: boolean; isWhitelisted?: boolean | null };
@@ -89,6 +91,18 @@ export const onRequestGet = route(async (ctx) => {
       return Promise.resolve(null);
     };
 
+    // Quota-limited providers go through a global budget so a burst of lookups cannot exhaust a free-tier key.
+    let budgetSkipped = false;
+    const guarded = async <T>(provider: string, name: string, fn: () => Promise<T>): Promise<T | null> => {
+      const b = await takeProviderBudget(env, provider);
+      if (!b.ok) {
+        budgetSkipped = true;
+        providers.push({ name, ok: false, ms: 0, skipped: true, error: b.why });
+        return null;
+      }
+      return track(providers, name, fn);
+    };
+
     const [ipapiis, ripe, idb, abuse, ptr, pd, vt] = await Promise.all([
       // Primary geo/ASN/network-type provider. Works without a key; a key (if configured) is sent only to ipapi.is.
       track(providers, 'ipapi.is (geo/ASN/network type)', async () => {
@@ -108,12 +122,12 @@ export const onRequestGet = route(async (ctx) => {
         }
       }),
       env.ABUSEIPDB_API_KEY
-        ? track(providers, 'AbuseIPDB (reputation)', () =>
+        ? guarded('abuseipdb', 'AbuseIPDB (reputation)', () =>
             fetchJson<AbuseIpDb>(`https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90`, { headers: { Key: env.ABUSEIPDB_API_KEY! } }))
         : skip('AbuseIPDB (reputation)', 'No ABUSEIPDB_API_KEY configured'),
       track(providers, 'DNS PTR', async () => (await resolve(ptrName(ip)!, 'PTR')).answers.filter((a) => a.type === 'PTR').map((a) => a.data)),
       env.PULSEDIVE_API_KEY
-        ? track(providers, 'Pulsedive (threat intel)', async () => {
+        ? guarded('pulsedive', 'Pulsedive (threat intel)', async () => {
             try {
               // Pulsedive takes the key as a query parameter; it is sent only to pulsedive.com.
               return await fetchJson<Pulsedive>(`https://pulsedive.com/api/indicator.php?indicator=${encodeURIComponent(ip)}&key=${encodeURIComponent(env.PULSEDIVE_API_KEY!)}`);
@@ -125,7 +139,7 @@ export const onRequestGet = route(async (ctx) => {
           })
         : skip('Pulsedive (threat intel)', 'No PULSEDIVE_API_KEY configured'),
       env.VIRUSTOTAL_API_KEY
-        ? track(providers, 'VirusTotal (multi-engine verdicts)', async () => {
+        ? guarded('virustotal', 'VirusTotal (multi-engine verdicts)', async () => {
             try {
               return await fetchJson<VirusTotalIp>(`https://www.virustotal.com/api/v3/ip_addresses/${encodeURIComponent(ip)}`, { headers: { 'x-apikey': env.VIRUSTOTAL_API_KEY! } });
             } catch (e) {
@@ -240,7 +254,7 @@ export const onRequestGet = route(async (ctx) => {
         }
       : null;
 
-    const exposure = idb ? { ports: idb.ports ?? [], hostnames: idb.hostnames ?? [], vulns: idb.vulns ?? [], tags: idb.tags ?? [], cpes: idb.cpes ?? [] } : null;
+    const exposure = idb ? { ports: idb.ports ?? [], hostnames: idb.hostnames ?? [], vulns: (idb.vulns ?? []).filter((v) => CVE_RE.test(v)), tags: idb.tags ?? [], cpes: idb.cpes ?? [] } : null;
     const reputation = abuse?.data
       ? {
           abuseConfidence: abuse.data.abuseConfidenceScore, totalReports: abuse.data.totalReports, distinctReporters: abuse.data.numDistinctUsers,
@@ -262,11 +276,11 @@ export const onRequestGet = route(async (ctx) => {
     if ((exposure?.vulns.length ?? 0) > 0) flags.push(`${exposure!.vulns.length} known CVE(s) on exposed services`);
 
     const out: IpLookup = { ...base, geo, network, netType, geoSource, reverseDns: ptr ?? [], exposure, reputation, pulsedive, virustotal, flags, providers };
-    // Cache fully healthy results for an hour. If any provider that actually ran failed (bad key, quota, outage),
-    // keep the result only briefly, so fixing a key or a recovered provider shows up quickly instead of after an hour.
+    // Cache fully healthy results for an hour. If a provider that ran failed (bad key, quota, outage), or one was
+    // skipped because its quota budget is spent, keep the result only briefly so recovery shows up quickly.
     const ran = providers.filter((p) => !p.skipped);
     const failed = ran.filter((p) => !p.ok).length;
-    const ttl = ran.some((p) => p.ok) ? (failed === 0 ? 3600 : 120) : 0;
+    const ttl = ran.some((p) => p.ok) ? (failed === 0 && !budgetSkipped ? 3600 : 120) : 0;
     return { value: out, ttl };
   });
   return ok(value, { cached: hit });

@@ -8,7 +8,7 @@ import { ptrName, parseIP } from '../../../shared/ip';
 
 const ALL: RecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'TXT', 'SOA', 'CAA'];
 
-/** GET /api/dns/lookup?name=example.com&type=ALL|A|MX|...&resolver=cloudflare|google|quad9 */
+/** GET /api/dns/lookup?name=example.com&type=ALL|A|MX|...&resolver=cloudflare|google */
 export const onRequestGet = route(async (ctx) => {
   const url = new URL(ctx.request.url);
   const rawName = param(url, 'name');
@@ -19,7 +19,7 @@ export const onRequestGet = route(async (ctx) => {
 
   const typeParam = (param(url, 'type', 10) || 'ALL').toUpperCase();
   const resolverId = (param(url, 'resolver', 12) || 'cloudflare').toLowerCase() as Resolver['id'];
-  if (!(resolverId in RESOLVERS)) throw badInput('resolver must be cloudflare, google or quad9.');
+  if (!(resolverId in RESOLVERS)) throw badInput('resolver must be cloudflare or google.');
   let types: RecordType[];
   if (ptr) types = ['PTR'];
   else if (typeParam === 'ALL') types = ALL;

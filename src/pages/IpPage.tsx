@@ -7,21 +7,15 @@ import { navigate, useLocation } from '../lib/router';
 import { pushRecent } from '../lib/storage';
 import type { IpLookup, ProviderStatus } from '../../shared/types';
 
-const PIVOTS = (ip: string): [string, string][] => [
-  ['VirusTotal', `https://www.virustotal.com/gui/ip-address/${ip}`],
-  ['Shodan', `https://www.shodan.io/host/${ip}`],
-  ['Pulsedive', `https://pulsedive.com/indicator/?ioc=${btoa(ip)}`],
-  ['AbuseIPDB', `https://www.abuseipdb.com/check/${ip}`],
-  ['Cisco Talos', `https://talosintelligence.com/reputation_center/lookup?search=${ip}`],
-  ['BGP.HE.net', `https://bgp.he.net/ip/${ip}`],
-];
-
 /**
  * Empty state for an optional provider card. A missing key (provider skipped) and a failed call
  * (bad key, quota, outage) look identical when the data is null, so read the provider status.
  */
 function NotAvailable({ providers, provider, secret, extra }: { providers: ProviderStatus[]; provider: string; secret: string; extra?: string }) {
   const p = providers.find((x) => x.name.startsWith(provider));
+  if (p?.skipped && p.error && /budget/i.test(p.error)) {
+    return <p className="text-sm text-amber">{provider} is temporarily paused to protect its API quota ({p.error}). Try again shortly.</p>;
+  }
   if (p && !p.skipped && !p.ok) {
     return (
       <p className="text-sm text-amber">
@@ -90,7 +84,7 @@ export default function IpPage() {
                   <div className="mt-3 border-t border-line pt-3"><KV rows={[['Reverse DNS', d.reverseDns.length ? d.reverseDns.join(', ') : <span className="text-faint">none</span>], ['PTR name', <span key="p" className="text-faint">{d.ptrName}</span>]]} mono /></div>
                 </Card>
 
-                <Card title="Network type (ipapi.is)">
+                <Card title="Network type">
                   {d.netType ? (
                     <div className="space-y-3">
                       <div className="flex flex-wrap gap-1.5">
@@ -109,7 +103,7 @@ export default function IpPage() {
                   ) : <p className="text-sm text-faint">Not available. ipapi.is did not answer, so a fallback provider supplied the location.</p>}
                 </Card>
 
-                <Card title="Passive exposure (Shodan InternetDB)">
+                <Card title="Passive exposure">
                   {d.exposure ? (
                     d.exposure.ports.length + d.exposure.vulns.length + d.exposure.hostnames.length === 0 ? (
                       <p className="text-sm text-muted">No open ports or known vulnerabilities on record. That only means Shodan has not observed any, not that none exist.</p>
@@ -118,7 +112,7 @@ export default function IpPage() {
                         <div><p className="mb-1 text-xs text-muted">Open ports</p><div className="flex flex-wrap gap-1.5">{d.exposure.ports.map((p) => <Badge key={p} tone="info">{p}</Badge>)}</div></div>
                         {d.exposure.vulns.length > 0 && (
                           <div><p className="mb-1 text-xs text-muted">Known CVEs ({d.exposure.vulns.length})</p>
-                            <div className="flex flex-wrap gap-1.5">{d.exposure.vulns.slice(0, 24).map((v) => <a key={v} href={`https://nvd.nist.gov/vuln/detail/${v}`} target="_blank" rel="noopener noreferrer"><Badge tone="bad">{v}</Badge></a>)}</div></div>
+                            <div className="flex flex-wrap gap-1.5">{d.exposure.vulns.slice(0, 24).map((v) => <a key={v} href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(v)}`} target="_blank" rel="noopener noreferrer"><Badge tone="bad">{v}</Badge></a>)}</div></div>
                         )}
                         {d.exposure.hostnames.length > 0 && <KV rows={[['Hostnames', d.exposure.hostnames.join(', ')]]} mono />}
                         {d.exposure.tags.length > 0 && <div className="flex flex-wrap gap-1.5">{d.exposure.tags.map((t) => <Badge key={t}>{t}</Badge>)}</div>}
@@ -127,7 +121,7 @@ export default function IpPage() {
                   ) : <p className="text-sm text-faint">Provider unavailable.</p>}
                 </Card>
 
-                <Card title="Reputation (AbuseIPDB)">
+                <Card title="Reputation">
                   {d.reputation ? (
                     <div className="space-y-3">
                       <div className="flex items-center gap-3">
@@ -136,10 +130,10 @@ export default function IpPage() {
                       </div>
                       <KV rows={[['Reports', `${d.reputation.totalReports} from ${d.reputation.distinctReporters} reporter(s)`], ['Last reported', d.reputation.lastReportedAt], ['Usage type', d.reputation.usageType], ['Tor exit', d.reputation.isTor ? 'yes' : null], ['Allow-listed', d.reputation.isWhitelisted ? 'yes' : null]]} />
                     </div>
-                  ) : <NotAvailable providers={d.providers} provider="AbuseIPDB" secret="ABUSEIPDB_API_KEY" extra=" Use the pivot links below meanwhile." />}
+                  ) : <NotAvailable providers={d.providers} provider="AbuseIPDB" secret="ABUSEIPDB_API_KEY" />}
                 </Card>
 
-                <Card title="Threat intel (Pulsedive)">
+                <Card title="Threat intel">
                   {d.pulsedive ? (
                     d.pulsedive.observed ? (
                       <div className="space-y-3">
@@ -165,7 +159,7 @@ export default function IpPage() {
                   ) : <NotAvailable providers={d.providers} provider="Pulsedive" secret="PULSEDIVE_API_KEY" />}
                 </Card>
 
-                <Card title="Multi-engine verdicts (VirusTotal)" className="md:col-span-2">
+                <Card title="Multi-engine verdicts" className="md:col-span-2">
                   {d.virustotal ? (
                     d.virustotal.observed ? (
                       (() => {
@@ -194,14 +188,6 @@ export default function IpPage() {
                 </Card>
               </div>
             )}
-
-            <Card title="Pivot to other sources" action={<span className="text-[11px] text-faint">opens third-party sites</span>}>
-              <div className="flex flex-wrap gap-2">
-                {PIVOTS(d.ip).map(([n, u]) => (
-                  <a key={n} href={u} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line2 px-2.5 py-1.5 text-sm text-muted hover:border-teal/40 hover:text-teal">{n}<Icon name="ext" size={13} /></a>
-                ))}
-              </div>
-            </Card>
 
             <ProviderStrip providers={d.providers} />
           </div>

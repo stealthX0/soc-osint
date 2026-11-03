@@ -1,5 +1,5 @@
 /**
- * IP / CIDR primitives shared by the Pages Functions and the React app.
+ * IP / CIDR primitives shared by the Worker API and the React app.
  * Pure TypeScript, no runtime dependencies. IPv4 and IPv6 are both handled as BigInt.
  */
 

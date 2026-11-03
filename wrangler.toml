@@ -1,3 +1,5 @@
+# NOTE: this is the deployed Worker's identity (it sets the *.workers.dev URL and owns the secrets).
+# Keep it as is even though the product is called Spectrix; renaming creates a brand-new Worker.
 name = "threatlens"
 main = "worker/index.ts"
 compatibility_date = "2025-09-01"
@@ -10,8 +12,9 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
-# Optional: cross-isolate rate limiting. Create with `npx wrangler kv namespace create RATE_LIMIT`
-# and paste the id below. Without it the API falls back to per-isolate memory counters.
+# Recommended: shared rate limiting + provider quota budgets across isolates. Run `npm run setup:kv` once
+# (it creates the namespace and uncomments this block), then redeploy. Without it the API falls back to
+# per-isolate memory counters, which are only best-effort.
 # [[kv_namespaces]]
 # binding = "RATE_LIMIT"
 # id = "<your-kv-namespace-id>"

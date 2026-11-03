@@ -14,6 +14,7 @@ import { onRequestGet as subnet } from '../worker/api/network/subnet';
 import { onRequestGet as ipConvert } from '../worker/api/util/ip-convert';
 import { onRequestGet as ipRange } from '../worker/api/util/ip-range';
 import { onRequest as middleware } from '../worker/middleware';
+import { resetRateLimitMemory } from '../worker/_lib/ratelimit';
 
 type Fn = (c: never) => Response | Promise<Response>;
 const call = async (fn: unknown, path: string, init?: RequestInit & { env?: Record<string, unknown> }) => {
@@ -22,7 +23,10 @@ const call = async (fn: unknown, path: string, init?: RequestInit & { env?: Reco
 };
 
 let mf: ReturnType<typeof mockFetch> | undefined;
-afterEach(() => mf?.restore());
+afterEach(() => {
+  mf?.restore();
+  resetRateLimitMemory(); // provider quota budgets live in module memory; keep tests independent
+});
 
 describe('error envelope', () => {
   it('rejects bad input with 400 + code', async () => {
@@ -76,17 +80,34 @@ describe('/api/dns/propagation', () => {
     mf = mockFetch([doh({ 'example.com': { A: ['1.2.3.4', '5.6.7.8'] } })]);
     const r = await call(dnsProp, '/api/dns/propagation?name=example.com');
     assert.equal(r.body.data.consistent, true);
-    assert.equal(r.body.data.resolvers.length, 3);
+    assert.equal(r.body.data.resolvers.length, 2);
   });
-  it('detects disagreement and tolerates one failed resolver', async () => {
+  it('detects disagreement between resolvers', async () => {
     mf = mockFetch([
       (u) => (u.hostname === 'dns.google' ? jsonRes({ Status: 0, Answer: [{ name: 'example.com.', type: 1, TTL: 60, data: '9.9.9.9' }] }) : undefined),
-      (u) => (u.hostname === 'dns.quad9.net' ? new Response('', { status: 503 }) : undefined),
       doh({ 'example.com': { A: ['1.2.3.4'] } }),
     ]);
     const r = await call(dnsProp, '/api/dns/propagation?name=example.com');
     assert.equal(r.body.data.consistent, false);
+    assert.equal(r.body.data.resolvers.length, 2);
+  });
+  it('tolerates one failed resolver', async () => {
+    mf = mockFetch([
+      (u) => (u.hostname === 'dns.google' ? new Response('', { status: 503 }) : undefined),
+      doh({ 'example.com': { A: ['1.2.3.4'] } }),
+    ]);
+    const r = await call(dnsProp, '/api/dns/propagation?name=example.com');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.data.consistent, true, 'only responding resolvers are compared');
     assert.ok(r.body.data.resolvers.some((x: any) => x.status === 'ERROR' && x.error));
+  });
+  it('never contacts Quad9, and the quad9 resolver option is rejected', async () => {
+    mf = mockFetch([doh({ 'example.com': { A: ['1.2.3.4'] } })]);
+    await call(dnsProp, '/api/dns/propagation?name=example.com');
+    assert.ok(!mf.calls.some((c) => c.includes('quad9')));
+    const bad = await call(dnsLookup, '/api/dns/lookup?name=example.com&resolver=quad9');
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.error.message, /cloudflare or google/);
   });
 });
 

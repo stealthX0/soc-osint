@@ -12,7 +12,7 @@ A free, account-less web app that merges several public data sources into readab
      │   worker/index.ts → routes.ts → worker/api/{ip,dns,domain,email,network,util}/*.ts   (each wrapped in route())
      │   worker/_lib: doh, safeFetch (SSRF guard), cache, ratelimit, spf
      ▼
- External providers: Cloudflare/Google/Quad9 DoH · ipapi.is (primary; ipwho.is / ipapi.co fallbacks) · RIPEstat · Shodan InternetDB ·
+ External providers: Cloudflare/Google DoH · ipapi.is (primary; ipwho.is / ipapi.co fallbacks) · RIPEstat · Shodan InternetDB ·
                      Pulsedive + AbuseIPDB (optional keys) · RDAP (rdap.org) · ctlogs.dev (Certificate Transparency, primary) with crt.sh as fallback
 ```
 
@@ -51,8 +51,9 @@ npx wrangler secret put VIRUSTOTAL_API_KEY           # optional: VirusTotal (fre
 Or use Workers Builds (dashboard → Workers & Pages → Create → Import a repository): build command `npm run build`,
 deploy command `npx wrangler deploy`.
 Static files in `dist/` are served by the Workers static-assets binding; the Worker only runs for `/api/*`.
-Optional hardening: create a KV namespace, uncomment the `[[kv_namespaces]]` block in `wrangler.toml` for
-cross-isolate rate limits, and add a Cloudflare WAF rate-limiting rule for hard guarantees.
+Recommended hardening: run `npm run setup:kv` once (creates the `RATE_LIMIT` KV namespace and enables the binding in
+`wrangler.toml`), redeploy, and add a Cloudflare WAF rate-limiting rule on `/api/*` for hard guarantees.
+Without KV, rate limits and provider budgets are per-isolate (best effort).
 Note: the edge cache (Cache API) only stores entries on a custom domain, not on `*.workers.dev`.
 
 ## API
@@ -63,7 +64,7 @@ All endpoints return `{ ok: true, data, meta }` or `{ ok: false, error: { code, 
 |---|---|
 | `GET /api/ip/lookup?q=` | geo + ASN + VPN/proxy/Tor/datacenter flags (ipapi.is primary; ipwho.is then ipapi.co only as fallbacks), announced prefix (RIPEstat), Shodan InternetDB exposure, PTR, Pulsedive and AbuseIPDB (if keyed). Omit `q` for the caller's IP. Private ranges never leave the server |
 | `GET /api/dns/lookup?name=&type=&resolver=` | `type` = ALL or a record type; an IP is converted to a PTR query |
-| `GET /api/dns/propagation?name=&type=` | compares Cloudflare, Google and Quad9 |
+| `GET /api/dns/propagation?name=&type=` | compares Cloudflare and Google |
 | `GET /api/domain/whois?domain=` | RDAP (structured WHOIS successor) |
 | `GET /api/domain/ssl?domain=&subdomains=1` | Certificate Transparency history via ctlogs.dev (optional `CTLOGS_API_KEY`), falling back to crt.sh if ctlogs.dev errors, times out or is rate limited. The response says which one answered |
 | `GET /api/domain/http?target=` | **active**: redirect chain, security-header grade, cookies, HTTP→HTTPS check |
@@ -80,13 +81,18 @@ All endpoints return `{ ok: true, data, meta }` or `{ ok: false, error: { code, 
   redirects followed manually with each hop re-validated, size/time/redirect caps. Residual risk: DNS rebinding between check and connect; Workers cannot reach private networks, which bounds impact.
 * **Passive vs active:** DNS, RDAP, CT, IP and e-mail lookups never contact the target. `/domain/http` and `/network/latency` do, and the UI says so.
 * **Rate limiting:** cost-weighted per client (probes cost more). Without a KV binding it is per-isolate (best effort).
+* **Provider quota budgets:** VirusTotal (4/min, 450/day), AbuseIPDB (900/day) and Pulsedive calls draw on a global budget, so a burst of
+  lookups cannot exhaust a free-tier key; when a budget is spent that provider is skipped (shown as paused) and the lookup still works.
+  Raise them for paid keys with `VIRUSTOTAL_RPM`, `VIRUSTOTAL_DAILY`, `ABUSEIPDB_DAILY`, `PULSEDIVE_RPM`, `PULSEDIVE_DAILY` (plain vars in `wrangler.toml`).
+* **Request bodies** (`/api/email/headers`) are read through a bounded stream, so oversized or chunked uploads are rejected early with 413.
+* **Privacy:** looked-up IPs, and your own IP when `q` is omitted, are sent to the IP data providers listed above; the e-mail header analyser sends nothing anywhere.
 * **Secrets:** provider keys live only in Worker secrets; each key is sent only to its own provider. ipapi.is takes its key as a `key` query parameter, Pulsedive a `key` query parameter; request shapes follow the providers' public docs but have not been exercised live.
 * **Privacy:** no accounts, no analytics. Recent lookups and playbook progress live in `localStorage` only.
 
 ## Known limitations (by design of the platform)
 
 * Workers cannot do ICMP ping, traceroute, raw TCP port scans or live TLS handshakes, so latency is HTTP TTFB and certificate data comes from Certificate Transparency logs, not the live server.
-* DNS "propagation" compares three public anycast resolvers, not geographically distributed probes.
+* DNS "propagation" compares two public anycast resolvers, not geographically distributed probes.
 * DKIM selectors cannot be enumerated from DNS; common ones are probed and you can add your own.
 * Free upstream providers have quotas; results are cached at the edge and provider failures are reported per source instead of hidden.
 

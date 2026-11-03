@@ -38,3 +38,35 @@ export function intParam(url: URL, name: string, def: number, min: number, max: 
   if (!Number.isInteger(n) || n < min || n > max) throw badInput(`"${name}" must be an integer between ${min} and ${max}.`);
   return n;
 }
+
+/**
+ * Reads a request body as text but never buffers more than `maxBytes`. Unlike request.text() this also holds for
+ * chunked uploads that send no Content-Length: the stream is cancelled as soon as the cap is exceeded.
+ */
+export async function readTextLimited(request: Request, maxBytes: number): Promise<string> {
+  const tooLarge = () => new ApiError(413, 'PAYLOAD_TOO_LARGE', `Request body must be under ${Math.round(maxBytes / 1000)} KB.`);
+  const declared = Number(request.headers.get('content-length') ?? 0);
+  if (declared > maxBytes) throw tooLarge();
+  if (!request.body) return '';
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    all.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
