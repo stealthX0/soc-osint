@@ -195,7 +195,7 @@ export const onRequestGet = route(async (ctx) => {
     const out: FileReputation = { hash, algo, sha256, virustotal, malwarebazaar, circl: circlOut, hybrid, flags, providers };
     const healthy = providers.some((p) => p.ok);
     const anyObserved = !!(virustotal?.observed || malwarebazaar?.observed || circlOut?.known || hybrid?.observed);
-    return { value: out, ttl: !healthy ? 0 : anyObserved ? 3600 : 300 };
+    return { value: out, ttl: !healthy ? 0 : anyObserved ? 21_600 : 300 };
   });
   return ok(value, { cached: hit });
 });

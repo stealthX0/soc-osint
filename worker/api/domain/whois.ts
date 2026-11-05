@@ -191,7 +191,7 @@ export const onRequestGet = route(async (ctx) => {
 
   const { value, hit } = await cached(ctx, `rdap:${domain}`, async () => {
     const primary = await fromRdap(domain);
-    if (primary.kind === 'found') return { value: primary.out, ttl: 900 };
+    if (primary.kind === 'found') return { value: primary.out, ttl: 21_600 }; // registration data rarely changes: 6 h
 
     const fb = await fromApiLayer(ctx.env, domain);
     if ('out' in fb) return { value: fb.out, ttl: 86_400 }; // one provider credit per domain per day
