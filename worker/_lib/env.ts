@@ -17,12 +17,23 @@ export interface Env {
   CTLOGS_API_KEY?: string;
   /** VirusTotal API key (free tier: ~4 req/min, 500/day): multi-engine verdicts for the IP. */
   VIRUSTOTAL_API_KEY?: string;
+  /** Hybrid Analysis API key (free, https://www.hybrid-analysis.com): sandbox verdict for a SHA-256. */
+  HYBRID_ANALYSIS_API_KEY?: string;
+  /** URL intelligence sources (all optional) */
+  /** abuse.ch Auth-Key (free, https://auth.abuse.ch): one key serves URLhaus (URL Intelligence) and MalwareBazaar (File Analysis). */
+  ABUSECH_AUTH_KEY?: string;
+  GOOGLE_SAFE_BROWSING_API_KEY?: string;
+  URLSCAN_API_KEY?: string;
   /** Optional overrides for the global per-provider quota budgets (see takeProviderBudget). Defaults match free tiers. */
   VIRUSTOTAL_RPM?: string;
   VIRUSTOTAL_DAILY?: string;
   ABUSEIPDB_DAILY?: string;
   PULSEDIVE_RPM?: string;
   PULSEDIVE_DAILY?: string;
+  HYBRIDANALYSIS_RPM?: string;
+  HYBRIDANALYSIS_DAILY?: string;
+  SAFEBROWSING_DAILY?: string;
+  URLSCAN_RPM?: string;
 }
 
 /** Minimal request context handed to every route handler and to the middleware. */

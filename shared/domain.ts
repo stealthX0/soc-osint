@@ -79,7 +79,14 @@ export function detectInput(raw: string): { kind: InputKind; value: string } {
   if (/^(?:[a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})$/i.test(value)) return { kind: 'hash', value };
   if (/^CVE-\d{4}-\d{4,}$/i.test(value)) return { kind: 'cve', value: value.toUpperCase() };
   if (/^AS\d{1,10}$/i.test(value)) return { kind: 'asn', value: value.toUpperCase() };
-  if (/^https?:\/\//i.test(value)) return normalizeHostname(value) ? { kind: 'url', value } : { kind: 'text', value };
+  if (/^https?:\/\//i.test(value)) {
+    if (normalizeHostname(value)) return { kind: 'url', value };
+    try {
+      // URLs whose host is a raw IP (common for malware delivery) are still URLs
+      if (parseIP(new URL(value).hostname.replace(/^\[|\]$/g, ''))) return { kind: 'url', value };
+    } catch { /* not a URL */ }
+    return { kind: 'text', value };
+  }
   const email = parseEmail(value);
   if (email) return { kind: 'email', value };
   const domain = normalizeDomain(value);

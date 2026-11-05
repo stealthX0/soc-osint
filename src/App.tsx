@@ -9,8 +9,10 @@ import { Dashboard } from './pages/Dashboard';
 const IpPage = lazy(() => import('./pages/IpPage'));
 const DnsPage = lazy(() => import('./pages/DnsPage'));
 const DomainPage = lazy(() => import('./pages/DomainPage'));
+const UrlPage = lazy(() => import('./pages/UrlPage'));
 const EmailPage = lazy(() => import('./pages/EmailPage'));
 const NetworkPage = lazy(() => import('./pages/NetworkPage'));
+const FilePage = lazy(() => import('./pages/FilePage'));
 const UtilitiesPage = lazy(() => import('./pages/UtilitiesPage'));
 const ResourcesPage = lazy(() => import('./pages/ResourcesPage'));
 const PlaybooksPage = lazy(() => import('./pages/PlaybooksPage'));
@@ -36,7 +38,9 @@ export function App() {
             { path: '/ip', render: () => <IpPage /> },
             { path: '/dns', render: () => <DnsPage /> },
             { path: '/domain', render: () => <DomainPage /> },
+            { path: '/url', render: () => <UrlPage /> },
             { path: '/email', render: () => <EmailPage /> },
+            { path: '/file', render: () => <FilePage /> },
             { path: '/network', render: () => <NetworkPage /> },
             { path: '/utilities', render: () => <UtilitiesPage /> },
             { path: '/resources', render: () => <ResourcesPage /> },

@@ -1,4 +1,4 @@
-import { detectInput, normalizeHostname, parseEmail, type InputKind } from '../../shared/domain';
+import { detectInput, parseEmail, type InputKind } from '../../shared/domain';
 
 export interface Route { to: string; kind: InputKind; label: string }
 
@@ -13,16 +13,15 @@ export function routeFor(raw: string): Route | null {
       return { to: `/ip?q=${enc(value)}`, kind, label: 'IP lookup' };
     case 'domain':
       return { to: `/domain?q=${enc(value)}`, kind, label: 'Domain intelligence' };
-    case 'url': {
-      const host = normalizeHostname(value);
-      return host ? { to: `/domain?tab=http&q=${enc(host)}`, kind, label: 'HTTP & security headers' } : null;
-    }
+    case 'url':
+      // a full link is checked as a link (threat feeds, heuristics); the domain/HTTP tools stay reachable from the sidebar
+      return { to: `/url?q=${enc(value)}`, kind, label: 'URL intelligence' };
     case 'email': {
       const e = parseEmail(value);
       return e ? { to: `/email?q=${enc(e.domain)}`, kind, label: `Email auth for ${e.domain}` } : null;
     }
     case 'hash':
-      return { to: `/resources?q=${enc('hash')}`, kind, label: 'Hash analysis resources' };
+      return { to: `/file?hash=${enc(value.toLowerCase())}`, kind, label: 'File hash reputation' };
     case 'cve':
       return { to: `/resources?q=${enc('cve')}`, kind, label: 'CVE resources' };
     case 'asn':

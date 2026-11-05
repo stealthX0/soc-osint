@@ -27,6 +27,7 @@ const P: Record<string, string> = {
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   filter: 'M3 5h18l-7 8v6l-4 2v-8z',
   chevron: 'M6 9l6 6 6-6',
+  file: 'M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 17h6',
 };
 
 export type IconName = keyof typeof P | string;

@@ -31,4 +31,8 @@ enabled = true
 #   npx wrangler secret put PULSEDIVE_API_KEY    # Pulsedive: threat-intel risk, linked threats and feeds
 #   npx wrangler secret put ABUSEIPDB_API_KEY    # AbuseIPDB: abuse confidence
 #   npx wrangler secret put CTLOGS_API_KEY       # ctlogs.dev: primary Certificate Transparency source
-#   npx wrangler secret put VIRUSTOTAL_API_KEY   # VirusTotal: multi-engine verdicts
+#   npx wrangler secret put VIRUSTOTAL_API_KEY   # VirusTotal: multi-engine verdicts (IPs, URLs, file hashes and file uploads)
+#   npx wrangler secret put ABUSECH_AUTH_KEY     # abuse.ch Auth-Key (free): URLhaus (URL Intelligence) + MalwareBazaar (File Analysis)
+#   npx wrangler secret put HYBRID_ANALYSIS_API_KEY  # Hybrid Analysis: sandbox verdict for a file SHA-256 (File Analysis)
+#   npx wrangler secret put GOOGLE_SAFE_BROWSING_API_KEY  # Google Safe Browsing (URL Intelligence)
+#   npx wrangler secret put URLSCAN_API_KEY      # urlscan.io (URL Intelligence); search works without it

@@ -227,7 +227,7 @@ export function ProviderStrip({ providers }: { providers: ProviderStatus[] }) {
       <span className="uppercase tracking-wider text-faint">Sources</span>
       {providers.map((p) => (
         <Badge key={p.name} tone={p.skipped ? 'neutral' : p.ok ? 'good' : 'bad'} title={p.error}>
-          <Icon name={p.skipped ? 'info' : p.ok ? 'check' : 'x'} size={11} /> {p.name}{p.ok ? ` · ${p.ms}ms` : p.skipped ? ' · not configured' : ' · failed'}
+          <Icon name={p.skipped ? 'info' : p.ok ? 'check' : 'x'} size={11} /> {p.name}{p.ok ? ` · ${p.ms}ms` : p.skipped ? (/budget/i.test(p.error ?? '') ? ' · paused (quota)' : ' · not configured') : ' · failed'}
         </Badge>
       ))}
     </div>

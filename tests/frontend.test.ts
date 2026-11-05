@@ -69,9 +69,13 @@ describe('omnibox routing', () => {
     assert.equal(to('8.8.8.8'), '/ip?q=8.8.8.8');
     assert.equal(to('2606:4700:4700::1111'), '/ip?q=2606%3A4700%3A4700%3A%3A1111');
     assert.equal(to('Example.com'), '/domain?q=example.com');
-    assert.equal(to('hxxps://evil[.]example[.]com/login?x=1'), '/domain?tab=http&q=evil.example.com');
+    assert.equal(to('hxxps://evil[.]example[.]com/login?x=1'), '/url?q=https%3A%2F%2Fevil.example.com%2Flogin%3Fx%3D1');
+    assert.equal(to('http://203.0.113.9/bins/x.exe'), '/url?q=http%3A%2F%2F203.0.113.9%2Fbins%2Fx.exe');
+    assert.equal(to('http://[2001:db8::1]/a'), '/url?q=http%3A%2F%2F%5B2001%3Adb8%3A%3A1%5D%2Fa');
+    assert.equal(to('https://example.com/a?b=c'), '/url?q=https%3A%2F%2Fexample.com%2Fa%3Fb%3Dc');
     assert.equal(to('bob@Example.com'), '/email?q=example.com');
-    assert.equal(to('d41d8cd98f00b204e9800998ecf8427e'), '/resources?q=hash');
+    assert.equal(to('d41d8cd98f00b204e9800998ecf8427e'), '/file?hash=d41d8cd98f00b204e9800998ecf8427e');
+    assert.equal(to('D41D8CD98F00B204E9800998ECF8427E'), '/file?hash=d41d8cd98f00b204e9800998ecf8427e');
     assert.equal(to('CVE-2021-44228'), '/resources?q=cve');
   });
   it('falls back to directory search for free text and ignores blanks', () => {

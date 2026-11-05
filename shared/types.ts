@@ -44,6 +44,40 @@ export interface IpLookup {
   providers: ProviderStatus[];
 }
 
+/* ----------------------------------------------------------------- File */
+export interface FileReputation {
+  hash: string;
+  algo: 'md5' | 'sha1' | 'sha256';
+  /** Best-known SHA-256 (the input itself, or taken from VirusTotal when an MD5/SHA-1 was given). */
+  sha256: string | null;
+  virustotal: {
+    observed: boolean; malicious: number; suspicious: number; harmless: number; undetected: number;
+    typeDescription: string | null; meaningfulName: string | null; names: string[]; size: number | null;
+    md5: string | null; sha1: string | null; sha256: string | null; reputation: number | null; tags: string[];
+    threatLabel: string | null; threatNames: string[]; threatCategories: string[];
+    firstSeen: string | null; lastAnalysis: string | null; timesSubmitted: number | null; link: string;
+  } | null;
+  malwarebazaar: {
+    observed: boolean; fileName: string | null; fileType: string | null; signature: string | null; tags: string[];
+    firstSeen: string | null; reporter: string | null; deliveryMethod: string | null; originCountry: string | null; clamav: string[]; link: string;
+  } | null;
+  circl: { known: boolean; fileName: string | null; fileSize: number | null; trust: number | null; sources: string[]; knownMalicious: string | null } | null;
+  hybrid: { observed: boolean; verdict: string | null; threatScore: number | null; avDetect: number | null; family: string | null; fileType: string | null; link: string } | null;
+  flags: string[];
+  providers: ProviderStatus[];
+}
+
+export interface FileUploadResult { analysisId: string; sha256: string; size: number; link: string }
+
+export interface FileAnalysisReport {
+  id: string;
+  status: 'queued' | 'in-progress' | 'completed';
+  sha256: string | null;
+  stats: { malicious: number; suspicious: number; harmless: number; undetected: number; timeout: number; total: number } | null;
+  detections: { engine: string; category: string; result: string | null }[];
+  link: string | null;
+}
+
 /* ------------------------------------------------------------------ DNS */
 export interface DnsRecordOut { name: string; type: string; ttl: number; data: string }
 export interface DnsLookup {
@@ -139,4 +173,52 @@ export interface LatencyResult {
   samples: LatencySample[];
   stats: { min: number; avg: number; max: number; jitter: number; successRate: number } | null;
   vantage: { colo: string | null; country: string | null; note: string };
+}
+
+/* ------------------------------------------------------------------ URL */
+export type UrlSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type UrlVerdict = 'malicious' | 'suspicious' | 'no_detections' | 'unknown';
+
+/** One finding. `source` is 'heuristic' for local checks, otherwise the provider that reported it. */
+export interface UrlSignal {
+  id: string;
+  severity: UrlSeverity;
+  source: string;
+  title: string;
+  detail?: string;
+  /** true when an authoritative source confirms the exact URL (enough on its own for a "malicious" verdict) */
+  confirmed?: boolean;
+  link?: string;
+}
+
+export interface UrlTraceHop { url: string; status: number | null; location: string | null; ip: string | null; ms: number; contentType: string | null; download: boolean; error?: string }
+
+export interface UrlLookup {
+  input: string;
+  url: string;
+  lookupUrl: string;
+  parts: {
+    scheme: string; host: string; hostUnicode: string; isIp: boolean; ipObfuscated: boolean; port: number | null;
+    path: string; query: string; hasUserinfo: boolean; registrableDomain: string | null; tld: string | null; platform: string | null;
+  };
+  verdict: UrlVerdict;
+  /** 0-100 risk score (informational; the verdict is decided by the rules in shared/url.ts) */
+  score: number;
+  confidence: 'high' | 'medium' | 'low';
+  summary: string;
+  /** intelligence sources that returned a usable verdict for this URL (not merely a response) */
+  checked: number;
+  attempted: number;
+  signals: UrlSignal[];
+  intel: {
+    urlhaus: { listed: boolean; status: string | null; threat: string | null; tags: string[]; dateAdded: string | null; reference: string | null; host: { listed: boolean; urlCount: number; online: number; blacklists: Record<string, string> } } | null;
+    safeBrowsing: { matches: { threatType: string; platformType: string }[] } | null;
+    cloudflareDns: { blocked: boolean | null; note: string } | null;
+    virustotal: { found: boolean; malicious: number; suspicious: number; harmless: number; undetected: number; engines: string[]; lastAnalysis: string | null; categories: string[]; link: string | null } | null;
+    pulsedive: { observed: boolean; risk: string | null; threats: string[]; feeds: string[]; link: string | null } | null;
+    urlscan: { scans: number; exactMatches: number; latest: { date: string | null; url: string | null; country: string | null; malicious: boolean | null; score: number | null; categories: string[]; brands: string[]; resultUrl: string | null } | null } | null;
+  };
+  domain: { name: string; ageDays: number | null; registered: string | null; registrar: string | null; resolves: boolean | null; addresses: string[] } | null;
+  trace: { performed: boolean; hops: UrlTraceHop[]; finalUrl: string | null; error?: string } | null;
+  providers: ProviderStatus[];
 }

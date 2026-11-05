@@ -36,8 +36,17 @@ export function cleanTxt(data: string): string {
 
 interface RawAnswer { name: string; type: number; TTL: number; data: string }
 
+/** A DoH JSON endpoint. Not every endpoint is offered as a user-selectable resolver (see SECURITY_RESOLVER). */
+export interface DohEndpoint { name: string; url: string }
+
+/** Cloudflare 1.1.1.2: answers 0.0.0.0 / :: for domains it classifies as malware or phishing. Used by URL intelligence only. */
+export const SECURITY_RESOLVER: DohEndpoint = { name: 'Cloudflare Security 1.1.1.2', url: 'https://security.cloudflare-dns.com/dns-query' };
+
 export async function dohQuery(name: string, type: RecordType, resolver: Resolver['id'] = 'cloudflare', timeoutMs = 4000): Promise<DnsAnswer> {
-  const r = RESOLVERS[resolver];
+  return queryEndpoint(RESOLVERS[resolver], name, type, timeoutMs);
+}
+
+export async function queryEndpoint(r: DohEndpoint, name: string, type: RecordType, timeoutMs = 4000): Promise<DnsAnswer> {
   const u = new URL(r.url);
   u.searchParams.set('name', name);
   u.searchParams.set('type', type);

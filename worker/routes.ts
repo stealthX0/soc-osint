@@ -8,10 +8,14 @@ import * as ssl from './api/domain/ssl';
 import * as http from './api/domain/http';
 import * as emailAuth from './api/email/auth';
 import * as emailHeaders from './api/email/headers';
+import * as urlLookup from './api/url/lookup';
 import * as latency from './api/network/latency';
 import * as subnet from './api/network/subnet';
 import * as ipConvert from './api/util/ip-convert';
 import * as ipRange from './api/util/ip-range';
+import * as fileHash from './api/file/hash';
+import * as fileUpload from './api/file/upload';
+import * as fileAnalysis from './api/file/analysis';
 
 type Methods = { onRequestGet?: Handler; onRequestPost?: Handler };
 
@@ -26,10 +30,14 @@ export const ROUTES: Record<string, Methods> = {
   '/api/domain/http': http,
   '/api/email/auth': emailAuth,
   '/api/email/headers': emailHeaders,
+  '/api/url/lookup': urlLookup,
   '/api/network/latency': latency,
   '/api/network/subnet': subnet,
   '/api/util/ip-convert': ipConvert,
   '/api/util/ip-range': ipRange,
+  '/api/file/hash': fileHash,
+  '/api/file/upload': fileUpload,
+  '/api/file/analysis': fileAnalysis,
 };
 
 /** Resolve a handler for method + path, or null. HEAD is served by the GET handler. */
