@@ -77,7 +77,7 @@ const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
   virustotal: { rpm: 4, daily: 450 }, // free tier: 4/min, 500/day
   abuseipdb: { daily: 900 }, // free tier: 1000/day
   pulsedive: {},
-  apilayer: { daily: 90 }, // WHOIS fallback: free plan is 3,000/month (~100/day)
+  apilayer: {}, // WHOIS fallback: no built-in cap (free plan is 3,000/month); set APILAYER_DAILY to add one
   hybridanalysis: { daily: 180 }, // conservative: Hybrid Analysis free keys are quota-limited and vary by account
   safebrowsing: { daily: 9000 }, // Lookup API: 10,000 requests/day
   urlscan: { rpm: 20 }, // anonymous search is limited to ~30/min per source address
