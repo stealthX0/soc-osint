@@ -50,6 +50,7 @@ export default function DomainPage() {
             <div className="space-y-4">
               <Card>
                 <div className="flex flex-wrap items-center gap-3"><Copyable value={d.domain} ioc /><Badge tone={d.registered ? 'good' : 'warn'}>{d.registered ? 'registered' : 'not found'}</Badge>
+                  <Badge tone={d.source === 'apilayer' ? 'warn' : 'neutral'}>{d.source === 'apilayer' ? 'via WHOIS (APILayer fallback)' : 'via RDAP'}</Badge>
                   {d.ageDays !== null && <Badge tone={d.ageDays < 30 ? 'bad' : d.ageDays < 180 ? 'warn' : 'neutral'}>{d.ageDays} days old</Badge>}
                   {d.dnssecSigned !== null && <Badge tone={d.dnssecSigned ? 'good' : 'neutral'}>DNSSEC {d.dnssecSigned ? 'on' : 'off'}</Badge>}</div>
               </Card>

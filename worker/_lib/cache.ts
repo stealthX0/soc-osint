@@ -7,7 +7,7 @@
  * Bump when the shape of any cached value changes. The Cache API outlives deployments, so without a
  * version an old Worker's entries (same key, old JSON shape) are served to the new code until their TTL ends.
  */
-export const CACHE_VERSION = 'v2';
+export const CACHE_VERSION = 'v3';
 
 export interface CacheCtx { waitUntil(p: Promise<unknown>): void }
 

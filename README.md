@@ -42,6 +42,7 @@ npm test
 npx wrangler login
 npm run deploy                                       # typecheck + vite build + wrangler deploy
 npx wrangler secret put IPAPI_IS_API_KEY             # optional: ipapi.is key (primary IP provider works without one; a key raises the quota)
+npx wrangler secret put APILAYER_API_KEY             # optional: APILayer WHOIS, fallback for TLDs without RDAP (.de, .io)
 npx wrangler secret put PULSEDIVE_API_KEY             # optional: Pulsedive, threat-intel risk rating, linked threats and feeds
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
 npx wrangler secret put CTLOGS_API_KEY               # optional: ctlogs.dev, primary Certificate Transparency source (free key: account.ctlogs.dev)
@@ -104,7 +105,7 @@ The **File Analysis** page inspects a file entirely in the browser (`shared/file
 * **Rate limiting:** cost-weighted per client (probes cost more). Without a KV binding it is per-isolate (best effort).
 * **Provider quota budgets:** VirusTotal (4/min, 450/day), AbuseIPDB (900/day) and Pulsedive calls draw on a global budget, so a burst of
   lookups cannot exhaust a free-tier key; when a budget is spent that provider is skipped (shown as paused) and the lookup still works.
-  Raise them for paid keys with `VIRUSTOTAL_RPM`, `VIRUSTOTAL_DAILY`, `ABUSEIPDB_DAILY`, `PULSEDIVE_RPM`, `PULSEDIVE_DAILY`, `SAFEBROWSING_DAILY`, `URLSCAN_RPM` (plain vars in `wrangler.toml`).
+  Raise them for paid keys with `VIRUSTOTAL_RPM`, `VIRUSTOTAL_DAILY`, `ABUSEIPDB_DAILY`, `PULSEDIVE_RPM`, `PULSEDIVE_DAILY`, `APILAYER_DAILY`, `SAFEBROWSING_DAILY`, `URLSCAN_RPM` (plain vars in `wrangler.toml`).
 * **Request bodies** (`/api/email/headers`) are read through a bounded stream, so oversized or chunked uploads are rejected early with 413.
 * **Privacy:** looked-up IPs, and your own IP when `q` is omitted, are sent to the IP data providers listed above; the e-mail header analyser sends nothing anywhere.
 * **Secrets:** provider keys live only in Worker secrets; each key is sent only to its own provider. ipapi.is takes its key as a `key` query parameter, Pulsedive a `key` query parameter; request shapes follow the providers' public docs but have not been exercised live.

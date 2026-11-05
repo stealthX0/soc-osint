@@ -485,6 +485,56 @@ describe('/api/domain/whois', () => {
   });
 });
 
+describe('/api/domain/whois: APILayer fallback', () => {
+  const env = { APILAYER_API_KEY: 'k' };
+  const rdap404 = (u: URL) => (u.hostname === 'rdap.org' ? new Response('', { status: 404 }) : undefined);
+  const layer = (body: unknown, status = 200) => (u: URL, init?: RequestInit) =>
+    u.hostname === 'api.apilayer.com' ? (((init?.headers as Record<string, string>)?.apikey === 'k') ? jsonRes(body, status) : new Response('', { status: 401 })) : undefined;
+
+  it('uses APILayer when RDAP has no record, and maps the fields', async () => {
+    mf = mockFetch([rdap404, layer({ result: { domain_name: 'glo-bal.de', registrar: 'Example Registrar', creation_date: '2020-01-02 03:04:05', expiration_date: ['2099-01-01 00:00:00'], name_servers: ['NS1.EXAMPLE.NET.', 'ns2.example.net'], status: ['connect'], dnssec: 'unsigned' } })]);
+    const d = (await call(whois, '/api/domain/whois?domain=glo-bal.de', { env })).body.data;
+    assert.equal(d.source, 'apilayer');
+    assert.equal(d.registered, true);
+    assert.equal(d.registrar.name, 'Example Registrar');
+    assert.equal(d.dates.registered, '2020-01-02T03:04:05.000Z');
+    assert.deepEqual(d.nameservers, ['ns1.example.net', 'ns2.example.net']);
+    assert.equal(d.dnssecSigned, false);
+    assert.ok(d.ageDays > 1000 && d.daysToExpiry > 1000);
+    assert.ok(d.issues.some((i: any) => /no RDAP record/.test(i.message)));
+  });
+  it('never calls APILayer when RDAP succeeds', async () => {
+    mf = mockFetch([(u) => (u.hostname === 'rdap.org' ? jsonRes(RDAP) : undefined)]);
+    const d = (await call(whois, '/api/domain/whois?domain=example.org', { env })).body.data;
+    assert.equal(d.source, 'rdap');
+    assert.ok(!mf.calls.some((c) => c.includes('apilayer')));
+  });
+  it('without a key the RDAP-404 message stays and APILayer is never contacted', async () => {
+    mf = mockFetch([rdap404]);
+    const d = (await call(whois, '/api/domain/whois?domain=nokey-test.de')).body.data;
+    assert.equal(d.registered, false);
+    assert.ok(!mf.calls.some((c) => c.includes('apilayer')));
+  });
+  it('an empty APILayer answer is reported as "no data", not as a confirmed fact', async () => {
+    mf = mockFetch([rdap404, layer({ result: {} })]);
+    const d = (await call(whois, '/api/domain/whois?domain=empty-test.de', { env })).body.data;
+    assert.equal(d.registered, false);
+    assert.ok(d.issues.some((i: any) => /returned no registration data/.test(i.message)));
+  });
+  it('a rejected key falls back to the honest RDAP message', async () => {
+    mf = mockFetch([rdap404, layer({}, 401)]);
+    const d = (await call(whois, '/api/domain/whois?domain=badkey-test.de', { env: { APILAYER_API_KEY: 'wrong' } })).body.data;
+    assert.equal(d.registered, false);
+    assert.ok(d.issues.some((i: any) => /key was rejected/.test(i.message)));
+  });
+  it('rdap.org outage + fallback answer still gives a result', async () => {
+    mf = mockFetch([(u) => (u.hostname === 'rdap.org' ? new Response('', { status: 503 }) : undefined), layer({ result: { registrar: 'R', creation_date: '2015-05-05' } })]);
+    const d = (await call(whois, '/api/domain/whois?domain=outage-test.io', { env })).body.data;
+    assert.equal(d.source, 'apilayer');
+    assert.equal(d.registrar.name, 'R');
+  });
+});
+
 describe('/api/domain/ssl', () => {
   const now = Date.now();
   const iso = (d: number) => new Date(now + d * 86_400_000).toISOString().replace('Z', '');

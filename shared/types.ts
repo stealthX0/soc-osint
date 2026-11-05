@@ -99,6 +99,8 @@ export interface DnsPropagation {
 export interface WhoisResult {
   domain: string;
   registered: boolean;
+  /** Where the record came from: RDAP (registry data), or the APILayer WHOIS fallback for TLDs without RDAP. */
+  source: 'rdap' | 'apilayer';
   registrar: { name: string | null; ianaId: string | null; url: string | null; abuseEmail: string | null; abusePhone: string | null } | null;
   dates: { registered: string | null; updated: string | null; expires: string | null };
   ageDays: number | null;
