@@ -43,7 +43,7 @@ export const onRequestPost = route(async (ctx) => {
 
   const sha256 = toHex(await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource));
   const form = new FormData();
-  form.append('file', new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' }), name);
+  form.append('file', new Blob([bytes as unknown as ArrayBuffer], { type: 'application/octet-stream' }), name);
   const r = await fetchJson<VtUpload>('https://www.virustotal.com/api/v3/files', {
     method: 'POST', body: form, timeoutMs: 25_000, headers: { 'x-apikey': env.VIRUSTOTAL_API_KEY },
   });
