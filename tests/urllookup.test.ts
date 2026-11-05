@@ -285,15 +285,27 @@ describe('/api/url/lookup: resilience and budgets', () => {
   });
 });
 
-describe('/api/url/lookup: redirect trace (opt-in, SSRF-safe)', () => {
+describe('/api/url/lookup: redirect trace (always on, SSRF-safe)', () => {
   const hop = (host: string, status: number, location?: string, extra: Record<string, string> = {}): Handler =>
     on(host, () => new Response(null, { status, headers: { ...(location ? { location } : {}), ...extra } }));
 
-  it('is off by default: the target is never contacted', async () => {
-    mf = mockFetch(world({ extra: [hop('short-link.net', 302, 'https://evil-site.net/payload.exe')] }));
-    const d = (await call(q('http://short-link.net/abc'), { ...ALL })).body.data;
-    assert.equal(d.trace, null);
-    assert.ok(!mf.calls.some((c) => c.startsWith('http://short-link.net/')), 'no request to the suspect host');
+  it('always runs the trace: no parameter is needed and trace=0 cannot switch it off', async () => {
+    for (const extra of ['', '&trace=0']) {
+      mf = mockFetch(world({ extra: [hop('short-link.net', 302, 'https://evil-site.net/payload.exe'), hop('evil-site.net', 200, undefined, { 'content-type': 'application/x-msdownload' })] }));
+      const d = (await call(q('http://short-link.net/abc', extra), { ...ALL })).body.data;
+      assert.equal(d.trace?.performed, true, `extra="${extra}"`);
+      assert.deepEqual(d.trace?.hops.map((h) => h.status), [302, 200]);
+      assert.ok(mf.calls.some((c) => c.startsWith('http://short-link.net/')), 'the suspect host is requested');
+      assert.ok(d.providers.some((p) => p.name === 'Redirect trace'));
+      mf.restore();
+    }
+  });
+
+  it('never traces private or internal targets, even though the scan is always active', async () => {
+    mf = mockFetch(world());
+    const d = (await call(q('http://192.168.1.10/admin'), { ...ALL })).body.data;
+    assert.equal(d.trace?.performed, false);
+    assert.equal(mf.calls.length, 0);
   });
 
   it('follows the chain, then checks the final destination with the same sources', async () => {

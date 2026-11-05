@@ -60,28 +60,24 @@ function Finding({ s }: { s: UrlSignal }) {
 export default function UrlPage() {
   const { params } = useLocation();
   const q = params.get('q') ?? '';
-  const trace = params.get('trace') === '1';
-  const state = useApi<UrlLookup>('/api/url/lookup', q ? { q, trace: trace ? '1' : '0' } : null);
+  const state = useApi<UrlLookup>('/api/url/lookup', q ? { q } : null);
 
   useEffect(() => {
-    if (state.data) pushRecent({ label: state.data.url.length > 60 ? `${state.data.url.slice(0, 57)}…` : state.data.url, to: `/url?q=${encodeURIComponent(q)}${trace ? '&trace=1' : ''}`, kind: 'URL' });
+    if (state.data) pushRecent({ label: state.data.url.length > 60 ? `${state.data.url.slice(0, 57)}…` : state.data.url, to: `/url?q=${encodeURIComponent(q)}`, kind: 'URL' });
   }, [state.data?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="max-w-5xl">
-      <PageHeader icon="shield" title="URL Intelligence" blurb="Check a link against malware and phishing feeds, blocklists and local analysis before anyone clicks it." badge={<Badge tone={trace ? 'warn' : 'good'}>{trace ? 'active trace' : 'passive'}</Badge>} />
+      <PageHeader icon="shield" title="URL Intelligence" blurb="Check a link against malware and phishing feeds, blocklists and local analysis before anyone clicks it." badge={<Badge tone="warn">active scan</Badge>} />
       <LookupForm
         fields={[
           { name: 'q', label: 'URL', placeholder: 'https://example.com/login  or  hxxps://evil[.]example[.]com/x' },
-          { name: 'trace', label: 'Redirect trace', width: 'basis-60', mono: false, defaultValue: trace ? '1' : '0', options: [{ value: '0', label: 'Off: passive (recommended)' }, { value: '1', label: 'On: visit the link, follow redirects' }] },
         ]}
-        values={{ q, trace: trace ? '1' : '0' }}
+        values={{ q }}
         submitLabel="Check URL"
         busy={state.status === 'loading'}
-        onSubmit={(v) => navigate(v.q ? `/url?q=${encodeURIComponent(v.q)}${v.trace === '1' ? '&trace=1' : ''}` : '/url')}
+        onSubmit={(v) => navigate(v.q ? `/url?q=${encodeURIComponent(v.q)}` : '/url')}
       />
-      <p className="mb-3 flex items-start gap-2 text-[13px] text-muted"><Icon name="info" className="mt-0.5 shrink-0" size={14} /> The full URL (without the #fragment and without any username/password) is sent to the threat-intelligence providers the site operator has enabled. Do not submit links that contain private tokens. Private and internal addresses are analysed locally and never sent anywhere.</p>
-      {trace && <p className="mb-4 flex items-start gap-2 rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber"><Icon name="warn" className="mt-0.5 shrink-0" /> Active trace: this requests the URL from Cloudflare&rsquo;s network (headers only, up to 8 redirects, private addresses refused). If the link carries a recipient-specific token, the sender may see that it was opened. Sites can also show scanners different content than they show people.</p>}
 
       <Result state={state} idle={<Empty>Paste a suspicious link. Defanged forms such as <code className="font-mono">hxxps://evil[.]com</code> are accepted. A clean result means &ldquo;no detections&rdquo;, never &ldquo;safe&rdquo;.</Empty>}>
         {(d) => {

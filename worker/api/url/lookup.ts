@@ -349,57 +349,58 @@ async function gather(env: Env, p: ParsedUrl, suffix = ''): Promise<Gathered> {
 
 /* ------------------------------------------------------------------ endpoint */
 
-/** GET /api/url/lookup?q=<url>&trace=0|1 */
+/**
+ * GET /api/url/lookup?q=<url>
+ * Always an active scan: besides the intelligence sources, the URL is requested (headers only, redirects followed,
+ * private addresses refused at every hop) so the real destination can be checked too.
+ */
 export const onRequestGet = route(async (ctx) => {
   const reqUrl = new URL(ctx.request.url);
   const parsed = parseTargetUrl(param(reqUrl, 'q', MAX_URL_LENGTH + 64));
   if (!parsed.ok) throw badInput(parsed.error);
   const p = parsed.value;
-  const trace = reqUrl.searchParams.get('trace') === '1';
   const env = ctx.env;
 
   // The cache key records which keyed providers are configured, so enabling one is not hidden behind stale entries.
   const cfg = [env.ABUSECH_AUTH_KEY, env.GOOGLE_SAFE_BROWSING_API_KEY, env.VIRUSTOTAL_API_KEY, env.PULSEDIVE_API_KEY, env.URLSCAN_API_KEY].map((k) => (k ? 1 : 0)).join('');
-  const { value, hit } = await cached(ctx, `url:${await sha256Hex(p.lookupUrl)}:${trace ? 1 : 0}:${cfg}`, async () => {
+  const { value, hit } = await cached(ctx, `url:${await sha256Hex(p.lookupUrl)}:active:${cfg}`, async () => {
     const heur = analyzeUrlHeuristics(p);
     const main = await gather(env, p);
     const signals: UrlSignal[] = [...heur, ...main.signals];
     const providers: ProviderStatus[] = [...main.providers];
     let traceOut: UrlLookup['trace'] = null;
 
-    if (trace) {
-      const ext = externalCandidate(p);
-      if (!ext.ok) {
-        traceOut = { performed: false, hops: [], finalUrl: null, error: ext.why };
-      } else {
-        const t0 = Date.now();
-        const tr = await traceUrl(p.lookupUrl);
-        providers.push({ name: N.trace, ok: !tr.error || tr.hops.length > 0, ms: Date.now() - t0, ...(tr.error ? { error: tr.error } : {}) });
-        traceOut = { performed: true, hops: tr.hops, finalUrl: tr.finalUrl, ...(tr.error ? { error: tr.error } : {}) };
+    const ext = externalCandidate(p);
+    if (!ext.ok) {
+      traceOut = { performed: false, hops: [], finalUrl: null, error: ext.why };
+    } else {
+      const t0 = Date.now();
+      const tr = await traceUrl(p.lookupUrl);
+      providers.push({ name: N.trace, ok: !tr.error || tr.hops.length > 0, ms: Date.now() - t0, ...(tr.error ? { error: tr.error } : {}) });
+      traceOut = { performed: true, hops: tr.hops, finalUrl: tr.finalUrl, ...(tr.error ? { error: tr.error } : {}) };
 
-        const redirects = tr.hops.filter((h) => h.status !== null && h.status >= 300 && h.status < 400 && h.location).length;
-        const finalParsed = tr.finalUrl ? parseTargetUrl(tr.finalUrl) : null;
-        const fp = finalParsed?.ok ? finalParsed.value : null;
-        if (redirects > 0 && fp) {
-          signals.push(sig('trace', 'redirects', 'info', `Redirects ${redirects} time${redirects === 1 ? '' : 's'} before the final page`, `Final destination: ${fp.lookupUrl}`));
-          if (fp.registrableDomain && p.registrableDomain && fp.registrableDomain !== p.registrableDomain) {
-            signals.push(sig('trace', 'cross-domain', 'low', `Redirects to a different domain (${fp.registrableDomain})`, 'The link you were given is not where it ends up.'));
-          } else if (fp.isIp && !p.isIp) {
-            signals.push(sig('trace', 'redirect-ip', 'medium', 'Redirects to a raw IP address'));
-          }
-          if (redirects >= 4) signals.push(sig('trace', 'long-chain', 'low', `Long redirect chain (${redirects} hops)`));
+      const redirects = tr.hops.filter((h) => h.status !== null && h.status >= 300 && h.status < 400 && h.location).length;
+      const finalParsed = tr.finalUrl ? parseTargetUrl(tr.finalUrl) : null;
+      const fp = finalParsed?.ok ? finalParsed.value : null;
+      if (redirects > 0 && fp) {
+        signals.push(sig('trace', 'redirects', 'info', `Redirects ${redirects} time${redirects === 1 ? '' : 's'} before the final page`, `Final destination: ${fp.lookupUrl}`));
+        if (fp.registrableDomain && p.registrableDomain && fp.registrableDomain !== p.registrableDomain) {
+          signals.push(sig('trace', 'cross-domain', 'low', `Redirects to a different domain (${fp.registrableDomain})`, 'The link you were given is not where it ends up.'));
+        } else if (fp.isIp && !p.isIp) {
+          signals.push(sig('trace', 'redirect-ip', 'medium', 'Redirects to a raw IP address'));
         }
-        const last = tr.hops[tr.hops.length - 1];
-        if (last?.download) signals.push(sig('trace', 'download', 'medium', 'The final response is a file download', `Content type: ${last.contentType ?? 'unknown'}. Do not open files from links you do not trust.`));
+        if (redirects >= 4) signals.push(sig('trace', 'long-chain', 'low', `Long redirect chain (${redirects} hops)`));
+      }
+      const last = tr.hops[tr.hops.length - 1];
+      if (last?.download) signals.push(sig('trace', 'download', 'medium', 'The final response is a file download', `Content type: ${last.contentType ?? 'unknown'}. Do not open files from links you do not trust.`));
 
-        // The destination is what the victim actually reaches, so check it as well (one level only, never recursive).
-        if (fp && fp.lookupUrl !== p.lookupUrl) {
-          const fin = await gather(env, fp, FINAL);
-          const prefix = (s: UrlSignal): UrlSignal => ({ ...s, id: `final-${s.id}`, title: `Final destination: ${s.title}` });
-          signals.push(...analyzeUrlHeuristics(fp).filter((s) => s.severity !== 'info').map(prefix), ...fin.signals.filter((s) => s.severity !== 'info').map(prefix));
-          // keep the final-URL results, but not the "no key configured" noise a second time
-          providers.push(...fin.providers.filter((x) => !(x.skipped && /No \w+ configured/.test(x.error ?? ''))));
-        }
+      // The destination is what the victim actually reaches, so check it as well (one level only, never recursive).
+      if (fp && fp.lookupUrl !== p.lookupUrl) {
+        const fin = await gather(env, fp, FINAL);
+        const prefix = (s: UrlSignal): UrlSignal => ({ ...s, id: `final-${s.id}`, title: `Final destination: ${s.title}` });
+        signals.push(...analyzeUrlHeuristics(fp).filter((s) => s.severity !== 'info').map(prefix), ...fin.signals.filter((s) => s.severity !== 'info').map(prefix));
+        // keep the final-URL results, but not the "no key configured" noise a second time
+        providers.push(...fin.providers.filter((x) => !(x.skipped && /No \w+ configured/.test(x.error ?? ''))));
       }
     }
 
