@@ -1,38 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Omnibox } from '../components/Omnibox';
-import { Badge, Card, KV } from '../components/ui';
+import { Badge, Card } from '../components/ui';
 import { Icon } from '../components/icons';
 import { Link } from '../lib/router';
 import { NAV, SITE_NAME } from '../config';
-import { api } from '../lib/api';
 import { clearRecent, readRecent, type Recent } from '../lib/storage';
 import stats from '../data/stats.json';
-import type { IpLookup } from '../../shared/types';
-
-function YourConnection() {
-  const [state, setState] = useState<{ s: 'loading' | 'ok' | 'err'; d?: IpLookup }>({ s: 'loading' });
-  useEffect(() => {
-    const ctrl = new AbortController();
-    api<IpLookup>('/api/ip/lookup', { signal: ctrl.signal }).then(
-      (r) => setState({ s: 'ok', d: r.data }),
-      (e) => !(e instanceof DOMException) && setState({ s: 'err' }),
-    );
-    return () => ctrl.abort();
-  }, []);
-  return (
-    <Card title="Your connection" action={state.d && <Link to="/ip?me=1" className="text-xs text-teal hover:underline">Details</Link>}>
-      {state.s === 'loading' && <p className="text-sm text-muted">Detecting…</p>}
-      {state.s === 'err' && <p className="text-sm text-faint">Unavailable (the API may not be running locally).</p>}
-      {state.d && (
-        <KV mono rows={[
-          ['IP', state.d.ip],
-          ['Location', [state.d.geo?.city, state.d.geo?.country].filter(Boolean).join(', ') || null],
-          ['Network', state.d.network ? [state.d.network.asn, state.d.network.org].filter(Boolean).join(' · ') : null],
-        ]} />
-      )}
-    </Card>
-  );
-}
 
 export function Dashboard() {
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -59,8 +32,7 @@ export function Dashboard() {
         ))}
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <YourConnection />
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Resource library" action={<Link to="/resources" className="text-xs text-teal hover:underline">Browse</Link>}>
           <p className="mb-3 text-sm text-muted">A curated directory of {stats.tools} OSINT and security tools with passive/active OpSec ratings, plus {stats.playbooks} investigation playbooks.</p>
           <div className="flex flex-wrap gap-1.5"><Badge tone="good">{stats.passive} passive</Badge><Badge tone="warn">{stats.active} active</Badge><Badge>{stats.free} free</Badge><Badge>{stats.withApi} with API</Badge></div>
