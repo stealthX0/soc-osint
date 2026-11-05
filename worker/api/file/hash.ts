@@ -195,7 +195,12 @@ export const onRequestGet = route(async (ctx) => {
     const out: FileReputation = { hash, algo, sha256, virustotal, malwarebazaar, circl: circlOut, hybrid, flags, providers };
     const healthy = providers.some((p) => p.ok);
     const anyObserved = !!(virustotal?.observed || malwarebazaar?.observed || circlOut?.known || hybrid?.observed);
-    return { value: out, ttl: !healthy ? 0 : anyObserved ? 21_600 : 300 };
+    // A source that is simply not configured (or cannot take this hash type) is a permanent state; one that failed or hit its
+    // quota budget is temporary, so a partial answer is kept only briefly and retried soon instead of being frozen for hours.
+    const degraded = providers.some((p) => !p.ok && !(p.skipped && /configured|Needs a SHA-256/i.test(p.error ?? '')));
+    // Known to 2+ sources: the verdict is settled, cache for 6 h. Known to only one: other providers may still add it, so 1 h.
+    const knownBy = [virustotal?.observed, malwarebazaar?.observed, circlOut?.known, hybrid?.observed].filter(Boolean).length;
+    return { value: out, ttl: !healthy ? 0 : degraded ? 120 : knownBy >= 2 ? 21_600 : knownBy === 1 ? 3600 : 300 };
   });
   return ok(value, { cached: hit });
 });
