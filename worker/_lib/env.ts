@@ -21,11 +21,16 @@ export interface Env {
   HYBRID_ANALYSIS_API_KEY?: string;
   /** APILayer WHOIS API key (free: 3,000 req/month): fallback for TLDs where RDAP has no record (.de, .io, ...). https://marketplace.apilayer.com/whois-api */
   APILAYER_API_KEY?: string;
+  /** EmailRep.io API key (optional): address reputation. Works keyless with a small shared quota; a free key raises it. https://emailrep.io */
+  EMAILREP_API_KEY?: string;
+  EMAILREP_DAILY?: string;
   /** URL intelligence sources (all optional) */
   /** abuse.ch Auth-Key (free, https://auth.abuse.ch): one key serves URLhaus (URL Intelligence) and MalwareBazaar (File Analysis). */
   ABUSECH_AUTH_KEY?: string;
   GOOGLE_SAFE_BROWSING_API_KEY?: string;
   URLSCAN_API_KEY?: string;
+  /** OpenPhish feed URL override (optional, https only). The free community feed (https://openphish.com/feed.txt) is used by default and needs no key. */
+  OPENPHISH_FEED_URL?: string;
   /** Optional overrides for the global per-provider quota budgets (see takeProviderBudget). Defaults match free tiers. */
   VIRUSTOTAL_RPM?: string;
   VIRUSTOTAL_DAILY?: string;
@@ -37,6 +42,7 @@ export interface Env {
   HYBRIDANALYSIS_DAILY?: string;
   SAFEBROWSING_DAILY?: string;
   URLSCAN_RPM?: string;
+  OPENPHISH_DAILY?: string;
 }
 
 /** Minimal request context handed to every route handler and to the middleware. */

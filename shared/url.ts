@@ -211,7 +211,7 @@ export function toUnicodeHost(host: string): string {
 /* ------------------------------------------------------- brands & word lists */
 
 /** Brand token -> registrable domains that legitimately belong to that brand. */
-const BRANDS: Record<string, string[]> = {
+export const BRANDS: Record<string, string[]> = {
   paypal: ['paypal.com', 'paypal.me', 'paypalobjects.com', 'paypal.de', 'paypal.co.uk'],
   apple: ['apple.com', 'icloud.com', 'me.com', 'mzstatic.com', 'cdn-apple.com'],
   icloud: ['icloud.com', 'apple.com'],
@@ -247,7 +247,7 @@ const BRANDS: Record<string, string[]> = {
   github: ['github.com', 'githubusercontent.com', 'github.io', 'githubassets.com'],
 };
 
-const SUSPICIOUS_TLDS = new Set([
+export const SUSPICIOUS_TLDS = new Set([
   'top', 'xyz', 'icu', 'cyou', 'click', 'buzz', 'rest', 'gq', 'cf', 'tk', 'ml', 'ga', 'zip', 'mov', 'cfd', 'sbs', 'quest', 'bond',
   'monster', 'cam', 'kim', 'loan', 'men', 'party', 'review', 'stream', 'trade', 'win', 'download', 'racing', 'accountant', 'science', 'date', 'faith', 'work',
 ]);
@@ -285,9 +285,9 @@ const scriptOf = (ch: string): 'latin' | 'cyrillic' | 'greek' | 'other' | 'neutr
 };
 
 /** Digit/letter swaps used for look-alike domains (paypa1, micr0soft, rnicrosoft, vvhatsapp). */
-const deLeet = (s: string): string => s.replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's').replace(/3/g, 'e').replace(/\$/g, 's');
+export const deLeet = (s: string): string => s.replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's').replace(/3/g, 'e').replace(/\$/g, 's');
 
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const m = a.length, n = b.length;
   if (!m || !n) return Math.max(m, n);
@@ -300,9 +300,9 @@ function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
-const tokens = (s: string): string[] => s.split(/[.\-_]+/).filter(Boolean);
+export const tokens = (s: string): string[] => s.split(/[.\-_]+/).filter(Boolean);
 
-function isOfficial(brand: string, host: string, registrable: string | null): boolean {
+export function isOfficial(brand: string, host: string, registrable: string | null): boolean {
   const official = BRANDS[brand] ?? [];
   if (official.some((d) => host === d || host.endsWith(`.${d}`) || registrable === d)) return true;
   // the brand's own name as the registrable label under an ordinary TLD (google.co.uk, amazon.nl) is assumed to be theirs;
@@ -382,9 +382,11 @@ export function analyzeUrlHeuristics(p: ParsedUrl): UrlSignal[] {
     if (!flagged && !p.platform) {
       // digit/letter swaps (paypa1.com, micr0soft.com, rnicrosoft.com) and one-character typos of long brand names
       const norm = deLeet(regLabel.replace(/-/g, ''));
+      // also each hyphen-separated part on its own: "secure-paypa1-login.xyz" hides "paypa1" inside a longer label
+      const parts = regLabel.split('-').filter((t) => t.length >= 5);
       for (const brand of Object.keys(BRANDS)) {
         if (brand.length < 5 || isOfficial(brand, host, reg)) continue;
-        if (regLabel !== brand && norm === brand) {
+        if (regLabel !== brand && (norm === brand || parts.some((t) => t !== brand && deLeet(t) === brand))) {
           out.push(sig(`squat-${brand}`, 'medium', `Look-alike of "${brand}" using character swaps`, `${regLabel} reads as "${brand}" once digits/letter pairs are normalised (1→l, 0→o, rn→m).`));
           flagged = true;
           break;
@@ -502,3 +504,12 @@ export function assessUrl(signals: UrlSignal[], checked: number, attempted: numb
     summary: `No source flagged this URL (${coverage}). That is not a guarantee of safety: new or targeted threats are often not listed yet.`,
   };
 }
+
+/* ------------------------------------------------- brand table (read-only views) */
+
+/** Brand names the offline heuristics know (lowercase keys such as "paypal", "microsoft"). */
+export const brandNames = (): string[] => Object.keys(BRANDS);
+/** Registrable domains that legitimately belong to a brand (empty for unknown brands). */
+export const brandDomains = (brand: string): readonly string[] => BRANDS[brand] ?? [];
+/** True when `host` (registrable domain `registrable`) is one of the brand's own domains. */
+export const isOfficialBrandHost = (brand: string, host: string, registrable: string | null): boolean => isOfficial(brand, host, registrable);

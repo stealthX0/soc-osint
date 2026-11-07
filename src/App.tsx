@@ -11,6 +11,7 @@ const DnsPage = lazy(() => import('./pages/DnsPage'));
 const DomainPage = lazy(() => import('./pages/DomainPage'));
 const UrlPage = lazy(() => import('./pages/UrlPage'));
 const EmailPage = lazy(() => import('./pages/EmailPage'));
+const PhishingPage = lazy(() => import('./pages/PhishingPage'));
 const NetworkPage = lazy(() => import('./pages/NetworkPage'));
 const FilePage = lazy(() => import('./pages/FilePage'));
 const UtilitiesPage = lazy(() => import('./pages/UtilitiesPage'));
@@ -40,6 +41,7 @@ export function App() {
             { path: '/domain', render: () => <DomainPage /> },
             { path: '/url', render: () => <UrlPage /> },
             { path: '/email', render: () => <EmailPage /> },
+            { path: '/phishing', render: () => <PhishingPage /> },
             { path: '/file', render: () => <FilePage /> },
             { path: '/network', render: () => <NetworkPage /> },
             { path: '/utilities', render: () => <UtilitiesPage /> },

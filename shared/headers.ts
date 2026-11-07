@@ -90,14 +90,17 @@ function parseReceived(value: string, index: number): Hop {
   };
 }
 
-function parseAuthResults(values: string[]): { results: AuthResult[]; authservId: string | null } {
+export function parseAuthResults(values: string[]): { results: AuthResult[]; authservId: string | null } {
   const results: AuthResult[] = [];
   let authservId: string | null = null;
   for (const v of values) {
     const segs = v.split(';').map((s) => s.trim()).filter(Boolean);
     if (!segs.length) continue;
-    authservId ??= segs[0].split(/\s+/)[0] ?? null;
-    for (const seg of segs.slice(1)) {
+    // Microsoft 365 (and a few others) omit the authserv-id: the header starts straight with "spf=pass ...".
+    const head = segs[0].split(/\s+/)[0] ?? '';
+    const hasId = !/^[a-z0-9-]+=/i.test(head);
+    if (hasId) authservId ??= head || null;
+    for (const seg of hasId ? segs.slice(1) : segs) {
       const m = seg.match(/^([a-z0-9-]+)\s*=\s*([a-z]+)\s*(.*)$/i);
       if (!m) continue;
       const props: Record<string, string> = {};

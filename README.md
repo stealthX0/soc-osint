@@ -44,6 +44,7 @@ npm run deploy                                       # typecheck + vite build + 
 npx wrangler secret put IPAPI_IS_API_KEY             # optional: ipapi.is key (primary IP provider works without one; a key raises the quota)
 npx wrangler secret put APILAYER_API_KEY             # optional: APILayer WHOIS, fallback for TLDs without RDAP (.de, .io)
 npx wrangler secret put PULSEDIVE_API_KEY             # optional: Pulsedive, threat-intel risk rating, linked threats and feeds
+npx wrangler secret put EMAILREP_API_KEY              # optional: EmailRep.io, sender e-mail address reputation (works keyless at a small quota)
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
 npx wrangler secret put CTLOGS_API_KEY               # optional: ctlogs.dev, primary Certificate Transparency source (free key: account.ctlogs.dev)
 npx wrangler secret put VIRUSTOTAL_API_KEY           # optional: VirusTotal (free, ~4 req/min), multi-engine verdicts (IPs, URLs, file hashes and file upload scans)
@@ -76,6 +77,12 @@ All endpoints return `{ ok: true, data, meta }` or `{ ok: false, error: { code, 
 | `GET /api/domain/http?target=` | **active**: redirect chain, security-header grade, cookies, HTTP→HTTPS check |
 | `GET /api/email/auth?domain=&selectors=` | SPF (recursive lookup count), DKIM probe, DMARC (with parent fallback), MX, MTA-STS, grade |
 | `POST /api/email/headers` | `{ "headers": "..." }`: hop trace, auth results, spoofing findings. Nothing stored |
+| `POST /api/phishing/parse` | Phishing investigation, step 1: `{ headers, subject, body, sender, urls, attachments }` returns trusted-boundary header forensics, labelled SPF/DKIM/DMARC, MIME body, links (with Safe Links unwrapping), attachment hashes, indicators, local link screening, sender identity (brand / look-alike) analysis, wording analysis (urgency, credential and payment requests, payment redirection, gift cards, extortion, QR and delivery lures; English rules, quoted evidence, indicators not verdicts) and per-check status. No outbound requests, nothing stored |
+| `POST /api/phishing/sender` | Phishing investigation, step 2: one sender lookup per call (`check`: `ip`, `domain`, `auth`, `spf`, `emailrep`). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth`; `spf` re-runs the SPF policy against the connecting IP over DoH. Failed lookups return `status: failed`, never a clean result |
+| `GET /api/email/reputation?email=` | Address-level reputation from EmailRep.io (blacklist / malicious-activity history, disposable, spoofable). The address is sent to emailrep.io |
+| `POST /api/phishing/urls` | Phishing investigation, step 3: `{ links: [{ url, text?, sources?, count? }], context?, deep?, maxDeep? }` de-duplicates and ranks the links, checks all of them against the OpenPhish feed and local heuristics (deceptive link text, look-alike domains, destination vs claimed brand), and runs a full `/api/url/lookup` on the top few only (`maxDeep`, default 2, hard cap 3; name more in `deep` for later batches). Returns ranked links, per-link lookups, findings and per-provider check status. Active scan, cost 8. The page requests one full lookup per call: each lookup makes many outbound requests, and the Workers free plan allows 50 per invocation, so keep `maxDeep` at 1 there |
+| `POST /api/phishing/parse` | Phishing investigation, step 1: `{ headers, subject, body, sender, urls, attachments }` returns trusted-boundary header forensics, labelled SPF/DKIM/DMARC, MIME body, links (with Safe Links unwrapping), attachment hashes, indicators and per-check status. No outbound requests, nothing stored |
+| `POST /api/phishing/attachments` | Phishing investigation, step 4: `{ hash, hashType, filename?, index }` looks up ONE attachment hash through `/api/file/hash` (VirusTotal, MalwareBazaar, CIRCL, Hybrid Analysis) and returns `{ request, findings, checks, data }`. Only the hash is sent; provider failures are 200 with failed/skipped checks. Static analysis of embedded attachments runs in `/api/phishing/parse`. Cost 2 |
 | `GET /api/network/latency?target=&samples=` | **active**: HTTP time-to-first-byte from the Cloudflare edge |
 | `GET /api/network/subnet?cidr=&contains=` | IPv4/IPv6 subnet calculator |
 | `GET /api/file/hash?hash=` | File reputation by MD5/SHA-1/SHA-256 only (no file content): VirusTotal, MalwareBazaar, CIRCL hashlookup (keyless, known files), Hybrid Analysis (SHA-256) |
@@ -95,6 +102,15 @@ The **File Analysis** page inspects a file entirely in the browser (`shared/file
 * **URL checks are always active.** Besides the intelligence sources, the link is requested from Cloudflare's network (headers only, up to 8 redirects, private addresses refused at every hop, response bodies never read) so the real destination can be checked with the same sources. A recipient-specific link may therefore show the sender that it was opened, and sites can cloak from scanners.
 * **Privacy.** The full URL (minus `#fragment` and any username/password) is sent to the providers you enabled. Private/internal hosts and IPs are analysed locally and never leave the Worker. Do not submit links containing private tokens.
 * Provider quota budgets (VirusTotal, Pulsedive, urlscan, Safe Browsing) are shared with the IP lookup; see the quota notes below.
+
+## Phishing Investigation: how the verdict is decided
+
+`/phishing` collects evidence in stages (headers and authentication, sender infrastructure, links, attachments, wording), then `shared/phishing/verdict.ts` turns the findings into one of five outcomes: **Malicious**, **Suspicious**, **Likely legitimate**, **Inconclusive** or **Analysis unavailable**. It is a pure function with a full audit trail ("How was this decided?" on the page).
+
+* **Rules decide, the score guides.** An exact URL confirmed as phishing by a trusted source, a file hash confirmed as malware, two independent sources against the same URL, or impersonation plus an externally flagged destination is Malicious whatever else is missing. SPF / DKIM / DMARC failure alone, or a bad IP alone, is never more than Suspicious.
+* **Coverage is separate from risk.** A lookup that failed, was skipped or never ran lowers confidence and can force Inconclusive; it is never counted as clean. Links that were not investigated, an unassessed attachment, or missing headers each prevent a "likely legitimate" result.
+* **Authentication passes never subtract risk.** They are shown as supporting evidence: an authenticated sender can still send phishing. Findings about shared mail infrastructure (Google, Microsoft, mailing services) are discounted.
+* **Calibration.** The weights and thresholds in `shared/phishing/verdictRules.ts` are initial design values, not validated probabilities. `tests/phishing-step6.test.ts` holds a corpus of scenarios with the verdict an analyst would give: add real, sanitised samples there and adjust the rules until the corpus agrees. A test fails if a stage emits a finding id that has no scoring rule.
 
 ## Security model
 

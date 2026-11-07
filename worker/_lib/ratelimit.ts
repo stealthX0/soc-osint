@@ -58,6 +58,11 @@ export function costFor(pathname: string): number {
   if (pathname.startsWith('/api/file/')) return 3;
   if (pathname.startsWith('/api/url/lookup')) return 3;
   if (pathname.startsWith('/api/email/auth')) return 2;
+  if (pathname.startsWith('/api/email/reputation')) return 2;
+  if (pathname.startsWith('/api/phishing/sender')) return 2; // one upstream lookup per call
+  if (pathname.startsWith('/api/phishing/parse')) return 2; // CPU-heavy parsing, no outbound requests
+  if (pathname.startsWith('/api/phishing/urls')) return 8; // OpenPhish feed + up to 3 full URL lookups (each fans out to many providers)
+  if (pathname.startsWith('/api/phishing/attachments')) return 2; // one hash per request (fans out to up to four providers)
   if (pathname.startsWith('/api/health')) return 0;
   return 1;
 }
@@ -81,6 +86,8 @@ const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
   hybridanalysis: { daily: 180 }, // conservative: Hybrid Analysis free keys are quota-limited and vary by account
   safebrowsing: { daily: 9000 }, // Lookup API: 10,000 requests/day
   urlscan: { rpm: 20 }, // anonymous search is limited to ~30/min per source address
+  emailrep: { daily: 90 }, // keyless and free-key quotas are small; EMAILREP_DAILY overrides
+  openphish: { daily: 300 }, // feed downloads only (the parsed feed is reused for ~30 minutes), never per-URL
 };
 
 export async function takeProviderBudget(env: Env, provider: string, now = Date.now()): Promise<{ ok: boolean; why?: string }> {

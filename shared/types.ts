@@ -224,3 +224,21 @@ export interface UrlLookup {
   trace: { performed: boolean; hops: UrlTraceHop[]; finalUrl: string | null; error?: string } | null;
   providers: ProviderStatus[];
 }
+
+/* -------------------------------------------------- Email address reputation */
+/** Reputation of one e-mail ADDRESS (EmailRep.io). Address-level evidence, not message-level. */
+export interface EmailReputation {
+  email: string;
+  reputation: 'none' | 'low' | 'medium' | 'high' | null;
+  suspicious: boolean;
+  /** How many places on the internet reference the address (more = more established). */
+  references: number;
+  details: {
+    blacklisted: boolean; maliciousActivity: boolean; maliciousActivityRecent: boolean;
+    credentialsLeaked: boolean; dataBreach: boolean; spam: boolean;
+    freeProvider: boolean; disposable: boolean; deliverable: boolean | null; validMx: boolean | null;
+    spoofable: boolean | null; dmarcEnforced: boolean | null; suspiciousTld: boolean; newDomain: boolean;
+    daysSinceDomainCreation: number | null; firstSeen: string | null; lastSeen: string | null; profiles: string[];
+  };
+  providers: ProviderStatus[];
+}
