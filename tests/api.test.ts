@@ -533,6 +533,36 @@ describe('/api/domain/whois: APILayer fallback', () => {
     assert.equal(d.source, 'apilayer');
     assert.equal(d.registrar.name, 'R');
   });
+  const rdap429 = (u: URL) => (u.hostname === 'rdap.org' ? new Response('', { status: 429, headers: { 'retry-after': '0' } }) : undefined);
+  it('RDAP HTTP 429 (retried once, still limited) falls back to APILayer, for a TLD that does have RDAP (.com)', async () => {
+    mf = mockFetch([rdap429, layer({ result: { registrar: 'R', creation_date: '2015-05-05', name_servers: ['ns1.r.net'] } })]);
+    const d = (await call(whois, '/api/domain/whois?domain=limited-test.com', { env })).body.data;
+    assert.equal(d.source, 'apilayer');
+    assert.equal(d.registered, true);
+    assert.ok(d.issues.some((i: any) => /RDAP could not answer \(RDAP service returned HTTP 429\)/.test(i.message)));
+    assert.equal(mf.calls.filter((c) => c.includes('rdap.org')).length, 2, 'one retry, then the fallback');
+  });
+  it('a brief RDAP 429 that clears on the retry never spends a WHOIS-provider credit', async () => {
+    let n = 0;
+    mf = mockFetch([(u) => (u.hostname === 'rdap.org' ? (n++ === 0 ? new Response('', { status: 429, headers: { 'retry-after': '0' } }) : jsonRes(RDAP)) : undefined)]);
+    const d = (await call(whois, '/api/domain/whois?domain=blip-test.org', { env })).body.data;
+    assert.equal(d.source, 'rdap');
+    assert.ok(!mf.calls.some((c) => c.includes('apilayer')));
+  });
+  it('RDAP 429 with no fallback key says so, instead of showing only the RDAP error', async () => {
+    mf = mockFetch([rdap429]);
+    const r = await call(whois, '/api/domain/whois?domain=nokey-429.com');
+    assert.equal(r.body.ok, false);
+    assert.match(r.body.error.message, /HTTP 429/);
+    assert.match(r.body.error.message, /APILAYER_API_KEY is not set/);
+  });
+  it('RDAP 429 and a rejected fallback key reports both causes', async () => {
+    mf = mockFetch([rdap429, layer({}, 401)]);
+    const r = await call(whois, '/api/domain/whois?domain=badkey-429.com', { env: { APILAYER_API_KEY: 'wrong' } });
+    assert.equal(r.body.ok, false);
+    assert.match(r.body.error.message, /HTTP 429/);
+    assert.match(r.body.error.message, /key was rejected/);
+  });
 });
 
 describe('/api/domain/ssl', () => {

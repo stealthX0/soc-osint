@@ -52,13 +52,20 @@ type Primary = { kind: 'found'; out: WhoisResult } | { kind: 'none' } | { kind: 
 
 /** Primary source: RDAP through rdap.org (registry data, free, no key). */
 async function fromRdap(domain: string): Promise<Primary> {
+  const get = () => fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
+    headers: { accept: 'application/rdap+json, application/json', 'user-agent': USER_AGENT },
+    signal: AbortSignal.timeout(8000),
+    redirect: 'follow',
+  });
   let res: Response;
   try {
-    res = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
-      headers: { accept: 'application/rdap+json, application/json', 'user-agent': USER_AGENT },
-      signal: AbortSignal.timeout(8000),
-      redirect: 'follow',
-    });
+    res = await get();
+    if (res.status === 429) {
+      // Rate limited: wait the (capped) Retry-After once and retry, which saves a WHOIS-provider credit when the limit is brief.
+      const ra = Number(res.headers.get('retry-after'));
+      await new Promise((r) => setTimeout(r, Math.min(Number.isFinite(ra) && ra >= 0 ? ra : 1, 2) * 1000));
+      res = await get();
+    }
   } catch {
     return { kind: 'error', error: new ApiError(504, 'UPSTREAM_TIMEOUT', 'The RDAP service did not respond in time.') };
   }
@@ -125,8 +132,8 @@ export function whoisDate(v: unknown): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
-/** Fallback source: APILayer WHOIS (used only when RDAP has no record or fails). Returns null when it cannot answer. */
-async function fromApiLayer(env: Env, domain: string): Promise<{ out: WhoisResult } | { error: string }> {
+/** Fallback source: APILayer WHOIS, used for ANY domain whenever RDAP has no record or fails (HTTP 429, 5xx, timeout, unreadable). `rdapProblem` is why RDAP could not answer, or null when it simply has no record. */
+async function fromApiLayer(env: Env, domain: string, rdapProblem: string | null): Promise<{ out: WhoisResult } | { error: string }> {
   const key = env.APILAYER_API_KEY;
   if (!key) return { error: 'not configured' };
   const budget = await takeProviderBudget(env, 'apilayer');
@@ -178,14 +185,14 @@ async function fromApiLayer(env: Env, domain: string): Promise<{ out: WhoisResul
       registrar: registrarName ? { name: registrarName, ianaId: asStr(pick(r, 'registrar_iana_id', 'iana_id')), url: asStr(pick(r, 'registrar_url')), abuseEmail: asStr(pick(r, 'registrar_abuse_contact_email', 'abuse_email')), abusePhone: asStr(pick(r, 'registrar_abuse_contact_phone', 'abuse_phone')) } : null,
       dates, ageDays, daysToExpiry, status, nameservers, dnssecSigned, rdapUrl: null,
       issues: [
-        { level: 'info', message: 'This TLD has no RDAP record, so the data comes from a WHOIS provider (APILayer). Some fields can be missing because registries restrict what they publish.' },
+        { level: 'info', message: `${rdapProblem ? `RDAP could not answer (${rdapProblem})` : 'This TLD has no RDAP record'}, so the data comes from a WHOIS provider (APILayer). Some fields can be missing because registries restrict what they publish.` },
         ...findings(ageDays, daysToExpiry, status, dnssecSigned === false ? false : null),
       ],
     },
   };
 }
 
-/** GET /api/domain/whois?domain=example.com  (RDAP first; APILayer WHOIS only as a fallback when RDAP has no record) */
+/** GET /api/domain/whois?domain=example.com  (RDAP first; APILayer WHOIS as the fallback for any domain when RDAP has no record or fails, including HTTP 429) */
 export const onRequestGet = route(async (ctx) => {
   const domain = requireDomain(new URL(ctx.request.url));
 
@@ -193,10 +200,14 @@ export const onRequestGet = route(async (ctx) => {
     const primary = await fromRdap(domain);
     if (primary.kind === 'found') return { value: primary.out, ttl: 21_600 }; // registration data rarely changes: 6 h
 
-    const fb = await fromApiLayer(ctx.env, domain);
+    const fb = await fromApiLayer(ctx.env, domain, primary.kind === 'error' ? primary.error.message.replace(/\.$/, '') : null);
     if ('out' in fb) return { value: fb.out, ttl: 86_400 }; // one provider credit per domain per day
 
-    if (primary.kind === 'error') throw primary.error;
+    if (primary.kind === 'error') {
+      // Both sources failed: say why the fallback could not help instead of showing only the RDAP error (failures are not cached).
+      const fbWhy = fb.error === 'not configured' ? 'the WHOIS fallback is not configured (APILAYER_API_KEY is not set)' : `the WHOIS fallback also failed (${fb.error})`;
+      throw new ApiError(primary.error.status, primary.error.code, `${primary.error.message} Also, ${fbWhy}.`);
+    }
     // RDAP has no record and the fallback could not answer: say so honestly rather than claiming "unregistered".
     const why = fb.error === 'not configured' ? '' : ` The WHOIS fallback could not be used (${fb.error}).`;
     const out: WhoisResult = {

@@ -183,10 +183,10 @@ Subject: x`;
     assert.ok(!plan.requests.some((q) => q.check === 'usercheck'));
     assert.ok(plan.skipped.some((c) => c.id === 'sender.usercheck' && c.status === 'not_applicable'));
   });
-  it('plans nothing risky for a message with no headers and a free-mail sender', async () => {
+  it('for a message with no headers and a free-mail sender, plans only the address check (no IP or domain lookups)', async () => {
     const r = await parseSubmission({ body: 'hi', sender: { email: 'x@gmail.com' } });
     const plan = planSenderChecks(r);
-    assert.deepEqual(plan.requests, []);
+    assert.deepEqual(plan.requests, [{ check: 'usercheck', email: 'x@gmail.com', roles: ['supplied'] }]);
   });
 });
 
