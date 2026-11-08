@@ -23,13 +23,31 @@ export function useSenderStage(parse: ParseStageResult) {
     setSlots(plan.requests.map((req) => ({ req, state: 'running' as const })));
     setFinishedAt(null);
     let next = 0;
+    // UserCheck plans have a request-rate limit: its address checks go one at a time, and one that is rate limited is retried once.
+    let ucTail: Promise<unknown> = Promise.resolve();
+    const send = (req: SenderCheckRequest) => api<SenderCheckResponse>('/api/phishing/sender', { method: 'POST', body: req, signal: ac.signal });
+    const sendUserCheck = async (req: SenderCheckRequest) => {
+      const first = await send(req);
+      const c = first.data.checks[0];
+      if (c?.status === 'failed' && /rate limit/i.test(c.detail ?? '') && !ac.signal.aborted) {
+        await new Promise((res) => setTimeout(res, 1500));
+        return send(req);
+      }
+      return first;
+    };
+    const dispatch = (req: SenderCheckRequest) => {
+      if (req.check !== 'usercheck') return send(req);
+      const p = ucTail.then(() => sendUserCheck(req));
+      ucTail = p.catch(() => undefined);
+      return p;
+    };
     const worker = async () => {
       while (next < plan.requests.length && !ac.signal.aborted) {
         const i = next++;
         const req = plan.requests[i];
         let patch: Partial<Slot>;
         try {
-          const { data } = await api<SenderCheckResponse>('/api/phishing/sender', { method: 'POST', body: req, signal: ac.signal });
+          const { data } = await dispatch(req);
           patch = { state: 'done', res: data };
         } catch (e) {
           if (ac.signal.aborted) return;

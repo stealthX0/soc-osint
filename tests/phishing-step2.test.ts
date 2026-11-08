@@ -266,7 +266,7 @@ describe('GET /api/email/usercheck', () => {
     assert.equal(j.data.disposable, true);
     assert.equal(j.data.spam, true);
     assert.equal(seenAuth, 'Bearer secret-key');
-    assert.equal(seenUrl, '/email/a%40evil.example');
+    assert.equal(seenUrl, '/email/a@evil.example');
   });
   it('validates the address', async () => {
     const res = await worker.fetch(new Request('https://app.test/api/email/usercheck?email=nope'), env, exec);

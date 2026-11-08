@@ -48,7 +48,7 @@ export const onRequestGet = route(async (ctx) => {
     const b = await takeProviderBudget(env, 'usercheck');
     if (!b.ok) throw new ApiError(429, 'PROVIDER_BUDGET', `UserCheck budget reached: ${b.why}.`);
     const t0 = Date.now();
-    const r = await fetchJson<UserCheckRaw>(`https://api.usercheck.com/email/${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${key}` } });
+    const r = await fetchJson<UserCheckRaw>(`https://api.usercheck.com/email/${encodeURIComponent(email).replace(/%40/g, '@')}`, { headers: { Authorization: `Bearer ${key}` } });
     const out: EmailCheck = {
       email,
       domain: str(r.domain) ?? parsed.domain.toLowerCase(),
