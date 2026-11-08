@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PageHeader, Badge, Empty, Spinner, ErrorBox } from '../components/ui';
+import { Icon } from '../components/icons';
 import { useAction } from '../lib/hooks';
 import { api } from '../lib/api';
 import { useStored } from '../lib/storage';
@@ -26,18 +27,43 @@ export default function PhishingPage() {
     return act.run(input);
   };
 
+  /** Whether the analysis has been triggered (loading, error, or success). */
+  const analysing = act.status !== 'idle';
+
+  const resetToForm = () => {
+    act.reset();
+    setSubmitted(null);
+  };
+
   return (
     <div className="ph-page max-w-5xl">
-      <PageHeader icon="eye" title="Phishing Investigation" blurb="Paste a suspicious email and collect the evidence: where it really came from, whether it authenticates, and where its links lead." badge={<Badge tone="warn">preview</Badge>} />
-      <InputForm f={f} setF={setF} files={files} setFiles={setFiles} onSubmit={submit} busy={act.status === 'loading'} />
-      <div className="mb-6"><HistoryPanel enabled={historyOn} setEnabled={setHistoryOn} version={historyVersion} onChange={() => setHistoryVersion((v) => v + 1)} /></div>
+      <PageHeader icon="eye" title="Phishing Investigation" blurb={analysing ? undefined : 'Paste a suspicious email and collect the evidence: where it really came from, whether it authenticates, and where its links lead.'} badge={<Badge tone="warn">preview</Badge>} />
 
-      {act.status === 'loading' && <Spinner label="Parsing the message" />}
-      {act.status === 'error' && act.error && <ErrorBox error={act.error} onRetry={submit} />}
-      {act.status === 'success' && act.data && submitted && (
-        <ResultsShell key={submitted.id} r={act.data} input={submitted.input} files={submitted.files} startedAt={submitted.at} historyEnabled={submitted.history} onHistorySaved={() => setHistoryVersion((v) => v + 1)} />
+      {/* ── Input form: visible only before Analyse is pressed ── */}
+      {!analysing && (
+        <>
+          <InputForm f={f} setF={setF} files={files} setFiles={setFiles} onSubmit={submit} busy={act.status === 'loading'} />
+          <div className="mb-6"><HistoryPanel enabled={historyOn} setEnabled={setHistoryOn} version={historyVersion} onChange={() => setHistoryVersion((v) => v + 1)} /></div>
+          <Empty>Paste at least the email headers, or a sender, link or attachment, then choose Analyse email. Or load the example to see how a report looks.</Empty>
+        </>
       )}
-      {act.status === 'idle' && <Empty>Paste at least the email headers, or a sender, link or attachment, then choose Analyse email. Or load the example to see how a report looks.</Empty>}
+
+      {/* ── Results: replace the entire page content once analysis starts ── */}
+      {analysing && (
+        <>
+          <div className="mb-4">
+            <button type="button" onClick={resetToForm} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line2 px-3 text-xs text-fg hover:border-teal/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal">
+              <Icon name="arrow" size={13} className="rotate-180" /> New analysis
+            </button>
+          </div>
+
+          {act.status === 'loading' && <Spinner label="Parsing the message" />}
+          {act.status === 'error' && act.error && <ErrorBox error={act.error} onRetry={submit} />}
+          {act.status === 'success' && act.data && submitted && (
+            <ResultsShell key={submitted.id} r={act.data} input={submitted.input} files={submitted.files} startedAt={submitted.at} historyEnabled={submitted.history} onHistorySaved={() => setHistoryVersion((v) => v + 1)} />
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -63,6 +63,11 @@ export function useAction<T, A>(fn: (arg: A, signal: AbortSignal) => Promise<T>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  const reset = useCallback(() => {
+    ctrl.current?.abort();
+    ctrl.current = null;
+    setState({ status: 'idle', data: null, error: null });
+  }, []);
   useEffect(() => () => ctrl.current?.abort(), []);
-  return { ...state, run };
+  return { ...state, run, reset };
 }
