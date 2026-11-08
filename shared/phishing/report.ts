@@ -47,7 +47,7 @@ export interface Report {
   conflicts: string[];
   gaps: { critical: boolean; text: string }[];
   actions: string[];
-  message: { from: string | null; fromDomain: string | null; subject: string | null; date: string | null; origin: string | null; connectingIp: string | null; linkCount: number; attachmentCount: number; headersSupplied: boolean };
+  message: { from: string | null; fromDomain: string | null; subject: string | null; date: string | null; connectingIp: string | null; linkCount: number; attachmentCount: number; headersSupplied: boolean };
   indicators: { type: string; value: string; reason: string | null; severity: Severity | null }[];
   findings: ReportFinding[];
   checks: ReportCheck[];
@@ -133,7 +133,7 @@ export function buildReport(input: ReportInput): Report {
     actions: v.actions.slice(0, 20).map((a) => d(a, 300) ?? ''),
     message: {
       from: d(fx?.summary.from ?? fromEmail, 200), fromDomain: d(fromDomain, 120), subject: d(parse.content.subject ?? fx?.summary.subject ?? null, 200),
-      date: dateIso, origin: parse.received.origin, connectingIp: d(fx?.trust.connectingIp ?? null, 60),
+      date: dateIso, connectingIp: d(fx?.trust.connectingIp ?? null, 60),
       linkCount: parse.links.length, attachmentCount: parse.attachments.filter((a) => !a.inline).length, headersSupplied: parse.received.headerBytes > 0,
     },
     indicators,
@@ -190,7 +190,7 @@ export function parseStoredReport(raw: unknown): Report | null {
     mitigating: strs(raw.mitigating, 20, 300), conflicts: strs(raw.conflicts, 20, 300),
     gaps: arr(raw.gaps, 30).filter(isObj).map((g) => ({ critical: g.critical === true, text: s(g.text, 300) })),
     actions: strs(raw.actions, 20, 300),
-    message: { from: sn(m.from, 200), fromDomain: sn(m.fromDomain, 120), subject: sn(m.subject, 200), date: sn(m.date, 80), origin: sn(m.origin, 20), connectingIp: sn(m.connectingIp, 60), linkCount: Math.round(num(m.linkCount, 0, 100000)), attachmentCount: Math.round(num(m.attachmentCount, 0, 1000)), headersSupplied: m.headersSupplied === true },
+    message: { from: sn(m.from, 200), fromDomain: sn(m.fromDomain, 120), subject: sn(m.subject, 200), date: sn(m.date, 80), connectingIp: sn(m.connectingIp, 60), linkCount: Math.round(num(m.linkCount, 0, 100000)), attachmentCount: Math.round(num(m.attachmentCount, 0, 1000)), headersSupplied: m.headersSupplied === true },
     indicators: arr(raw.indicators, 200).filter(isObj).map((i) => ({ type: s(i.type, 20), value: s(i.value, 300), reason: sn(i.reason, 200), severity: SEVS.includes(i.severity as Severity) ? (i.severity as Severity) : null })),
     findings: arr(raw.findings, 150).filter(isObj).map((f) => ({
       id: s(f.id, 80), severity: sev(f.severity), dimension: dim(f.dimension), title: s(f.title, 240), detail: s(f.detail, 600), source: s(f.source, 80),

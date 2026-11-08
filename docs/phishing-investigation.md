@@ -11,8 +11,8 @@ The page runs small stages and merges what each returns. Every stage returns the
 | Stage | Endpoint | Outbound requests | Rate-limit cost | What it does |
 |---|---|---|---|---|
 | Parse | `POST /api/phishing/parse` | none | 2 | Header forensics (trusted receiver boundary, labelled SPF/DKIM/DMARC), MIME body, links with gateway unwrapping, attachment hashes and static analysis, local link screening, sender identity (brand / look-alike), wording analysis |
-| Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address reputation. Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
-| Links | `POST /api/phishing/urls` | OpenPhish feed + at most 3 full lookups | 8 | Ranks links from offline evidence, checks all against the OpenPhish feed, runs the existing URL intelligence on the top few. **Explicit button on the page** |
+| Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address check (UserCheck). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
+| Links | `POST /api/phishing/urls` | OpenPhish feed + at most 3 full lookups | 8 | Ranks links from offline evidence, checks all against the OpenPhish feed, runs the existing URL intelligence on the top few. Runs automatically after Analyse (full lookup on the top 3 links) |
 | Attachments | `POST /api/phishing/attachments` | one hash per call | 2 | Hash reputation through `/api/file/hash` |
 | Verdict | none (in the browser, `shared/phishing/verdict.ts`) | none | | Rules, scoring, coverage, confidence |
 
@@ -27,9 +27,9 @@ Why small stages: a Worker has a limited number of outbound requests per invocat
 | Pasted headers, body, subject, attachment bytes | **nobody**: they are parsed in memory by the Worker and never stored, logged or forwarded | always |
 | Public sender IPs | the IP intelligence providers (ipapi.is, RIPE, Shodan InternetDB, AbuseIPDB, VirusTotal, Pulsedive, as configured) | when the sender stage runs. Private and reserved addresses are never sent |
 | Sender and related domains | RDAP / WHOIS, DNS-over-HTTPS resolvers | when the sender stage runs. Consumer mailboxes and large mail platforms are skipped |
-| Sender e-mail address | EmailRep.io | only if the "check the sender address" box is ticked (default on, can be turned off) |
-| Link URLs | the URL intelligence providers (VirusTotal, URLhaus, Google Safe Browsing, Pulsedive, urlscan.io), DNS resolvers, and **the link destination itself (Cloudflare fetches it, with SSRF protection)** | only when the analyst presses Investigate links |
-| File hashes | the hash intelligence providers (VirusTotal, MalwareBazaar, CIRCL, Hybrid Analysis, as configured) | when the attachment stage runs. Files are never uploaded; dropping a file onto the page analyses it in the browser and sends only its hash |
+| Sender e-mail address | UserCheck.com | always, when `USERCHECK_API_KEY` is configured (the address is sent to that service) |
+| Link URLs | the URL intelligence providers (VirusTotal, URLhaus, Google Safe Browsing, Pulsedive, urlscan.io), DNS resolvers, and **the link destination itself (Cloudflare fetches it, with SSRF protection)** | automatically after Analyse (the top 3 links get a full lookup) |
+| File hashes | the hash intelligence providers (VirusTotal, MalwareBazaar, CIRCL, Hybrid Analysis, as configured) | automatically after Analyse. Files are never uploaded; a file attached in the form is analysed in the browser and only its hash is sent |
 
 A test (`tests/phishing-hardening.test.ts`) fails if the message text, subject, display name or a file name ever appears in an outbound request, if a private IP is sent anywhere, or if an API key appears in a response.
 
@@ -54,7 +54,7 @@ The result page has six tabs: Overview (verdict, pipeline strip, key facts, top 
 
 * **Export.** `shared/phishing/report.ts` builds one plain object (`schemaVersion: 1`) from the verdict, findings and checks, and renders it as ticket text, Markdown or JSON (or print / save as PDF). Every URL, domain, IP and address in a report is defanged. A report never contains the pasted body, the headers or attachment content, only summary fields and the short evidence excerpts attached to findings, and it states that the weights are uncalibrated.
 * **History.** The last 20 investigations are kept in this browser's `localStorage` (`spectrix.phishing.history.v1`), as the report object only: the pasted input is never stored. It can be switched off or cleared on the page, and nothing is synced anywhere.
-* **Consent defaults.** Link investigation is an explicit button (the opt-in "investigate links automatically" preference is off by default); the sender-address check is a visible checkbox; history is on by default and stores the report only.
+* **No opt-in switches.** The sender address check, the link investigation and the attachment hash lookups all run automatically after Analyse, and the report is shown only once every one of them has finished; history is on by default and stores the report only.
 
 ## 5. Finding catalogue
 
@@ -188,11 +188,11 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `sender_ip_no_ptr` | 2 | none | The sending IP has no reverse DNS. |
 | `sender_ip_residential_ptr` | 3 | none | The sending IP looks like a dynamic or residential address. |
 | `sender_infra_shared_provider` | 0 | none | The message was sent through large shared mail infrastructure (information; discounts IP-reputation findings). |
-| `sender_address_blacklisted` | 15 | address reputation | The sender address is blacklisted (EmailRep). |
-| `sender_address_malicious_activity` | high 15, medium 8 | address reputation | The sender address has a history of malicious activity (EmailRep). |
-| `sender_address_suspicious` | 8 | address reputation | EmailRep marks the sender address as suspicious. |
+| `sender_address_spam_domain` | 8 | address reputation | The sender address domain is associated with spam or abuse (UserCheck). |
 | `sender_address_disposable` | 3 | address reputation | The sender uses a disposable address. |
-| `sender_address_credentials_leaked` | 2 | address reputation | Credentials for the sender address appear in leaks, so the mailbox may be taken over. |
+| `sender_address_no_mx` | 3 | address reputation | The sender address domain has no mail servers, so it cannot receive replies. |
+| `sender_address_misspelt_domain` | 6 | address reputation | The sender address domain looks like a misspelling of a well-known domain. |
+| `sender_address_free_subdomain` | 2 | address reputation | The sender address is on a free or dynamic-DNS subdomain. |
 
 #### Message wording
 
@@ -225,11 +225,11 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | Setting | Purpose |
 |---|---|
 | `VIRUSTOTAL_API_KEY`, `ABUSEIPDB_API_KEY`, `PULSEDIVE_API_KEY`, `GOOGLE_SAFE_BROWSING_API_KEY`, `URLSCAN_API_KEY`, `HYBRID_ANALYSIS_API_KEY`, `ABUSECH_AUTH_KEY`, `IPAPI_IS_API_KEY`, `APILAYER_API_KEY` | Optional provider keys already used by the other tools (see the README). A missing key shows that provider as skipped, never clean |
-| `EMAILREP_API_KEY`, `EMAILREP_DAILY` | Optional. EmailRep works keyless at a small shared quota; the daily budget defaults to 90 |
+| `USERCHECK_API_KEY`, `USERCHECK_DAILY` | UserCheck.com key for the sender address check (skipped when absent); optional daily cap |
 | `OPENPHISH_FEED_URL`, `OPENPHISH_DAILY` | Optional https-only override of the OpenPhish community feed, and its daily download budget (default 300) |
 | `RATE_LIMIT` (KV) and `RATE_LIMIT_PER_MIN` | Shared per-client rate limit (default 60 cost units a minute). Without KV the counters are per isolate |
 
-* Provider budgets (VirusTotal per minute, AbuseIPDB and EmailRep per day, ...) are shared across all tools, so a busy investigation can pause a provider for other users; it is then reported as skipped.
+* Provider budgets (VirusTotal per minute, AbuseIPDB per day, ...) are shared across all tools, so a busy investigation can pause a provider for other users; it is then reported as skipped.
 * The OpenPhish feed is downloaded about every 30 minutes at most and reused; a failed refresh falls back to the previous copy and is marked stale. An empty or oversized feed is reported as a failure, not as "no listings".
 * CPU time: an ordinary HTML email took about 4 ms to parse in a local measurement, and a hostile multi-megabyte message a few hundred milliseconds. Workers CPU accounting differs from a laptop, and the free plan's per-request CPU allowance is small, so use a paid plan if you expect to receive large or hostile input.
 

@@ -118,11 +118,11 @@ export const FINDING_DESCRIPTIONS: Record<string, string> = {
   sender_ip_no_ptr: 'The sending IP has no reverse DNS.',
   sender_ip_residential_ptr: 'The sending IP looks like a dynamic or residential address.',
   sender_infra_shared_provider: 'The message was sent through large shared mail infrastructure (information; discounts IP-reputation findings).',
-  sender_address_blacklisted: 'The sender address is blacklisted (EmailRep).',
-  sender_address_malicious_activity: 'The sender address has a history of malicious activity (EmailRep).',
-  sender_address_suspicious: 'EmailRep marks the sender address as suspicious.',
+  sender_address_spam_domain: 'The sender address domain is associated with spam or abuse (UserCheck).',
   sender_address_disposable: 'The sender uses a disposable address.',
-  sender_address_credentials_leaked: 'Credentials for the sender address appear in leaks, so the mailbox may be taken over.',
+  sender_address_no_mx: 'The sender address domain has no mail servers, so it cannot receive replies.',
+  sender_address_misspelt_domain: 'The sender address domain looks like a misspelling of a well-known domain.',
+  sender_address_free_subdomain: 'The sender address is on a free or dynamic-DNS subdomain.',
 
   /* wording */
   content_urgency: 'Urgent wording, strongest when it threatens consequences.',

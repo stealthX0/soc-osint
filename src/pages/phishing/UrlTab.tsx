@@ -15,10 +15,9 @@ export function UrlTab({ r, links }: { r: ParseStageResult; links: LinkStage }) 
         <div className="rounded-xl border border-line bg-bg2/60 p-3 text-sm">
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => void links.run()} disabled={links.busy} className="inline-flex h-9 items-center gap-2 rounded-lg bg-teal px-4 text-sm font-semibold text-[#04202a] hover:brightness-110 disabled:opacity-50"><Icon name="search" size={14} strokeWidth={2.4} /> {stage ? 'Re-run link investigation' : 'Investigate links'}</button>
-            {links.remaining.length > 0 && <button onClick={() => void links.deepNext()} disabled={links.busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line2 px-4 text-sm text-fg hover:border-teal/50 disabled:opacity-50">Deep-check next link ({links.remaining.length} left)</button>}
             {links.busy && <Spinner label="Investigating links" />}
           </div>
-          <p className="mt-2 text-xs text-muted">Every link is ranked and checked against the OpenPhish feed; the few that matter most also get a full lookup (URLhaus, Safe Browsing, VirusTotal, Pulsedive, urlscan, redirect trace, domain age). <strong>This is an active check:</strong> full URLs are sent to the enabled providers and the destination is requested from Cloudflare’s network, which a recipient-specific link may reveal to the sender. Do not run it on links containing private tokens.</p>
+          <p className="mt-2 text-xs text-muted">Every link is ranked and checked against the OpenPhish feed; the top 3 also get a full lookup (URLhaus, Safe Browsing, VirusTotal, Pulsedive, urlscan, redirect trace, domain age). <strong>This is an active check:</strong> full URLs are sent to the enabled providers and the destination is requested from Cloudflare’s network, which a recipient-specific link may reveal to the sender. Do not run it on links containing private tokens.</p>
         </div>
       )}
       {links.error && <p role="alert" className="rounded-lg border border-red/30 bg-red/10 p-2 text-sm text-red">{links.error}</p>}

@@ -143,7 +143,7 @@ describe('fuzzing: nothing throws on arbitrary input', () => {
 
 /* --------------------------------------------------------------- endpoints */
 
-const env = { ASSETS: { fetch: async () => new Response('asset') }, EMAILREP_API_KEY: 'sk-canary-emailrep-key', VIRUSTOTAL_API_KEY: 'sk-canary-vt-key', ABUSEIPDB_API_KEY: 'sk-canary-abuse-key' } as never;
+const env = { ASSETS: { fetch: async () => new Response('asset') }, USERCHECK_API_KEY: 'sk-canary-usercheck-key', VIRUSTOTAL_API_KEY: 'sk-canary-vt-key', ABUSEIPDB_API_KEY: 'sk-canary-abuse-key' } as never;
 const exec = { waitUntil: () => {}, passThroughOnException: () => {} } as never;
 let n = 0;
 const call = async (path: string, init: RequestInit = {}) => {
@@ -228,14 +228,14 @@ describe('data leaving the app', () => {
     for (const [path, body] of [
       ['/api/phishing/sender', { check: 'ip', ip: '45.33.32.156', role: 'connecting', trust: 'receiver_reported' }],
       ['/api/phishing/sender', { check: 'domain', domain: 'evil.example', roles: ['from'] }],
-      ['/api/phishing/sender', { check: 'emailrep', email: 'a@evil.example', roles: ['from'] }],
+      ['/api/phishing/sender', { check: 'usercheck', email: 'a@evil.example', roles: ['from'] }],
       ['/api/phishing/sender', { check: 'spf', domain: 'evil.example', ip: '45.33.32.156', reported: 'pass', trust: 'unverified' }],
       ['/api/phishing/attachments', { hash: 'a'.repeat(64), hashType: 'sha256', filename: `${CANARY}.exe`, index: 0 }],
     ] as const) outputs.push((await post(path, body)).text);
     for (const o of outputs) assert.ok(!SECRET.test(o), 'a secret key appeared in a response');
     for (const s of seen) assert.ok(!s.url.includes(CANARY) && !s.body.includes(CANARY), 'the attachment file name was sent to a provider');
     // keys go only to their own provider
-    for (const s of seen) if (SECRET.test(s.headers)) assert.match(new URL(s.url).hostname, /emailrep\.io|virustotal\.com|abuseipdb\.com/);
+    for (const s of seen) if (SECRET.test(s.headers)) assert.match(new URL(s.url).hostname, /usercheck\.com|virustotal\.com|abuseipdb\.com/);
   });
 
   it('private and reserved addresses are never sent to a third party', async () => {

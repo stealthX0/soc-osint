@@ -10,7 +10,7 @@
  *    a clean or dirty shared IP says little about whether THIS message is phishing.
  *  - A lookup that fails or is skipped is reported as such and never counted as clean.
  */
-import type { EmailReputation, IpLookup, WhoisResult, EmailAuth } from '../types';
+import type { EmailCheck, IpLookup, WhoisResult, EmailAuth } from '../types';
 import type { ParseStageResult } from './parse';
 import { check, makeFinding } from './findings';
 import { FREE_MAIL, isFreeMail, registrableOf } from './domains';
@@ -29,14 +29,14 @@ export type SenderCheckRequest =
   | { check: 'domain'; domain: string; roles: DomainRole[] }
   | { check: 'auth'; domain: string; role: 'from' | 'return_path'; reportedDmarc: string | null }
   | { check: 'spf'; domain: string; ip: string; reported: string | null; trust: TrustLevel }
-  | { check: 'emailrep'; email: string; roles: EmailRole[] };
+  | { check: 'usercheck'; email: string; roles: EmailRole[] };
 
 export type SenderCheckData =
   | { check: 'ip'; value: IpLookup }
   | { check: 'domain'; value: WhoisResult }
   | { check: 'auth'; value: EmailAuth }
   | { check: 'spf'; value: SpfEvaluationView }
-  | { check: 'emailrep'; value: EmailReputation };
+  | { check: 'usercheck'; value: EmailCheck };
 
 export interface SenderCheckResponse {
   request: SenderCheckRequest;
@@ -72,7 +72,7 @@ const RESIDENTIAL_PTR = /(\b|[-.])(dynamic|dyn|dsl|adsl|cable|dhcp|pool|ppp|broa
 export interface SenderPlan { requests: SenderCheckRequest[]; skipped: CheckResult[] }
 
 /** Decides which lookups this email needs. Bounded: at most 3 IPs, 4 domains, 2 auth checks, 1 SPF re-check, 2 addresses. */
-export function planSenderChecks(r: ParseStageResult, opts: { emailRep: boolean }): SenderPlan {
+export function planSenderChecks(r: ParseStageResult): SenderPlan {
   const requests: SenderCheckRequest[] = [];
   const skipped: CheckResult[] = [];
   const fx = r.forensics;
@@ -110,11 +110,10 @@ export function planSenderChecks(r: ParseStageResult, opts: { emailRep: boolean 
   if (connecting && envDomain && !isFreeMail(envDomain)) requests.push({ check: 'spf', domain: envDomain, ip: connecting.ip, reported: fx?.authentication.spf?.result ?? null, trust: fx?.authentication.spf?.trust ?? 'unverified' });
   else skipped.push(check('sender.spf_recheck', 'sender', 'Independent SPF re-check', 'skipped', null, !connecting ? 'No trusted connecting IP to test.' : 'No envelope sender domain, or it is a consumer mailbox.'));
 
-  // Address reputation (opt-in because the address is sent to a third party)
+  // Address check with UserCheck.com (the address is sent to that service)
   const addrs: { email: string; roles: EmailRole[] }[] = r.indicators.emails.filter((e) => e.roles.some((x) => x === 'from' || x === 'reply_to' || x === 'supplied')).slice(0, 2).map((e) => ({ email: e.address, roles: e.roles }));
-  if (!opts.emailRep) skipped.push(check('sender.emailrep', 'sender', 'Sender address reputation (EmailRep)', 'skipped', null, 'Turned off: the address is not sent to a third-party service.'));
-  else if (!addrs.length) skipped.push(check('sender.emailrep', 'sender', 'Sender address reputation (EmailRep)', 'not_applicable', null, 'No sender address available.'));
-  else for (const a of addrs) requests.push({ check: 'emailrep', email: a.email, roles: a.roles });
+  if (!addrs.length) skipped.push(check('sender.usercheck', 'sender', 'Sender address check (UserCheck)', 'not_applicable', null, 'No sender address available.'));
+  else for (const a of addrs) requests.push({ check: 'usercheck', email: a.email, roles: a.roles });
 
   return { requests, skipped };
 }
@@ -128,9 +127,9 @@ export const labelOf = (req: SenderCheckRequest): string =>
   : req.check === 'domain' ? `Domain registration: ${req.domain}`
   : req.check === 'auth' ? `Mail security DNS: ${req.domain}`
   : req.check === 'spf' ? `Independent SPF re-check: ${req.ip} vs ${req.domain}`
-  : `Address reputation: ${req.email}`;
+  : `Address check: ${req.email}`;
 
-export const idOf = (req: SenderCheckRequest): string => `sender.${req.check}.${req.check === 'ip' ? req.ip : req.check === 'emailrep' ? req.email : req.domain}`;
+export const idOf = (req: SenderCheckRequest): string => `sender.${req.check}.${req.check === 'ip' ? req.ip : req.check === 'usercheck' ? req.email : req.domain}`;
 
 export function convertIp(req: Extract<SenderCheckRequest, { check: 'ip' }>, d: IpLookup): { findings: Finding[]; check: CheckResult } {
   const exact = req.role === 'connecting';
@@ -222,19 +221,17 @@ export function convertSpf(req: Extract<SenderCheckRequest, { check: 'spf' }>, e
   return { findings: f, check: check(idOf(req), 'sender', labelOf(req), inconclusive && ev.result !== 'none' ? 'failed' : 'complete', summary, ev.notes.join(' ') || undefined) };
 }
 
-export function convertEmailRep(req: Extract<SenderCheckRequest, { check: 'emailrep' }>, r: EmailReputation): { findings: Finding[]; check: CheckResult } {
+export function convertUserCheck(req: Extract<SenderCheckRequest, { check: 'usercheck' }>, r: EmailCheck): { findings: Finding[]; check: CheckResult } {
   const exact = req.roles.includes('from') || req.roles.includes('supplied');
-  const base = { dimension: 'infrastructure' as const, exactness: exact ? ('exact' as const) : ('related' as const), indicator: { type: 'email' as const, value: r.email }, source: 'EmailRep.io', reliability: 'medium' as const };
-  const d = r.details;
+  const base = { dimension: 'infrastructure' as const, exactness: exact ? ('exact' as const) : ('related' as const), indicator: { type: 'email' as const, value: r.email }, source: 'UserCheck.com', reliability: 'medium' as const };
   const f: Finding[] = [];
-  if (d.maliciousActivity || d.blacklisted) {
-    f.push(F({ ...base, id: d.blacklisted ? 'sender_address_blacklisted' : 'sender_address_malicious_activity', severity: d.maliciousActivityRecent || d.blacklisted ? 'high' : 'medium', title: d.blacklisted ? 'Sender address is blacklisted' : `Sender address has a history of malicious activity${d.maliciousActivityRecent ? ' (recent)' : ''}`, detail: `EmailRep reports this address in malicious-activity data${d.lastSeen ? `; last seen ${d.lastSeen}` : ''}. This is evidence about the address, which may itself be a victim of account takeover.` }));
-  } else if (r.suspicious) {
-    f.push(F({ ...base, id: 'sender_address_suspicious', severity: 'medium', title: 'EmailRep marks the sender address as suspicious', detail: `Reputation "${r.reputation ?? 'unknown'}", ${r.references} reference(s) across the internet.` }));
-  }
-  if (d.disposable) f.push(F({ ...base, id: 'sender_address_disposable', severity: 'low', title: 'Sender uses a disposable address', detail: 'Throwaway mailboxes are used to avoid accountability.' }));
-  if (d.credentialsLeaked) f.push(F({ ...base, id: 'sender_address_credentials_leaked', severity: 'low', title: 'Credentials for this address appear in leaks', detail: 'If the message comes from a real person, their mailbox could have been taken over and used to send it.' }));
-  const summary = `reputation ${r.reputation ?? 'unknown'}${r.suspicious ? ' · suspicious' : ''} · ${r.references} reference(s)`;
+  if (r.spam) f.push(F({ ...base, id: 'sender_address_spam_domain', severity: 'medium', title: 'The sender address domain is associated with spam or abuse', detail: `UserCheck lists ${r.domain} as associated with spam or abuse. This is evidence about the domain, which a legitimate sender could share.` }));
+  if (r.disposable) f.push(F({ ...base, id: 'sender_address_disposable', severity: 'low', title: 'Sender uses a disposable address', detail: 'Throwaway mailboxes are used to avoid accountability.' }));
+  if (r.mx === false) f.push(F({ ...base, id: 'sender_address_no_mx', severity: 'low', title: 'The sender address domain cannot receive mail', detail: `${r.domain} has no valid MX records, so replies to this address cannot be delivered. Real senders almost always can receive mail.` }));
+  if (r.didYouMean) f.push(F({ ...base, id: 'sender_address_misspelt_domain', severity: 'medium', title: `The sender address domain looks like a misspelling of ${r.didYouMean.split('@').pop()}`, detail: 'UserCheck flags the domain as a likely typo of a well-known domain, a common lookalike trick.' }));
+  if (r.freeSubdomain) f.push(F({ ...base, id: 'sender_address_free_subdomain', severity: 'low', title: 'The sender address is on a free or dynamic-DNS subdomain', detail: 'Anyone can create such a subdomain at no cost, so it carries no organisational identity.' }));
+  const bits = [r.disposable ? 'disposable' : null, r.spam ? 'spam domain' : null, r.mx === false ? 'no MX' : null, r.publicDomain ? 'public mailbox provider' : null, r.relayDomain ? 'relay service' : null, r.roleAccount ? 'role account' : null].filter(Boolean);
+  const summary = `${bits.length ? bits.join(' · ') : 'no flags'}${r.domainAgeDays !== null ? ` · domain ${r.domainAgeDays} day(s) old` : ''}`;
   return { findings: f, check: check(idOf(req), 'sender', labelOf(req), 'complete', summary) };
 }
 

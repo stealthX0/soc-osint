@@ -4,8 +4,8 @@ import worker from '../worker/index';
 import { evaluateSpf, type DnsReader } from '../worker/_lib/spfEval';
 import { analyzeIdentity } from '../shared/phishing/brand';
 import { parseSubmission } from '../shared/phishing/parse';
-import { convertAuth, convertDomain, convertEmailRep, convertIp, convertSpf, isPlatformDomain, planSenderChecks, sharedProviderOf, type SenderCheckResponse } from '../shared/phishing/sender';
-import type { EmailAuth, EmailReputation, IpLookup, WhoisResult } from '../shared/types';
+import { convertAuth, convertDomain, convertUserCheck, convertIp, convertSpf, isPlatformDomain, planSenderChecks, sharedProviderOf, type SenderCheckResponse } from '../shared/phishing/sender';
+import type { EmailAuth, EmailCheck, IpLookup, WhoisResult } from '../shared/types';
 import { doh, jsonRes, mockFetch } from './helpers';
 import { resetRateLimitMemory } from '../worker/_lib/ratelimit';
 
@@ -147,11 +147,14 @@ describe('result converters', () => {
     assert.ok(convertSpf(r, ev('fail')).findings.some((f) => f.id === 'spf_independent_disagrees'));
     assert.ok(convertSpf({ ...r, reported: 'pass' }, ev('pass')).findings.every((f) => f.severity === 'info'));
   });
-  it('turns EmailRep data into address-level findings', () => {
-    const rep = (over: Partial<EmailReputation['details']>, suspicious = false): EmailReputation => ({ email: 'a@evil.example', reputation: 'low', suspicious, references: 2, details: { blacklisted: false, maliciousActivity: false, maliciousActivityRecent: false, credentialsLeaked: false, dataBreach: false, spam: false, freeProvider: false, disposable: false, deliverable: true, validMx: true, spoofable: null, dmarcEnforced: null, suspiciousTld: false, newDomain: false, daysSinceDomainCreation: null, firstSeen: null, lastSeen: null, profiles: [], ...over }, providers: [] });
-    const req3 = { check: 'emailrep' as const, email: 'a@evil.example', roles: ['from' as const] };
-    assert.equal(convertEmailRep(req3, rep({ maliciousActivity: true, maliciousActivityRecent: true }, true)).findings[0].severity, 'high');
-    assert.equal(convertEmailRep(req3, rep({}, false)).findings.length, 0);
+  it('turns UserCheck data into address-level findings', () => {
+    const uc = (over: Partial<EmailCheck>): EmailCheck => ({ email: 'a@evil.example', domain: 'evil.example', domainAgeDays: 400, mx: true, disposable: false, spam: false, publicDomain: false, relayDomain: false, freeSubdomain: false, roleAccount: false, didYouMean: null, spf: null, dmarc: null, providers: [], ...over });
+    const req3 = { check: 'usercheck' as const, email: 'a@evil.example', roles: ['from' as const] };
+    assert.equal(convertUserCheck(req3, uc({})).findings.length, 0);
+    assert.equal(convertUserCheck(req3, uc({ spam: true })).findings[0].id, 'sender_address_spam_domain');
+    assert.deepEqual(convertUserCheck(req3, uc({ disposable: true, mx: false, didYouMean: 'a@gmail.com' })).findings.map((f) => f.id).sort(), ['sender_address_disposable', 'sender_address_misspelt_domain', 'sender_address_no_mx']);
+    assert.equal(convertUserCheck(req3, uc({ mx: null })).findings.length, 0, 'an unknown MX result is not a finding');
+    assert.equal(convertUserCheck({ ...req3, roles: ['reply_to' as const] }, uc({ spam: true })).findings[0].exactness, 'related');
   });
   it('treats platforms and free mail as uninteresting for registration lookups', () => {
     assert.ok(isPlatformDomain('mail.google.com') && isPlatformDomain('gmail.com') && !isPlatformDomain('evil.example'));
@@ -167,22 +170,22 @@ Reply-To: help@gmail.com
 Subject: x`;
   it('plans IP, domain, DNS, SPF and address checks, bounded and de-duplicated', async () => {
     const r = await parseSubmission({ headers, body: 'hello', sender: { domain: 'bank.example' } });
-    const plan = planSenderChecks(r, { emailRep: true });
+    const plan = planSenderChecks(r);
     const kinds = plan.requests.map((q) => q.check);
     assert.equal(kinds.filter((k) => k === 'ip').length, 1);
     assert.deepEqual(plan.requests.filter((q) => q.check === 'domain').map((q) => (q as { domain: string }).domain).sort(), ['bank.example', 'evil.example']);
-    assert.ok(kinds.includes('spf') && kinds.includes('auth') && kinds.includes('emailrep'));
+    assert.ok(kinds.includes('spf') && kinds.includes('auth') && kinds.includes('usercheck'));
     assert.ok(!plan.requests.some((q) => q.check === 'domain' && (q as { domain: string }).domain === 'gmail.com'));
   });
-  it('skips the address lookup unless the analyst allows it, and says why', async () => {
-    const r = await parseSubmission({ headers, body: 'hello' });
-    const plan = planSenderChecks(r, { emailRep: false });
-    assert.ok(!plan.requests.some((q) => q.check === 'emailrep'));
-    assert.ok(plan.skipped.some((c) => c.id === 'sender.emailrep' && c.status === 'skipped'));
+  it('always plans the address check when there is a sender address, and notes when there is none', async () => {
+    const r = await parseSubmission({ body: 'hello' });
+    const plan = planSenderChecks(r);
+    assert.ok(!plan.requests.some((q) => q.check === 'usercheck'));
+    assert.ok(plan.skipped.some((c) => c.id === 'sender.usercheck' && c.status === 'not_applicable'));
   });
   it('plans nothing risky for a message with no headers and a free-mail sender', async () => {
     const r = await parseSubmission({ body: 'hi', sender: { email: 'x@gmail.com' } });
-    const plan = planSenderChecks(r, { emailRep: false });
+    const plan = planSenderChecks(r);
     assert.deepEqual(plan.requests, []);
   });
 });
@@ -222,39 +225,51 @@ describe('POST /api/phishing/sender', () => {
   });
 
   it('reports an upstream failure as a failed check with HTTP 200', async () => {
-    const m = mockFetch([(u) => (u.hostname === 'emailrep.io' ? new Response('nope', { status: 500 }) : undefined)]);
+    const m = mockFetch([(u) => (u.hostname === 'api.usercheck.com' ? new Response('nope', { status: 500 }) : undefined)]);
     restore = m.restore;
-    const { res, json } = await post('/api/phishing/sender', { check: 'emailrep', email: 'a@evil.example', roles: ['from'] });
+    const { res, json } = await post('/api/phishing/sender', { check: 'usercheck', email: 'a@evil.example', roles: ['from'] }, { USERCHECK_API_KEY: 'k' });
     assert.equal(res.status, 200);
     assert.equal(json.data.checks[0].status, 'failed');
     assert.deepEqual(json.data.findings, []);
   });
 
+  it('skips the address check, saying why, when UserCheck has no key (nothing is sent anywhere)', async () => {
+    const m = mockFetch([]);
+    restore = m.restore;
+    const { res, json } = await post('/api/phishing/sender', { check: 'usercheck', email: 'a@evil.example', roles: ['from'] });
+    assert.equal(res.status, 200);
+    assert.equal(json.data.checks[0].status, 'skipped');
+    assert.match(json.data.checks[0].detail, /not configured/);
+  });
+
   it('rejects malformed requests', async () => {
     assert.equal((await post('/api/phishing/sender', { check: 'nope' })).json.error?.code, 'INVALID_INPUT');
     assert.equal((await post('/api/phishing/sender', { check: 'ip', ip: 'not-an-ip' })).json.error?.code, 'INVALID_INPUT');
-    assert.equal((await post('/api/phishing/sender', { check: 'emailrep', email: 'nope' })).json.error?.code, 'INVALID_INPUT');
+    assert.equal((await post('/api/phishing/sender', { check: 'usercheck', email: 'nope' })).json.error?.code, 'INVALID_INPUT');
   });
 });
 
-describe('GET /api/email/reputation', () => {
+describe('GET /api/email/usercheck', () => {
   let restore = () => {};
   afterEach(() => { restore(); resetRateLimitMemory(); });
-  it('normalises the EmailRep response and sends the key only to emailrep.io', async () => {
-    let seenKey: string | null = null;
-    const m = mockFetch([(u, init) => { if (u.hostname !== 'emailrep.io') return undefined; seenKey = new Headers(init?.headers).get('key'); return jsonRes({ email: 'a@evil.example', reputation: 'none', suspicious: true, references: 0, details: { malicious_activity: true, malicious_activity_recent: false, free_provider: false, days_since_domain_creation: 4, profiles: ['x'] } }); }]);
+  it('normalises the UserCheck response and sends the key only to api.usercheck.com as a bearer token', async () => {
+    let seenAuth: string | null = null;
+    let seenUrl = '';
+    const m = mockFetch([(u, init) => { if (u.hostname !== 'api.usercheck.com') return undefined; seenAuth = new Headers(init?.headers).get('authorization'); seenUrl = u.pathname; return jsonRes({ status: 200, email: 'a@evil.example', domain: 'evil.example', domain_age_in_days: 4, mx: false, disposable: true, spam: true, public_domain: false, relay_domain: false, free_subdomain: false, role_account: false, did_you_mean: null, spf: 'missing', dmarc: 'none' }); }]);
     restore = m.restore;
-    const res = await worker.fetch(new Request('https://app.test/api/email/reputation?email=A@Evil.Example', { headers: { 'cf-connecting-ip': '198.51.100.8' } }), { ...(env as object), EMAILREP_API_KEY: 'secret-key' } as never, exec);
-    const j = (await res.json()) as { ok: boolean; data: EmailReputation };
+    const res = await worker.fetch(new Request('https://app.test/api/email/usercheck?email=A@Evil.Example', { headers: { 'cf-connecting-ip': '198.51.100.8' } }), { ...(env as object), USERCHECK_API_KEY: 'secret-key' } as never, exec);
+    const j = (await res.json()) as { ok: boolean; data: EmailCheck };
     assert.equal(j.ok, true);
     assert.equal(j.data.email, 'a@evil.example');
-    assert.equal(j.data.suspicious, true);
-    assert.equal(j.data.details.maliciousActivity, true);
-    assert.equal(j.data.details.daysSinceDomainCreation, 4);
-    assert.equal(seenKey, 'secret-key');
+    assert.equal(j.data.domainAgeDays, 4);
+    assert.equal(j.data.mx, false);
+    assert.equal(j.data.disposable, true);
+    assert.equal(j.data.spam, true);
+    assert.equal(seenAuth, 'Bearer secret-key');
+    assert.equal(seenUrl, '/email/a%40evil.example');
   });
   it('validates the address', async () => {
-    const res = await worker.fetch(new Request('https://app.test/api/email/reputation?email=nope'), env, exec);
+    const res = await worker.fetch(new Request('https://app.test/api/email/usercheck?email=nope'), env, exec);
     assert.equal(res.status, 400);
   });
 });

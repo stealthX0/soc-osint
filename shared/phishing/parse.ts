@@ -17,7 +17,7 @@ import { normalizeHostname, parseEmail } from '../domain';
 import { normalizeIP } from '../ip';
 import { analyzeAttachmentSet, type AttachmentStaticSummary } from './attachments';
 import { LIMITS } from './types';
-import type { AttachmentRef, CheckResult, EmailOrigin, Finding, HashType, IndicatorSet, PhishingInput, SuppliedAttachment } from './types';
+import type { AttachmentRef, CheckResult, Finding, HashType, IndicatorSet, PhishingInput, SuppliedAttachment } from './types';
 
 export interface AttachmentMeta {
   filename: string | null;
@@ -31,7 +31,7 @@ export interface AttachmentMeta {
 }
 
 export interface ParseStageResult {
-  received: { headerBytes: number; bodyChars: number; origin: EmailOrigin | null };
+  received: { headerBytes: number; bodyChars: number };
   forensics: HeaderForensics | null;
   content: { subject: string | null; text: string; hasHtml: boolean; bodyKind: 'none' | 'plain' | 'html' | 'multipart'; partCount: number; truncated: boolean; warnings: string[]; analysis: ContentAnalysis };
   links: ExtractedLink[];
@@ -65,7 +65,6 @@ export function validateInput(raw: unknown): { ok: true; value: PhishingInput } 
   if (urls.length > LIMITS.urls) return { ok: false, error: `At most ${LIMITS.urls} URLs can be submitted.` };
   const att = Array.isArray(r.attachments) ? (r.attachments as unknown[]).filter((a): a is Record<string, unknown> => !!a && typeof a === 'object') : [];
   if (att.length > LIMITS.attachments) return { ok: false, error: `At most ${LIMITS.attachments} attachments can be listed.` };
-  const origin = r.origin === 'inbox' || r.origin === 'reported' || r.origin === 'training' ? r.origin : undefined;
 
   const value: PhishingInput = {
     headers, body,
@@ -73,7 +72,6 @@ export function validateInput(raw: unknown): { ok: true; value: PhishingInput } 
     sender: { email: str(s.email, LIMITS.field), displayName: str(s.displayName, LIMITS.field), domain: str(s.domain, LIMITS.field), ip: str(s.ip, 64) },
     urls,
     attachments: att.map((a) => ({ name: str(a.name, 255), hash: str(a.hash, 128) })).filter((a) => a.name || a.hash),
-    origin,
   };
   const hasSender = !!(value.sender?.email || value.sender?.domain || value.sender?.ip || value.sender?.displayName);
   if (!value.headers?.trim() && !value.body?.trim() && !urls.length && !value.attachments?.length && !hasSender) {
@@ -225,7 +223,7 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
   }
 
   return {
-    received: { headerBytes: new TextEncoder().encode(headersText).length, bodyChars: bodyText.length, origin: input.origin ?? null },
+    received: { headerBytes: new TextEncoder().encode(headersText).length, bodyChars: bodyText.length },
     forensics,
     content: { subject, text: msg.text, hasHtml: !!msg.html, bodyKind: msg.bodyKind, partCount: msg.partCount, truncated: msg.truncated, warnings: msg.warnings, analysis: wording.analysis },
     links: ext.links,

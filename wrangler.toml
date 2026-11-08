@@ -29,7 +29,7 @@ enabled = true
 # Optional secrets (never commit). Each provider is skipped, and shown as such in the UI, when its key is absent:
 #   npx wrangler secret put IPAPI_IS_API_KEY     # ipapi.is (primary IP provider works without it; a key raises the quota)
 #   npx wrangler secret put PULSEDIVE_API_KEY    # Pulsedive: threat-intel risk, linked threats and feeds
-#   npx wrangler secret put EMAILREP_API_KEY     # EmailRep.io: sender address reputation (optional, works keyless)
+#   npx wrangler secret put USERCHECK_API_KEY    # UserCheck.com: sender address / domain checks (disposable, spam, MX, domain age)
 #   npx wrangler secret put ABUSEIPDB_API_KEY    # AbuseIPDB: abuse confidence
 #   npx wrangler secret put APILAYER_API_KEY    # APILayer WHOIS: fallback for TLDs without RDAP (.de, .io, ...)
 #   npx wrangler secret put CTLOGS_API_KEY       # ctlogs.dev: primary Certificate Transparency source

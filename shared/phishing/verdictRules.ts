@@ -147,11 +147,11 @@ export const POINTS: Record<string, Spec> = {
   sender_ip_no_ptr: 2,
   sender_ip_residential_ptr: 3,
   sender_infra_shared_provider: 0,
-  sender_address_blacklisted: 15,
-  sender_address_malicious_activity: by({ high: 15, medium: 8 }),
-  sender_address_suspicious: 8,
+  sender_address_spam_domain: 8,
   sender_address_disposable: 3,
-  sender_address_credentials_leaked: 2,
+  sender_address_no_mx: 3,
+  sender_address_misspelt_domain: 6,
+  sender_address_free_subdomain: 2,
 
   /* ---- content and behaviour */
   content_urgency: by({ low: 4, info: 0 }),
@@ -198,7 +198,7 @@ const SENDER_IMPERSONATION = new Set([
 ]);
 const AUTH_FAILURE = new Set(['auth_all_failed', 'spf_fail', 'spf_softfail', 'dkim_fail', 'dmarc_fail', 'dmarc_policy_not_applied', 'spf_independent_fail', 'spf_independent_disagrees', 'dkim_domain_mismatch', 'spf_domain_mismatch', 'arc_chain_failed']);
 const IP_REPUTATION = new Set(['sender_ip_abuse_reports', 'sender_ip_vt_detections', 'sender_ip_pulsedive', 'sender_ip_known_abuser', 'sender_ip_tor', 'sender_ip_anonymizer', 'sender_ip_compromised']);
-const ADDRESS_REPUTATION = new Set(['sender_address_blacklisted', 'sender_address_malicious_activity', 'sender_address_suspicious', 'sender_address_disposable', 'sender_address_credentials_leaked']);
+const ADDRESS_REPUTATION = new Set(['sender_address_spam_domain', 'sender_address_disposable', 'sender_address_no_mx', 'sender_address_misspelt_domain', 'sender_address_free_subdomain']);
 const URL_REPUTATION = new Set(['url_listed_phishing', 'url_listed_malware', 'url_engine_detections', 'url_engine_suspicious', 'url_scan_malicious', 'url_host_scan_malicious', 'url_threat_intel_rating', 'url_dns_blocked', 'url_host_listed', 'url_blocklisted_host']);
 const LINK_IMPERSONATION = new Set(['url_brand_mismatch', 'url_lookalike_domain', 'url_homograph_domain', 'url_deceptive_userinfo', 'link_text_mismatch']);
 const LURE_WORDING = new Set(['content_urgency', 'content_credential_request', 'content_financial_request', 'content_delivery_scam', 'content_advance_fee', 'content_document_share_lure']);

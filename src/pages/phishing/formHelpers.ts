@@ -1,7 +1,7 @@
-import { LIMITS, type EmailOrigin, type PhishingInput } from '../../../shared/phishing/types';
+import { LIMITS, type PhishingInput } from '../../../shared/phishing/types';
 
-export interface FormFields { headers: string; subject: string; body: string; email: string; displayName: string; domain: string; ip: string; urls: string; attachments: string; origin: EmailOrigin }
-export const EMPTY_FORM: FormFields = { headers: '', subject: '', body: '', email: '', displayName: '', domain: '', ip: '', urls: '', attachments: '', origin: 'reported' };
+export interface FormFields { headers: string; subject: string; body: string; email: string; displayName: string; domain: string; ip: string; urls: string; attachments: string }
+export const EMPTY_FORM: FormFields = { headers: '', subject: '', body: '', email: '', displayName: '', domain: '', ip: '', urls: '', attachments: '' };
 
 const HASH = /^[a-f0-9]{32}$|^[a-f0-9]{40}$|^[a-f0-9]{64}$/i;
 export function parseAttachmentLines(text: string): { name?: string; hash?: string }[] {
@@ -15,7 +15,7 @@ export function parseAttachmentLines(text: string): { name?: string; hash?: stri
 
 export function buildInput(f: FormFields): PhishingInput {
   return {
-    headers: f.headers, subject: f.subject, body: f.body, origin: f.origin,
+    headers: f.headers, subject: f.subject, body: f.body,
     sender: { email: f.email, displayName: f.displayName, domain: f.domain, ip: f.ip },
     urls: f.urls.split('\n').map((u) => u.trim()).filter(Boolean),
     attachments: parseAttachmentLines(f.attachments),
@@ -34,6 +34,25 @@ export function checkEmlFile(file: { name: string; size: number }): { ok: true }
   return { ok: true };
 }
 export const emlLoadedMessage = (name: string, bytes: number): string => `Loaded ${name}: ${bytes.toLocaleString('en-US')} bytes placed in the raw headers box.`;
+
+/* ------------------------------------------------------- files attached in the form */
+
+/** Most files that can be attached to one analysis (each is hashed in the browser and looked up by hash). */
+export const MAX_ATTACHED_FILES = 5;
+
+/** Adds chosen files to the attached list, skipping duplicates and anything over the per-file or count limit. Returns the new list and what was refused. */
+export function addAttachedFiles(current: File[], chosen: File[], maxBytes: number, fmt: (n: number) => string): { files: File[]; errors: string[] } {
+  const files = [...current];
+  const errors: string[] = [];
+  for (const f of chosen) {
+    if (files.some((x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) continue;
+    if (f.size === 0) { errors.push(`${f.name} is empty.`); continue; }
+    if (f.size > maxBytes) { errors.push(`${f.name} is ${fmt(f.size)}. Files over ${fmt(maxBytes)} cannot be analysed in the browser: compute its SHA-256 yourself and add it to the box instead.`); continue; }
+    if (files.length >= MAX_ATTACHED_FILES) { errors.push(`At most ${MAX_ATTACHED_FILES} files can be attached; ${f.name} was not added.`); continue; }
+    files.push(f);
+  }
+  return { files, errors };
+}
 
 /* ------------------------------------------------------------ input sanity checks */
 
@@ -66,7 +85,6 @@ export const fmtKB = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000)
 
 /** A clearly fake training phishing message: reserved *.example domains and documentation IPs (203.0.113.0/24). */
 export const EXAMPLE_FORM: FormFields = {
-  origin: 'training',
   headers: [
     'Received: from mail-gw.paypa1-secure.example (mail-gw.paypa1-secure.example [203.0.113.45])',
     '\tby mx.example.com with ESMTPS id TRAINING0001 for <victim@example.com>;',

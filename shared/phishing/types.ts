@@ -60,8 +60,6 @@ export interface CheckResult {
 
 /* ------------------------------------------------------------------ input */
 
-export type EmailOrigin = 'inbox' | 'reported' | 'training';
-
 export interface SuppliedSender {
   email?: string;
   displayName?: string;
@@ -81,7 +79,6 @@ export interface PhishingInput {
   sender?: SuppliedSender;
   urls?: string[];
   attachments?: SuppliedAttachment[];
-  origin?: EmailOrigin;
 }
 
 export const LIMITS = {

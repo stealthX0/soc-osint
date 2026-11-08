@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import { Badge, Card, Copyable, DataTable, Empty, Spinner, type Tone } from '../../components/ui';
 import { Icon } from '../../components/icons';
 import { api } from '../../lib/api';
@@ -36,6 +36,8 @@ export interface AttachmentStage {
   /** Raw hash-lookup responses (for the evidence tab and the timeline). */
   results: AttachmentHashResponse[];
   panel: ReactNode;
+  /** True once the files attached in the form have been inspected and every hash lookup has returned (or failed). */
+  settled: boolean;
 }
 
 /** The Attachment Analysis tab: the panel the hook built (drop zone, hash lookups, per-file findings). */
@@ -51,12 +53,13 @@ function providerBadge(c: CheckResult): ReactNode {
   return <Badge key={c.id} tone={tone} title={c.detail}>{name}: {c.status === 'complete' ? c.result : c.status === 'not_applicable' ? 'n/a' : c.status}</Badge>;
 }
 
-export function useAttachmentStage(r: ParseStageResult): AttachmentStage {
+export function useAttachmentStage(r: ParseStageResult, files: File[] = []): AttachmentStage {
   const [locals, setLocals] = useState<LocalFile[]>([]);
   const [rep, setRep] = useState<Record<number, RepState>>({});
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [settled, setSettled] = useState(false);
   // A new analysis starts clean: dropped files and lookups belong to the message they were added to.
   const [forResult, setForResult] = useState(r);
   if (forResult !== r) { setForResult(r); setLocals([]); setRep({}); setErr(null); }
@@ -84,7 +87,7 @@ export function useAttachmentStage(r: ParseStageResult): AttachmentStage {
   );
   const urls = useMemo(() => [...new Set([...r.attachmentStatic.flatMap((s) => s.urls), ...locals.flatMap((l) => l.result.summary.urls)])], [r, locals]);
 
-  const lookup = async (row: Row) => {
+  const lookup = async (row: Pick<Row, 'index' | 'name' | 'hash' | 'hashType'>) => {
     if (!row.hash || !row.hashType) return;
     setRep((p) => ({ ...p, [row.index]: { status: 'loading' } }));
     try {
@@ -116,6 +119,34 @@ export function useAttachmentStage(r: ParseStageResult): AttachmentStage {
       setLocals((p) => [...p, { index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256) }]);
     } catch { setErr(`Could not read ${f.name}.`); }
   };
+
+  // Runs once per analysis: inspect the files attached in the form, then look up every hash (embedded, typed or attached),
+  // two at a time. The report is held back until this has finished, so the verdict never rests on half the evidence.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const added: LocalFile[] = [];
+      const errs: string[] = [];
+      for (const f of files) {
+        try {
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          const h = await hashBytes(bytes);
+          const index = r.attachments.length + added.length;
+          added.push({ index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256) });
+        } catch { errs.push(`Could not read ${f.name}.`); }
+      }
+      if (!live) return;
+      if (added.length) setLocals(added);
+      if (errs.length) setErr(errs.join(' '));
+      const todo = [
+        ...r.attachments.flatMap((a, i) => (!a.inline && a.hash && a.hashType ? [{ index: i, name: a.filename, hash: a.hash, hashType: a.hashType }] : [])),
+        ...added.map((l) => ({ index: l.index, name: l.name, hash: l.sha256, hashType: 'sha256' as const })),
+      ];
+      for (let i = 0; i < todo.length && live; i += 2) await Promise.all(todo.slice(i, i + 2).map(lookup));
+      if (live) setSettled(true);
+    })();
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hashed = rows.filter((x) => x.hash).length;
   const anyLoading = busy || Object.values(rep).some((s) => s.status === 'loading');
@@ -181,5 +212,5 @@ export function useAttachmentStage(r: ParseStageResult): AttachmentStage {
 
   const results = useMemo(() => Object.values(rep).flatMap((x) => (x.status === 'done' ? [x.res] : [])), [rep]);
 
-  return { findings, checks, urls, results, panel };
+  return { findings, checks, urls, results, panel, settled };
 }

@@ -72,13 +72,15 @@ export function SenderPanel({ slots, skipped, running }: { slots: Slot[]; skippe
           }
           const v = d.value;
           return (
-            <Card key={idOf(res!.request)} title={`Address ${v.email}`}>
-              <Metric k="Reputation" v={<Badge tone={v.suspicious ? 'bad' : v.reputation === 'high' ? 'good' : 'neutral'}>{v.reputation ?? 'unknown'}{v.suspicious ? ' · suspicious' : ''}</Badge>} />
-              <Metric k="References online" v={v.references} />
-              <Metric k="Malicious activity" v={v.details.maliciousActivity ? (v.details.maliciousActivityRecent ? 'yes (recent)' : 'yes') : 'none reported'} />
-              <Metric k="Blacklisted" v={v.details.blacklisted ? 'yes' : 'no'} />
-              <Metric k="Disposable / free" v={`${v.details.disposable ? 'disposable' : 'no'} / ${v.details.freeProvider ? 'free provider' : 'no'}`} />
-              <Metric k="Domain spoofable" v={v.details.spoofable === null ? 'unknown' : v.details.spoofable ? 'yes' : 'no'} />
+            <Card key={idOf(res!.request)} title={`Address ${v.email}`} action={<Badge tone="info" title="Checked by UserCheck.com">UserCheck</Badge>}>
+              <Metric k="Domain" v={v.domain} />
+              <Metric k="Domain age" v={v.domainAgeDays === null ? 'unknown' : `${v.domainAgeDays.toLocaleString('en-US')} days`} />
+              <Metric k="Can receive mail (MX)" v={v.mx === null ? 'unknown' : v.mx ? 'yes' : 'no'} />
+              <Metric k="Disposable" v={v.disposable ? 'yes' : 'no'} />
+              <Metric k="Spam / abuse domain" v={v.spam ? 'yes' : 'no'} />
+              <Metric k="Mailbox type" v={[v.publicDomain ? 'public provider' : null, v.relayDomain ? 'relay service' : null, v.freeSubdomain ? 'free subdomain' : null, v.roleAccount ? 'role account' : null].filter(Boolean).join(', ') || 'ordinary'} />
+              {v.didYouMean && <Metric k="Looks like a typo of" v={v.didYouMean} />}
+              {(v.spf || v.dmarc) && <Metric k="SPF / DMARC (domain)" v={`${v.spf ?? 'n/a'} / ${v.dmarc ?? 'n/a'}`} />}
             </Card>
           );
         })}

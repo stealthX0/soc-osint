@@ -1,14 +1,15 @@
 import { ok, route } from '../../_lib/respond';
 import { badInput } from '../../_lib/errors';
+import type { Env } from '../../_lib/env';
 import { readTextLimited } from '../../_lib/input';
 import { callInternal } from '../../_lib/internal';
 import { evaluateSpf } from '../../_lib/spfEval';
 import { check } from '../../../shared/phishing/findings';
-import { convertAuth, convertDomain, convertEmailRep, convertIp, convertSpf, idOf, labelOf } from '../../../shared/phishing/sender';
+import { convertAuth, convertDomain, convertUserCheck, convertIp, convertSpf, idOf, labelOf } from '../../../shared/phishing/sender';
 import type { SenderCheckRequest, SenderCheckResponse, SenderCheckData } from '../../../shared/phishing/sender';
 import { normalizeDomain, parseEmail } from '../../../shared/domain';
 import { classifyIP, normalizeIP } from '../../../shared/ip';
-import type { IpLookup, WhoisResult, EmailAuth, EmailReputation } from '../../../shared/types';
+import type { IpLookup, WhoisResult, EmailAuth, EmailCheck } from '../../../shared/types';
 import type { DomainRole, EmailRole, IpRole, TrustLevel } from '../../../shared/phishing/types';
 
 const IP_ROLES: IpRole[] = ['connecting', 'claimed_origin', 'x_originating', 'supplied'];
@@ -28,12 +29,12 @@ function validate(raw: unknown): SenderCheckRequest {
     case 'domain': return { check: 'domain', domain: domain(), roles: Array.isArray(r.roles) ? (r.roles as unknown[]).filter((x): x is DomainRole => (DOMAIN_ROLES as unknown[]).includes(x)) : [] };
     case 'auth': return { check: 'auth', domain: domain(), role: s('role') === 'return_path' ? 'return_path' : 'from', reportedDmarc: s('reportedDmarc') || null };
     case 'spf': return { check: 'spf', domain: domain(), ip: ip(), reported: s('reported') || null, trust };
-    case 'emailrep': {
+    case 'usercheck': {
       const e = parseEmail(s('email'));
       if (!e) throw badInput('A valid "email" is required.');
-      return { check: 'emailrep', email: `${e.local}@${e.domain}`.toLowerCase(), roles: Array.isArray(r.roles) ? (r.roles as unknown[]).filter((x): x is EmailRole => (EMAIL_ROLES as unknown[]).includes(x)) : [] };
+      return { check: 'usercheck', email: `${e.local}@${e.domain}`.toLowerCase(), roles: Array.isArray(r.roles) ? (r.roles as unknown[]).filter((x): x is EmailRole => (EMAIL_ROLES as unknown[]).includes(x)) : [] };
     }
-    default: throw badInput('"check" must be one of: ip, domain, auth, spf, emailrep.');
+    default: throw badInput('"check" must be one of: ip, domain, auth, spf, usercheck.');
   }
 }
 
@@ -76,9 +77,10 @@ export const onRequestPost = route(async (ctx) => {
         return ok(fail('UPSTREAM_ERROR', e instanceof Error ? e.message : 'SPF evaluation failed.'));
       }
     }
-    case 'emailrep': {
-      const r = await callInternal<EmailReputation>(ctx, '/api/email/reputation', { params: { email: req.email } });
-      return ok(r.ok ? done({ check: 'emailrep', value: r.data }, convertEmailRep(req, r.data)) : fail(r.code, r.message));
+    case 'usercheck': {
+      if (!(ctx.env as Env).USERCHECK_API_KEY) return ok({ request: req, findings: [], data: null, checks: [check(idOf(req), 'sender', labelOf(req), 'skipped', null, 'UserCheck is not configured on this deployment (USERCHECK_API_KEY is not set).')] } satisfies SenderCheckResponse);
+      const r = await callInternal<EmailCheck>(ctx, '/api/email/usercheck', { params: { email: req.email } });
+      return ok(r.ok ? done({ check: 'usercheck', value: r.data }, convertUserCheck(req, r.data)) : fail(r.code, r.message));
     }
   }
 });

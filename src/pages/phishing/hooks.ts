@@ -5,14 +5,17 @@ import { assembleUrlStage, type RankedLink, type UrlStageResult } from '../../..
 import type { ParseStageResult } from '../../../shared/phishing/parse';
 import type { PhishingInput } from '../../../shared/phishing/types';
 
+/** Links that get a full lookup per analysis (the server's hard cap is also 3). */
+export const MAX_FULL_LOOKUPS = 3;
+
 export type Slot = { req: SenderCheckRequest; state: 'running' | 'done'; res?: SenderCheckResponse; error?: string };
 
 /**
  * Runs the sender / infrastructure lookups one request at a time (3 in parallel), so each call has its own upstream budget.
  * Aborted when the result goes away. Also records when the last lookup returned, for the timeline.
  */
-export function useSenderStage(parse: ParseStageResult, emailRep: boolean) {
-  const plan = useMemo(() => planSenderChecks(parse, { emailRep }), [parse, emailRep]);
+export function useSenderStage(parse: ParseStageResult) {
+  const plan = useMemo(() => planSenderChecks(parse), [parse]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   useEffect(() => {
@@ -41,7 +44,9 @@ export function useSenderStage(parse: ParseStageResult, emailRep: boolean) {
   const findings = useMemo(() => slots.flatMap((s) => s.res?.findings ?? []), [slots]);
   const results = useMemo(() => slots.flatMap((s) => (s.res ? [s.res] : [])), [slots]);
   const running = slots.filter((s) => s.state === 'running').length;
-  return { plan, slots, findings, results, running, finishedAt };
+  /** True once every planned lookup has returned (or errored), or when there was nothing to look up. */
+  const settled = plan.requests.length === 0 || finishedAt !== null;
+  return { plan, slots, findings, results, running, finishedAt, settled };
 }
 export type SenderStage = ReturnType<typeof useSenderStage>;
 
@@ -57,24 +62,26 @@ export interface LinkStage {
   stage: UrlStageResult | null;
   busy: boolean;
   error: string | null;
-  /** Triage + feed check + the top link, then the runner-up in a second request. */
+  /** Triage + feed check + full lookups on the top MAX_FULL_LOOKUPS links, one request each. */
   run: () => Promise<void>;
-  deepNext: () => Promise<void>;
   /** Candidates that have not had a full lookup yet. */
   remaining: string[];
   /** When the last investigation request returned (epoch ms), for the timeline. */
   investigatedAt: number | null;
+  /** True once the automatic investigation after parsing has finished (succeeded or failed), or when there are no links. */
+  settled: boolean;
 }
 
 /**
- * The link investigation. It sends URLs to providers, so it only runs when the analyst presses the button, or, if they
- * opted in with the "investigate links automatically" preference, once after parsing. One full lookup per request.
+ * The link investigation. It runs once automatically after parsing (the top 3 links, one full lookup per request), and the analyst can
+ * re-run it or deep-check further links afterwards. One full lookup per request.
  */
-export function useLinkStage(r: ParseStageResult, input: PhishingInput, auto = false): LinkStage {
+export function useLinkStage(r: ParseStageResult, input: PhishingInput): LinkStage {
   const [stage, setStage] = useState<UrlStageResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [investigatedAt, setInvestigatedAt] = useState<number | null>(null);
+  const [settled, setSettled] = useState(r.links.length === 0);
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
 
@@ -106,23 +113,26 @@ export function useLinkStage(r: ParseStageResult, input: PhishingInput, auto = f
 
   const run = async () => {
     abort.current?.abort();
-    abort.current = new AbortController();
+    const ac = new AbortController();
+    abort.current = ac;
     setBusy(true); setError(null);
+    // Triage + feed check + the top link, then the next-ranked links one request each, up to MAX_FULL_LOOKUPS in all.
     const first = await call();
-    const next = pending(first)[0];
-    if (first && next) await call([next]);
+    let acc = first;
+    for (let n = 1; acc && n < MAX_FULL_LOOKUPS; n++) {
+      const next = pending(acc)[0];
+      if (!next) break;
+      const d = await call([next]);
+      if (!d) break;
+      acc = mergeStage(acc, d);
+    }
+    if (ac.signal.aborted) return; // superseded by a newer run (or the report went away): that run settles it
     setBusy(false);
-  };
-  const deepNext = async () => {
-    abort.current ??= new AbortController();
-    setBusy(true); setError(null);
-    const next = pending(stage)[0];
-    if (next) await call([next]);
-    setBusy(false);
+    setSettled(true);
   };
 
-  // Opt-in preference: investigate once after parsing. Off by default, in which case nothing here ever runs.
-  useEffect(() => { if (auto && r.links.length > 0) void run(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Always investigate once after parsing; the report waits for this to settle.
+  useEffect(() => { if (r.links.length > 0) void run(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { stage, busy, error, run, deepNext, remaining: pending(stage), investigatedAt };
+  return { stage, busy, error, run, remaining: pending(stage), investigatedAt, settled };
 }

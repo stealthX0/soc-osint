@@ -225,20 +225,27 @@ export interface UrlLookup {
   providers: ProviderStatus[];
 }
 
-/* -------------------------------------------------- Email address reputation */
-/** Reputation of one e-mail ADDRESS (EmailRep.io). Address-level evidence, not message-level. */
-export interface EmailReputation {
+/* -------------------------------------------------- Email address check (UserCheck) */
+/** Result of one UserCheck.com address check. Mostly DOMAIN-level facts about where the address lives. */
+export interface EmailCheck {
   email: string;
-  reputation: 'none' | 'low' | 'medium' | 'high' | null;
-  suspicious: boolean;
-  /** How many places on the internet reference the address (more = more established). */
-  references: number;
-  details: {
-    blacklisted: boolean; maliciousActivity: boolean; maliciousActivityRecent: boolean;
-    credentialsLeaked: boolean; dataBreach: boolean; spam: boolean;
-    freeProvider: boolean; disposable: boolean; deliverable: boolean | null; validMx: boolean | null;
-    spoofable: boolean | null; dmarcEnforced: boolean | null; suspiciousTld: boolean; newDomain: boolean;
-    daysSinceDomainCreation: number | null; firstSeen: string | null; lastSeen: string | null; profiles: string[];
-  };
+  domain: string;
+  /** Days since the domain was registered, per the registry (null when unknown). */
+  domainAgeDays: number | null;
+  /** Whether the domain can receive mail (null when the DNS lookup failed). */
+  mx: boolean | null;
+  disposable: boolean;
+  /** Associated with spam or abuse (a domain can be spam without being disposable). */
+  spam: boolean;
+  /** Public mailbox service such as Gmail or Outlook. */
+  publicDomain: boolean;
+  relayDomain: boolean;
+  /** Subdomain of a free or dynamic DNS service. */
+  freeSubdomain: boolean;
+  roleAccount: boolean;
+  /** A well-known domain this one looks like a misspelling of. */
+  didYouMean: string | null;
+  spf: string | null;
+  dmarc: string | null;
   providers: ProviderStatus[];
 }

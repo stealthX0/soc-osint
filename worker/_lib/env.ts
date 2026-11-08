@@ -21,9 +21,9 @@ export interface Env {
   HYBRID_ANALYSIS_API_KEY?: string;
   /** APILayer WHOIS API key (free: 3,000 req/month): fallback for TLDs where RDAP has no record (.de, .io, ...). https://marketplace.apilayer.com/whois-api */
   APILAYER_API_KEY?: string;
-  /** EmailRep.io API key (optional): address reputation. Works keyless with a small shared quota; a free key raises it. https://emailrep.io */
-  EMAILREP_API_KEY?: string;
-  EMAILREP_DAILY?: string;
+  /** UserCheck.com API key: sender address / domain checks (disposable, spam, MX, domain age). Required for that check; without it the check is skipped. https://www.usercheck.com */
+  USERCHECK_API_KEY?: string;
+  USERCHECK_DAILY?: string;
   /** URL intelligence sources (all optional) */
   /** abuse.ch Auth-Key (free, https://auth.abuse.ch): one key serves URLhaus (URL Intelligence) and MalwareBazaar (File Analysis). */
   ABUSECH_AUTH_KEY?: string;

@@ -25,7 +25,7 @@ import { SenderTab } from '../src/pages/phishing/SenderTab';
 import { UrlTab } from '../src/pages/phishing/UrlTab';
 import { AttachmentTab, useAttachmentStage } from '../src/pages/phishing/AttachmentPanel';
 import { EvidenceTab } from '../src/pages/phishing/EvidenceTab';
-import { ResultsShell, TABS } from '../src/pages/phishing/ResultsShell';
+import { FinishedReport, ResultsShell, TABS } from '../src/pages/phishing/ResultsShell';
 import { HistoryPanel } from '../src/pages/phishing/HistoryPanel';
 import { ReportView } from '../src/pages/phishing/ReportView';
 
@@ -387,7 +387,6 @@ describe('guided input helpers', () => {
   });
 
   it('the built-in example is a clearly fake training sample on reserved domains and documentation IPs', () => {
-    assert.equal(EXAMPLE_FORM.origin, 'training');
     const text = Object.entries(EXAMPLE_FORM).filter(([k]) => k !== 'attachments').map(([, v]) => v).join('\n');
     const domains = [...text.matchAll(/\b(?:[a-z0-9-]+\.)+(?:[a-z]{2,})\b/gi)].map((m) => m[0].toLowerCase()).filter((d) => !/^\d/.test(d) && d !== 'paypal.com' && !['smtp.mailfrom', 'header.from'].includes(d));
     assert.ok(domains.length > 3);
@@ -434,14 +433,17 @@ describe('pipeline strip', () => {
 /** React inserts <!-- --> between adjacent text nodes; they are removed so assertions read like the visible text. */
 const html = (el: unknown) => renderToString(el as never).replace(/<!-- -->/g, '');
 const noop = () => {};
-const linkStub = { stage: null, busy: false, error: null, run: async () => {}, deepNext: async () => {}, remaining: [], investigatedAt: null };
+const linkStub = { stage: null, busy: false, error: null, run: async () => {}, remaining: [], investigatedAt: null, settled: true };
+const senderDone = { plan: { requests: [], skipped: [] }, slots: [], findings: [], results: [], running: 0, finishedAt: null, settled: true };
+const attDone = { findings: [], checks: [], urls: [], results: [], panel: null, settled: true };
 
 describe('server-render smoke tests: every tab and the form render without throwing', () => {
   it('the input form', () => {
-    const out = html(createElement(InputForm, { f: EMPTY_FORM, setF: noop, emailRep: true, setEmailRep: noop, autoLinks: false, setAutoLinks: noop, onSubmit: noop, busy: false }));
-    for (const s of ['Raw email headers', 'Email information', 'Sender information', 'Links and attachments', 'Load example', 'Choose a .eml file', 'Analyse email', 'Investigate links automatically after parsing', 'Where did this email come from?']) assert.ok(out.includes(s), s);
+    const out = html(createElement(InputForm, { f: EMPTY_FORM, setF: noop, files: [], setFiles: noop, onSubmit: noop, busy: false }));
+    for (const s of ['Raw email headers', 'Email information', 'Sender information', 'Links and attachments', 'Load example', 'Choose a .eml file', 'Analyse email', 'Attach file', 'Subject <span class="text-faint">(optional)</span>']) assert.ok(out.includes(s), s);
+    for (const gone of ['Where did this email come from?', 'Reported by a user', 'Found in a mailbox', 'Training / test', 'EmailRep', 'Investigate links automatically', 'type="checkbox"']) assert.ok(!out.includes(gone), `${gone} was removed`);
     assert.match(out, /id="ph-h"/);
-    const filled = html(createElement(InputForm, { f: { ...EXAMPLE_FORM, headers: 'Dear customer, your account will be suspended unless you act today, please click here.' }, setF: noop, emailRep: true, setEmailRep: noop, autoLinks: true, setAutoLinks: noop, onSubmit: noop, busy: true }));
+    const filled = html(createElement(InputForm, { f: { ...EXAMPLE_FORM, headers: 'Dear customer, your account will be suspended unless you act today, please click here.' }, setF: noop, files: [], setFiles: noop, onSubmit: noop, busy: true }));
     assert.match(filled, /looks like a message body/);
     assert.match(filled, /of 3\.0 MB used/);
   });
@@ -523,7 +525,7 @@ describe('server-render smoke tests: every tab and the form render without throw
 
   it('the whole results shell: six ARIA tabs in order, panels wired to tabs, only Overview shown, heading focusable', async () => {
     const f = await fixture();
-    const out = html(createElement(ResultsShell, { r: f.r, input: f.input, emailRep: false, startedAt: Date.now() }));
+    const out = html(createElement(FinishedReport, { r: f.r, input: f.input, sender: senderDone, links: linkStub, att: attDone, startedAt: Date.now(), historyEnabled: false }));
     assert.deepEqual(TABS.map((t) => t.label), ['Overview', 'Email Headers', 'Sender Intelligence', 'URL Analysis', 'Attachment Analysis', 'Evidence & Timeline']);
     assert.match(out, /role="tablist"/);
     assert.equal((out.match(/role="tab"/g) ?? []).length, 6);
@@ -538,6 +540,14 @@ describe('server-render smoke tests: every tab and the form render without throw
     assert.equal((out.match(/role="tabpanel"[^>]*hidden/g) ?? []).length + (out.match(/hidden=""[^>]*role="tabpanel"/g) ?? []).length >= 5 || (out.match(/hidden/g) ?? []).length >= 5, true);
     assert.match(out, /<h2[^>]*tabindex="-1"[^>]*>Investigation results<\/h2>|tabindex="-1"[^>]*id="ph-results-heading"/);
     assert.match(out, /Investigation verdict/);
+  });
+
+  it('while lookups are outstanding the shell renders a progress list and no verdict at all', async () => {
+    const f = await fixture();
+    const out = html(createElement(ResultsShell, { r: f.r, input: f.input, files: [], startedAt: Date.now() }));
+    assert.match(out, /every lookup has finished/);
+    assert.match(out, /Sender intelligence/);
+    for (const hidden of ['Investigation verdict', 'role="tablist"', 'provisional', 'Investigation results']) assert.ok(!out.includes(hidden), `${hidden} must not show before all checks finish`);
   });
 
   it('the history panel and the read-only report view', async () => {
@@ -557,7 +567,7 @@ describe('server-render smoke tests: every tab and the form render without throw
   it('message-derived text is escaped, never rendered as HTML', async () => {
     const evil = '<img src=x onerror=alert(1)>';
     const f = await fixture({ subject: evil, attachments: `${evil}.exe`, displayName: `<script>alert(1)</script>` });
-    const shell = html(createElement(ResultsShell, { r: f.r, input: f.input, emailRep: false, startedAt: Date.now() }));
+    const shell = html(createElement(FinishedReport, { r: f.r, input: f.input, sender: senderDone, links: linkStub, att: attDone, startedAt: Date.now(), historyEnabled: false }));
     assert.ok(!shell.includes(evil), 'raw tag never appears');
     assert.ok(!shell.includes('<script>alert'), 'raw script never appears');
     const view = html(createElement(ReportView, { report: f.report }));
