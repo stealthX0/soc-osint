@@ -283,9 +283,9 @@ export function computeVerdict(input: VerdictInput): Verdict {
   let label: VerdictLabel;
   let headline: string;
   const notes: string[] = [];
-  if (rule) { label = 'malicious'; headline = (rule as RuleHit).text; }
   // When a verdict rule decides MALICIOUS, floor the risk so the number does not contradict the label.
   const ruleFloor = rule ? 85 : 0;
+  if (rule) { label = 'malicious'; headline = (rule as RuleHit).text; }
   else if (suspicious) {
     label = 'suspicious';
     headline = onlyAuth ? 'Authentication problems with no other threat evidence: suspicious, but authentication alone does not prove an email is malicious.'
