@@ -463,8 +463,9 @@ function openphishFindings(url: string, host: string, platform: string | null, m
       evidence: [url], indicator: { type: 'url', value: url },
     }));
   } else if (m.hostMatches > 0) {
+    // Host-level matches are related evidence, never exact: cap at medium regardless of platform status.
     out.push(makeFinding({
-      id: `${pre}host_listed`, dimension: 'url', severity: platform ? 'medium' : 'high',
+      id: `${pre}host_listed`, dimension: 'url', severity: 'medium',
       title: `OpenPhish lists ${m.hostMatches} phishing URL${m.hostMatches === 1 ? '' : 's'} on ${host}`,
       detail: `This exact URL is not in the feed, but the same host is.${platform ? ` It is a shared platform (${platform}), so other tenants\u2019 listings say little about this page.` : ' A host serving phishing pages is likely to serve more.'}`,
       source: 'OpenPhish', exactness: 'related', reliability: platform ? 'low' : 'medium', trust: 'independently_verified',

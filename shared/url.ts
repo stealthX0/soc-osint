@@ -134,6 +134,10 @@ export const PLATFORM_SUFFIXES = [
   'duckdns.org', 'no-ip.org', 'ddns.net', 'hopto.org', 'azurewebsites.net', 'cloudfront.net', 'webflow.io', 'framer.app',
   'godaddysites.com', 'square.site', 'carrd.co', 'notion.site', 'gitbook.io', 'repl.co', 'replit.app', 'onrender.com', 'fly.dev',
   'surge.sh', '000webhostapp.com', 'infinityfreeapp.com', 'epizy.com', 'rf.gd', 'wordpress.com', 'myshopify.com', 'typedream.app', 'webcindario.com',
+  // Big multi-tenant hosts: a host-level feed match on these says nothing about the specific page.
+  'docs.google.com', 'drive.google.com', 'forms.gle', 'sites.google.com', 'storage.googleapis.com',
+  'forms.office.com', 'sharepoint.com', 'onedrive.live.com', '1drv.ms',
+  'dropbox.com', 'canva.com', 'typeform.com', 'mailchi.mp',
 ];
 
 function splitHost(host: string): { registrable: string | null; tld: string | null; platform: string | null } {

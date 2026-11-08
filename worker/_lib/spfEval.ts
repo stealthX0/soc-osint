@@ -51,22 +51,28 @@ export async function evaluateSpf(domainIn: string, ipIn: string, dns: DnsReader
   const ev: SpfEvaluation = { domain, ip, result: 'none', matched: null, lookups: 0, record: null, notes };
   if (!parseIP(ip)) { ev.result = 'permerror'; notes.push('Invalid IP address.'); return ev; }
   const isV6 = ip.includes(':');
-  const seen = new Set<string>();
+  let skippedMechanism = false;
 
   const count = () => { if (++ev.lookups > maxLookups) throw new Abort('permerror', `More than ${maxLookups} DNS-querying terms: the SPF record is invalid (RFC 7208 limit).`); };
   const dnsErr = (e: unknown) => new Abort('temperror', `DNS error: ${e instanceof Error ? e.message : 'lookup failed'}`);
 
-  async function addrsMatch(name: string, prefix4: number, prefix6: number): Promise<boolean> {
-    count();
+  /**
+   * Look up A or AAAA records for `name` and check whether `ip` falls in any of them.
+   * When `counted` is true the caller already counted this toward the lookup limit (used for `mx` host lookups,
+   * which RFC 7208 does not count individually — only the `mx` term itself counts).
+   */
+  async function addrsMatch(name: string, prefix4: number, prefix6: number, counted = false): Promise<boolean> {
+    if (!counted) count();
     let addrs: string[];
     try { addrs = isV6 ? await dns.aaaa(name) : await dns.a(name); } catch (e) { throw dnsErr(e); }
     return addrs.some((a) => cidrContains(`${a}/${isV6 ? prefix6 : prefix4}`, ip) === true);
   }
 
   /** Returns a result if a term decided it, or 'nomatch'. */
-  async function check(name: string, depth: number): Promise<SpfResult | 'nomatch'> {
-    if (depth > 8 || seen.has(name)) throw new Abort('permerror', 'SPF include/redirect loop or nesting too deep.');
-    seen.add(name);
+  async function check(name: string, depth: number, path: Set<string>): Promise<SpfResult | 'nomatch'> {
+    if (depth > 8 || path.has(name)) throw new Abort('permerror', 'SPF include/redirect loop or nesting too deep.');
+    const branch = new Set(path);
+    branch.add(name);
     let txts: string[];
     try { txts = await dns.txt(name); } catch (e) { throw dnsErr(e); }
     const records = txts.filter(isSpfRecord);
@@ -94,23 +100,25 @@ export async function evaluateSpf(domainIn: string, ipIn: string, dns: DnsReader
           const host = (target && !target.startsWith('/') ? target : name).toLowerCase();
           if (m.type === 'a') hit = await addrsMatch(host, p4, p6);
           else {
-            count();
+            count(); // count the mx term itself
             let hosts: string[];
             try { hosts = await dns.mx(host); } catch (e) { throw dnsErr(e); }
-            for (const h of hosts.slice(0, 10)) if (await addrsMatch(h.toLowerCase(), p4, p6)) { hit = true; break; }
+            // RFC 7208 §5.4: the per-MX-host A/AAAA lookups are NOT counted toward the 10-lookup limit.
+            for (const h of hosts.slice(0, 10)) if (await addrsMatch(h.toLowerCase(), p4, p6, true)) { hit = true; break; }
           }
           break;
         }
         case 'include': {
           if (!v) throw new Abort('permerror', 'include: without a domain.');
           count();
-          const r = await check(v.toLowerCase(), depth + 1);
+          const r = await check(v.toLowerCase(), depth + 1, branch);
           if (r === 'pass') { via = `include:${v} → ${ev.matched ?? 'match'}`; hit = true; }
           else if (r === 'permerror' || r === 'temperror') throw new Abort(r, `include:${v} returned ${r}.`);
           else if (r === 'none') throw new Abort('permerror', `include:${v} has no SPF record.`);
           break;
         }
         case 'exists': case 'ptr':
+          skippedMechanism = true;
           notes.push(`The "${m.type}" mechanism is not evaluated here; the result may differ from a full SPF check.`);
           break;
         default:
@@ -122,15 +130,24 @@ export async function evaluateSpf(domainIn: string, ipIn: string, dns: DnsReader
       }
     }
     if (spf.all !== null) { ev.matched = `${spf.all}all`; return QUAL[spf.all]; }
-    if (spf.redirect) { count(); const r = await check(spf.redirect.toLowerCase(), depth + 1); return r === 'nomatch' ? 'neutral' : r === 'none' ? 'permerror' : r; }
+    if (spf.redirect) { count(); const r = await check(spf.redirect.toLowerCase(), depth + 1, branch); return r === 'nomatch' ? 'neutral' : r === 'none' ? 'permerror' : r; }
     return 'neutral';
   }
 
   try {
-    const r = await check(domain, 0);
+    const r = await check(domain, 0, new Set<string>());
     ev.result = r === 'nomatch' ? 'neutral' : r;
   } catch (e) {
     if (e instanceof Abort) { ev.result = e.result; notes.push(e.message); } else throw e;
   }
+
+  // If a mechanism was skipped (exists/ptr), a fail/softfail/neutral result is unreliable:
+  // the skipped mechanism could have matched and produced pass.  Mark the evaluation
+  // inconclusive so convertSpf does not raise spf_independent_fail / spf_independent_disagrees.
+  if (skippedMechanism && (ev.result === 'fail' || ev.result === 'softfail' || ev.result === 'neutral')) {
+    notes.push(`Result downgraded from "${ev.result}" to inconclusive because an unevaluated mechanism (exists/ptr) could have matched.`);
+    ev.result = 'none';
+  }
+
   return ev;
 }

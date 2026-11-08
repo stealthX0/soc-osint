@@ -264,7 +264,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
     for (const f of byId((f) => CONFIRMING.has(norm(f.id)) && atLeast(f.severity, 'high') && f.exactness === 'exact' && !!f.indicator)) (perUrl.get(f.indicator!.value) ?? perUrl.set(f.indicator!.value, []).get(f.indicator!.value)!).push(f);
     const multi = [...perUrl.values()].find((l) => new Set(l.map((f) => f.source)).size >= 2);
     const impersonation = byId((f) => IMPERSONATION.has(f.id) && atLeast(f.severity, 'medium'));
-    const strongDestination = byId((f) => (CONFIRMING.has(norm(f.id)) || norm(f.id) === 'url_host_listed') && atLeast(f.severity, 'high') && f.source !== 'url-heuristics');
+    const strongDestination = byId((f) => CONFIRMING.has(norm(f.id)) && atLeast(f.severity, 'high') && f.exactness === 'exact' && f.source !== 'url-heuristics');
     const credForm = byId((f) => f.id === 'attachment_html_credential_form');
     const extortion = byId((f) => f.id === 'content_extortion' && (f.evidence?.length ?? 0) >= 2);
     if (multi) hit('independent_confirmation', `${new Set(multi.map((f) => f.source)).size} independent sources flag the same exact URL: ${[...new Set(multi.map((f) => f.source))].join(', ')}.`, multi);
@@ -284,6 +284,8 @@ export function computeVerdict(input: VerdictInput): Verdict {
   let headline: string;
   const notes: string[] = [];
   if (rule) { label = 'malicious'; headline = (rule as RuleHit).text; }
+  // When a verdict rule decides MALICIOUS, floor the risk so the number does not contradict the label.
+  const ruleFloor = rule ? 85 : 0;
   else if (suspicious) {
     label = 'suspicious';
     headline = onlyAuth ? 'Authentication problems with no other threat evidence: suspicious, but authentication alone does not prove an email is malicious.'
@@ -375,7 +377,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
   } else actions.push('Provide the message and try again.');
 
   return {
-    label, headline, risk: clamp(risk), confidence: { level, score, notes: confNotes }, rule, reasons, mitigating, conflicts, gaps: cov.gaps.sort((a, b) => Number(b.critical) - Number(a.critical)),
+    label, headline, risk: clamp(Math.max(risk, ruleFloor)), confidence: { level, score, notes: confNotes }, rule, reasons, mitigating, conflicts, gaps: cov.gaps.sort((a, b) => Number(b.critical) - Number(a.critical)),
     coverage, provisional: cov.pending, dimensions: dims, contributions: contributions.sort((a, b) => b.counted - a.counted), unmapped: [...new Set(contributions.filter((c) => !c.mapped).map((c) => c.findingId))],
     indicators, actions, notes,
   };
