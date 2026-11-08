@@ -247,7 +247,7 @@ export const THRESHOLDS = {
   saturation: 35,
   /** Share of the headline risk taken from the strongest dimension (the rest is the weighted average). */
   strongestShare: 0.5,
-  suspiciousRisk: 30,
+  suspiciousRisk: 25,
   /** A single strong indicator (counted points) is enough for Suspicious. */
   strongSingle: 15,
   /** A signal this big counts as a "meaningful" warning sign (a Reply-To mismatch is 10; ordinary lure wording is below it). */

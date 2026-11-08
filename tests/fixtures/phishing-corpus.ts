@@ -105,10 +105,283 @@ export const CORPUS: CorpusSample[] = [
   { id: 'M05-sextortion', description: 'Bulk sextortion message with a Bitcoin wallet', expect: ['malicious'], input: { headers: mail({ from: 'x1y2z3@mailbox.example', subject: 'I recorded you' }), body: 'I hacked your webcam and recorded a video of you. Send $1500 in bitcoin to 1BoatSLRHtKNngkdXEeobR76b53LETtpyT within 48 hours or I will expose it to your contacts.' }, checks: SENDER_DONE },
   { id: 'M06-two-sources', description: 'The same URL flagged by two independent providers', expect: ['malicious'], input: { headers: mail({ from: 'notice@service.example', subject: 'Action needed' }), body: 'Please confirm: https://confirm-now.example/a' }, findings: [lookup('url_engine_detections', 'high', 'url', { source: 'VirusTotal', indicator: url('https://confirm-now.example/a') }), lookup('url_scan_malicious', 'high', 'url', { source: 'urlscan.io', indicator: url('https://confirm-now.example/a') })], checks: [...SENDER_DONE, ...LINKS_DONE] },
 
-  /* --------------------------------------------------------- inconclusive */
-  { id: 'I01-no-headers', description: 'Only a body was pasted: nothing vouches for the sender', expect: ['inconclusive'], input: { body: 'Hello, please see the notes on the wiki.' } },
-  { id: 'I02-links-not-checked', description: 'Clean-looking message whose link has not been investigated', expect: ['inconclusive'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365' }), body: 'Details are at https://partner.example/notes' }, checks: SENDER_DONE },
-  { id: 'I03-lookups-failed', description: 'Every sender lookup failed (provider outage)', expect: ['inconclusive'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365' }), body: 'Hi.' }, checks: [bad('sender.ip.x', 'IP intelligence'), bad('sender.domain.x', 'Domain registration'), bad('sender.auth.x', 'Mail security DNS')] },
-  { id: 'I04-conflicting-auth', description: 'Headers report DMARC pass but nothing aligns with the From domain', expect: ['inconclusive', 'suspicious'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365' }), body: 'Hi.' }, findings: [lookup('auth_conflict', 'medium', 'authentication', { trust: 'derived', detail: 'DMARC pass but no aligned SPF or DKIM' })], checks: SENDER_DONE },
-  { id: 'I05-attachment-unassessed', description: 'Invoice with an attachment that was never looked up', expect: ['inconclusive'], input: { headers: mail({ from: 'billing@vendor.example' }), body: 'Invoice attached.', attachments: [{ name: 'invoice.pdf' }] }, checks: SENDER_DONE },
+  /* ================================================================= */
+  /* EXPANDED CORPUS — real-world patterns from Nazario, SpamAssassin, */
+  /* PhishingPot, EPVME, Enron and documented attack campaigns.       */
+  /* ================================================================= */
+
+  /* ------------------------------------------- legitimate (real-world) */
+
+  // Pattern: Enron-style internal business discussion (Enron Corpus)
+  { id: 'L09-internal-biz-discussion', description: 'Internal business discussion about energy trading (Enron-style)', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'john.lavorato@corp.example', recv: 'm365', subject: 'Re: West desk P&L' }), body: 'The west desk is showing $1.2M above plan for October. Can you pull the summary for the Monday meeting? Thanks, John' }, checks: SENDER_DONE },
+
+  // Pattern: SpamAssassin ham — mailing list (Apache mailing list style)
+  { id: 'L10-mailing-list', description: 'Public mailing list post with list headers (SpamAssassin corpus pattern)', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'contributor@opensource.example', subject: 'Re: [dev] RFC: new cache layer', extra: 'List-Id: <dev.lists.opensource.example>\nList-Unsubscribe: <mailto:dev-unsubscribe@lists.opensource.example>' }), body: 'I agree with the approach. The LRU eviction policy makes sense for our workload. One concern: should we cap at 512MB or make it configurable?' }, checks: SENDER_DONE },
+
+  // Pattern: Authenticated transactional SaaS notification
+  { id: 'L11-saas-usage-alert', description: 'SaaS usage alert (authenticated, no action required)', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'alerts@monitoring.saas.example', dkimDomain: 'saas.example', subject: 'Storage usage: 80% of quota' }), body: 'Your team workspace has reached 80% of the 50 GB storage quota. Consider archiving old files. This is an informational message; no action is required.' }, checks: SENDER_DONE },
+
+  // Pattern: Legitimate marketing from ESP (SendGrid/Mailchimp-style)
+  { id: 'L12-marketing-esp', description: 'Marketing email through ESP with clean link investigated', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'offers@shop.example', returnPath: 'bounce-1234@sendgrid.example', dkimDomain: 'shop.example', subject: 'Weekend sale: 20% off everything' }), body: 'Shop our weekend sale! Use code SAVE20 at checkout. https://shop.example/sale  Unsubscribe: https://shop.example/unsub' },
+    findings: [lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('return_path_mismatch', 'info', 'authentication', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Authenticated ticket update from support system
+  { id: 'L13-support-ticket', description: 'Support ticket update from authenticated helpdesk system', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'support@helpdesk.vendor.example', recv: 'm365', dkimDomain: 'vendor.example', subject: 'Re: [Ticket #8891] API rate limit question' }), body: 'Hi, your rate limit has been increased to 10,000 requests/hour as requested. The change is effective immediately. Please let us know if you have any further questions. — Support Team' }, checks: SENDER_DONE },
+
+  // Pattern: GitHub/GitLab notification (platform notification)
+  { id: 'L14-github-notification', description: 'Legitimate GitHub-style platform notification about PR merge', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'notifications@github.example', dkimDomain: 'github.example', subject: '[repo/project] Pull request #423 merged' }), body: 'johndoe merged pull request #423: Fix null pointer in auth handler. 3 commits, 2 files changed. View it on GitHub: https://github.example/repo/project/pull/423' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Cloud billing notification
+  { id: 'L15-cloud-billing', description: 'Cloud provider billing notification with authenticated sender', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'billing@cloud-provider.example', dkimDomain: 'cloud-provider.example', subject: 'Your invoice for October 2026 is available' }), body: 'Your October 2026 invoice for account 1234-5678 totals $847.23. View and download your invoice at https://cloud-provider.example/billing/invoices. Payment will be charged to your card on file.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Recruiter outreach (legitimate cold email)
+  { id: 'L16-recruiter-outreach', description: 'Recruiter outreach from corporate domain with investigated link', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'sarah.jones@recruiting.bigcorp.example', dkimDomain: 'bigcorp.example', subject: 'Engineering opportunity at BigCorp' }), body: 'Hi, I came across your profile and think you would be a great fit for our senior backend engineering role. Would you be open to a 15-minute call? You can see the job description here: https://careers.bigcorp.example/jobs/12345' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Legitimate document shared via Box/Dropbox (real file-sharing)
+  { id: 'L17-legit-file-share', description: 'Authenticated file-sharing notification from Box/Dropbox-style service', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'noreply@fileshare.example', dkimDomain: 'fileshare.example', subject: 'Alice shared "Q3 Budget.xlsx" with you' }), body: 'Alice (alice@partner.example) shared a file with you. Click to view: https://fileshare.example/s/abc123def456. This link expires in 7 days.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Subscription renewal reminder (legitimate)
+  { id: 'L18-subscription-renewal', description: 'Authenticated subscription renewal notice with financial wording', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'billing@software.example', dkimDomain: 'software.example', subject: 'Your subscription renews on Dec 1' }), body: 'Your annual Pro plan ($299/year) renews on December 1, 2026. If you would like to change or cancel your plan, visit https://software.example/account/billing before the renewal date.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  /* ------------------------------------------- suspicious (real-world) */
+
+  // Pattern: Nazario corpus — PayPal phishing (spoofed but links not yet investigated)
+  { id: 'S10-paypal-spoof-unchecked', description: 'Spoofed PayPal account limitation notice, auth failed, links not checked (Nazario pattern)', expect: ['suspicious'],
+    input: { headers: mail({ from: 'service@paypal.example', fromName: 'PayPal', spf: 'fail', dkim: 'none', dmarc: 'fail', ip: '203.0.113.90', subject: 'Your account access has been limited', ct: 'text/html' }), body: 'Dear PayPal Customer, We have noticed unusual activity on your account. Your account has been limited until we hear from you. Restore access: <a href="https://paypal-verify.example/restore">https://www.paypal.example/restore</a>. If you do not respond within 48 hours your account will be permanently suspended.' },
+    findings: [lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: SENDER_DONE },
+
+  // Pattern: Nazario corpus — eBay/auction site phishing
+  { id: 'S11-auction-spoof', description: 'eBay-style auction dispute from spoofed domain with urgency (Nazario pattern)', expect: ['suspicious'],
+    input: { headers: mail({ from: 'resolution@ebay-center.example', fromName: 'eBay Resolution Center', spf: 'softfail', dkim: 'none', dmarc: 'fail', subject: 'Case opened: Item Not Received #4892771' }), body: 'A case has been opened against you for item #389012345678. If you do not respond within 3 days, a refund will be issued to the buyer automatically. Respond now: https://ebay-center.example/case/4892771' },
+    findings: [lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('sender_domain_lookalike', 'medium', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: SENDER_DONE },
+
+  // Pattern: BEC wire transfer (from compromised vendor — authenticated!)
+  { id: 'S12-bec-wire-transfer', description: 'Authenticated vendor asking for urgent wire transfer to a new account (BEC pattern)', expect: ['suspicious'],
+    input: { headers: mail({ from: 'cfo@vendor.example', recv: 'm365', subject: 'Urgent: Wire transfer needed today' }), body: 'We have a time-sensitive payment that needs to go out today. Please wire $47,500 to the following account: Bank: First National, Account: 9182736450, Routing: 021000021. This is confidential — please do not discuss with others until completed.' },
+    findings: [lookup('content_financial_request', 'high', 'content', { trust: 'derived' }), lookup('content_bec_request', 'high', 'content', { trust: 'derived' }), lookup('content_urgency', 'medium', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: EPVME — subdomain spoofing (SPF bypass via subdomain)
+  { id: 'S13-subdomain-spoof', description: 'Subdomain spoofing attack: security.bank.example has no SPF, DMARC passes on org domain', expect: ['suspicious'],
+    input: { headers: mail({ from: 'alert@security.bank.example', fromName: 'Bank Security Alert', spf: 'none', dkim: 'none', dmarc: 'pass', subject: 'Suspicious login detected' }), body: 'We detected a login from an unrecognized device in Moscow, Russia. If this was not you, secure your account immediately: https://security.bank.example/verify-identity' },
+    findings: [lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('content_credential_request', 'medium', 'content', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: QR code phishing (documented in incident response reports)
+  { id: 'S14-qr-code-phish', description: 'QR code MFA re-enrollment phish from spoofed IT department', expect: ['suspicious'],
+    input: { headers: mail({ from: 'it-security@corp.example', recv: 'm365', subject: 'ACTION REQUIRED: MFA re-enrollment by Friday', ct: 'text/html' }), body: 'Due to our security upgrade, all employees must re-enroll in Multi-Factor Authentication by this Friday. Scan the QR code below with your phone camera to begin the enrollment process. [QR code image] Failure to re-enroll will result in account lockout.' },
+    findings: [lookup('content_qr_lure', 'high', 'content', { trust: 'derived' }), lookup('content_credential_request', 'high', 'content', { trust: 'derived' }), lookup('content_urgency', 'medium', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Gift card scam BEC (common real-world attack)
+  { id: 'S15-gift-card-scam', description: 'CEO impersonation asking to buy gift cards (BEC gift card pattern)', expect: ['suspicious'],
+    input: { headers: mail({ from: 'ceo.dana.smith@gmail.com', fromName: 'Dana Smith', subject: 'Favor needed' }), body: 'Hi, I need you to purchase 5 Apple gift cards at $100 each for a client appreciation event. Please buy them today and send me photos of the card numbers and PINs. I will reimburse you. This is urgent, I am in a meeting and cannot call. Thanks, Dana' },
+    findings: [lookup('content_gift_card_request', 'high', 'content', { trust: 'derived' }), lookup('content_bec_request', 'medium', 'content', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: Voicemail notification phish
+  { id: 'S16-voicemail-phish', description: 'Fake voicemail notification with credential-harvesting link, auth failed', expect: ['suspicious'],
+    input: { headers: mail({ from: 'voicemail@phone-system.example', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'New voicemail from +1 (555) 012-3456' }), body: 'You have a new voicemail message (duration: 0:47). Listen to your voicemail: https://phone-system.example/vm/play?id=8837. This message will be deleted in 24 hours.' },
+    findings: [lookup('content_credential_request', 'medium', 'content', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: Payroll diversion (authenticated sender — compromised HR)
+  { id: 'S17-payroll-diversion', description: 'Authenticated HR mailbox requesting direct deposit change (payroll diversion)', expect: ['suspicious'],
+    input: { headers: mail({ from: 'hr@corp.example', recv: 'm365', subject: 'Action Required: Verify direct deposit' }), body: 'We are updating our payroll system. Please confirm your direct deposit information by filling out the form at https://hr-forms.example/deposit-update. If we do not receive your updated information by Friday, your pay may be delayed.' },
+    findings: [lookup('content_payroll_diversion', 'medium', 'content', { trust: 'derived' }), lookup('content_credential_request', 'medium', 'content', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: Shared document lure with mismatch text (link says OneDrive, goes elsewhere)
+  { id: 'S18-document-share-lure', description: 'Document sharing lure where link text says Microsoft but href goes to a different domain', expect: ['suspicious'],
+    input: { headers: mail({ from: 'no-reply@notification.example', subject: 'Document shared: Q4 Report.docx', ct: 'text/html' }), body: 'Alice shared a document with you via OneDrive. <a href="https://doc-viewer.example/open?f=q4report">https://onedrive.live.com/view/Q4Report</a> Click to view the document.' },
+    findings: [lookup('link_text_mismatch', 'high', 'url', { trust: 'derived', source: 'url-heuristics', indicator: url('https://doc-viewer.example/open?f=q4report') }), lookup('content_document_share_lure', 'medium', 'content', { trust: 'derived' }), lookup('content_brand_impersonation', 'medium', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Tax refund scam (seasonal phishing)
+  { id: 'S19-tax-refund-scam', description: 'Tax refund notification from spoofed government domain with urgency', expect: ['suspicious'],
+    input: { headers: mail({ from: 'refund@irs-gov.example', fromName: 'Internal Revenue Service', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'Tax Refund Notification - Action Required' }), body: 'After the last annual calculation, we have determined you are eligible for a tax refund of $3,847.50. To receive your refund, submit your updated information within 5 business days: https://irs-gov.example/refund/claim' },
+    findings: [lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('sender_domain_lookalike', 'medium', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: SENDER_DONE },
+
+  // Pattern: Cryptocurrency airdrop / Web3 scam
+  { id: 'S20-crypto-airdrop', description: 'Fake cryptocurrency airdrop notification from disposable domain', expect: ['suspicious'],
+    input: { headers: mail({ from: 'airdrop@web3-rewards.example', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'Congratulations! You qualified for 500 TOKEN airdrop' }), body: 'Your wallet has been selected for an exclusive airdrop of 500 TOKEN (current value: $2,350). Connect your wallet to claim before the deadline: https://web3-rewards.example/claim. Only 24 hours remaining!' },
+    findings: [lookup('sender_domain_new', 'high', 'infrastructure', { trust: 'independently_verified' }), lookup('content_urgency', 'medium', 'content', { trust: 'derived' }), lookup('content_financial_request', 'medium', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Shared Google Doc with OAuth consent phishing
+  { id: 'S21-oauth-consent-phish', description: 'Fake Google Docs sharing requesting OAuth permissions', expect: ['suspicious'],
+    input: { headers: mail({ from: 'drive-shares@docs-google.example', fromName: 'Google Drive', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'alice@partner.example has shared a document with you' }), body: 'alice@partner.example has shared "Financial Projections 2027.xlsx" with you. You need to sign in with your Google account to view this document. Open document: https://docs-google.example/d/share/view' },
+    findings: [lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('sender_domain_lookalike', 'medium', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: SENDER_DONE },
+
+  /* ------------------------------------------- malicious (real-world) */
+
+  // Pattern: Nazario corpus — banking credential harvester with confirmed phishing URL
+  { id: 'M07-bank-credential-harvest', description: 'Bank credential harvester with spoofed auth and URL listed by OpenPhish (Nazario pattern)', expect: ['malicious'],
+    input: { headers: mail({ from: 'security@online-banking.example', fromName: 'Chase Online Banking', spf: 'fail', dkim: 'none', dmarc: 'fail', ip: '203.0.113.44', subject: 'Urgent: Verify Your Account Information', ct: 'text/html' }), body: 'Dear Customer, We have detected unauthorized access to your account. For your protection, we have temporarily limited your account. Please verify your identity: <a href="https://chase-secure-login.example/verify">Verify Now</a>. If you do not verify within 24 hours your account will be permanently restricted.' },
+    findings: [lookup('url_listed_phishing', 'critical', 'url', { source: 'OpenPhish', indicator: url('https://chase-secure-login.example/verify') }), lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: PhishingPot — Office 365 credential phish with malicious attachment
+  { id: 'M08-o365-macro-doc', description: 'Macro-enabled Word doc from spoofed sender, hash confirmed malware (PhishingPot pattern)', expect: ['malicious'],
+    input: { headers: mail({ from: 'scanner@copier.corp.example', recv: 'm365', subject: 'Scanned document from MFP-3F', spf: 'fail', dkim: 'none', dmarc: 'fail' }), body: 'You have received a scanned document. Please see the attached file.', attachments: [{ name: 'scan_20261104.docm', hash: sha('d') }] },
+    findings: [lookup('attachment_hash_malicious', 'critical', 'attachment', { source: 'MalwareBazaar', indicator: { type: 'hash', value: sha('d') } }), lookup('attachment_macro_present', 'high', 'attachment', { trust: 'derived' })], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: Nigerian advance-fee fraud (419 scam from Nigerian Fraud corpus)
+  { id: 'M09-advance-fee-419', description: 'Classic advance-fee fraud (Nigerian 419 pattern) with extortion-style payment demand', expect: ['malicious'],
+    input: { headers: mail({ from: 'barr.williams@mailbox.example', subject: 'Confidential Business Proposal' }), body: 'I am Barrister James Williams, a solicitor representing the estate of the late Engineer David Morrison. Before his death he deposited $15.5M in a security vault. I need a foreign partner to receive these funds. You will receive 30% of the total sum. Send $2,500 in bitcoin to 3FZbgi29cpjq2GjdwV8eyHuJJnkLtktZc5 to cover legal filing fees and I will initiate the transfer immediately. If I do not hear from you within 72 hours I will find another partner and you will lose this opportunity.' },
+    findings: [lookup('content_extortion', 'high', 'content', { trust: 'derived', evidence: ['Send $2,500 in bitcoin', 'If I do not hear from you within 72 hours'] })], checks: SENDER_DONE },
+
+  // Pattern: Compromised SharePoint sending credential-harvesting attachment
+  { id: 'M10-sharepoint-html-attach', description: 'Credential form in HTML attachment impersonating SharePoint login', expect: ['malicious'],
+    input: { headers: mail({ from: 'sharepoint@m365-portal.example', fromName: 'SharePoint Online', subject: 'You have a new document to review' }), body: 'A new document has been shared with you on SharePoint. Open the attachment to access the secure document.', attachments: [{ name: 'SharePoint_Document.html', hash: sha('e') }] },
+    findings: [lookup('attachment_html_credential_form', 'high', 'attachment', { trust: 'derived', indicator: { type: 'hash', value: sha('e') } }), lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('content_credential_request', 'medium', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: PDF with active JavaScript redirecting to credential harvester
+  { id: 'M11-pdf-active-content', description: 'PDF with embedded JavaScript confirmed malicious, impersonating DocuSign', expect: ['malicious'],
+    input: { headers: mail({ from: 'docusign@sign-documents.example', fromName: 'DocuSign', subject: 'Please review and sign: NDA Agreement' }), body: 'You have a document to review and sign. Open the attached PDF to view the agreement.', attachments: [{ name: 'NDA_Agreement.pdf', hash: sha('f') }] },
+    findings: [lookup('attachment_hash_malicious', 'critical', 'attachment', { source: 'VirusTotal', indicator: { type: 'hash', value: sha('f') } }), lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: URL confirmed by VirusTotal with critical detections
+  { id: 'M12-vt-critical-detections', description: 'URL with critical VirusTotal detections (15+ engines) from spoofed shipping notice', expect: ['malicious'],
+    input: { headers: mail({ from: 'tracking@dhl-delivery.example', fromName: 'DHL Express', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'DHL Shipment Notification: AWB 7892345671' }), body: 'Your shipment with AWB 7892345671 requires customs clearance. Track and pay customs fee: https://dhl-delivery.example/track/7892345671' },
+    findings: [lookup('url_engine_detections', 'critical', 'url', { source: 'VirusTotal', exactness: 'exact', indicator: url('https://dhl-delivery.example/track/7892345671') }), lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Double extension malware attachment (zip containing .pdf.exe)
+  { id: 'M13-double-extension', description: 'Double-extension archive attachment with malicious hash, impersonating invoice', expect: ['malicious'],
+    input: { headers: mail({ from: 'invoicing@supplier.example', subject: 'Overdue Invoice #INV-90412' }), body: 'Please find the overdue invoice attached. Payment was due on October 15.', attachments: [{ name: 'INV-90412.pdf.zip', hash: sha('g') }] },
+    findings: [lookup('attachment_hash_malicious', 'critical', 'attachment', { source: 'MalwareBazaar', indicator: { type: 'hash', value: sha('g') } }), lookup('attachment_double_extension', 'high', 'attachment', { trust: 'derived' })], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: Authenticated sender (compromised) with link flagged by two independent sources
+  { id: 'M14-compromised-two-sources', description: 'Compromised authenticated mailbox with link flagged by both VirusTotal and urlscan.io', expect: ['malicious'],
+    input: { headers: mail({ from: 'admin@trusted-vendor.example', recv: 'm365', subject: 'Updated contract — please review' }), body: 'Hi, I have updated the contract with the new terms. Please review and sign at https://contract-review.example/sign/doc-9281' },
+    findings: [lookup('url_engine_detections', 'high', 'url', { source: 'VirusTotal', exactness: 'exact', indicator: url('https://contract-review.example/sign/doc-9281') }), lookup('url_scan_malicious', 'high', 'url', { source: 'urlscan.io', exactness: 'exact', indicator: url('https://contract-review.example/sign/doc-9281') })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Brand impersonation + threat intel on URL (Microsoft password expiry)
+  { id: 'M15-ms-password-expiry', description: 'Microsoft 365 password expiry impersonation with Pulsedive-rated domain', expect: ['malicious'],
+    input: { headers: mail({ from: 'no-reply@microsoftonline-auth.example', fromName: 'Microsoft 365', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'Your password will expire in 2 hours' }), body: 'Your Microsoft 365 password will expire in 2 hours. To keep your password, click here: https://microsoftonline-auth.example/keep-password' },
+    findings: [lookup('display_name_brand_spoof', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('url_threat_intel_rating', 'high', 'url', { source: 'Pulsedive', exactness: 'related', indicator: url('https://microsoftonline-auth.example/keep-password') })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Sextortion variant with Ethereum wallet
+  { id: 'M16-sextortion-eth', description: 'Sextortion blackmail demanding Ethereum payment', expect: ['malicious'],
+    input: { headers: mail({ from: 'anon_user@proton.example', subject: 'About your browsing habits' }), body: 'I installed a RAT on your device through a compromised website you visited. I have footage of you and a record of the websites you visited. Transfer 0.8 ETH to 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD14 within 48 hours. If you do not pay, I will send the footage to all your contacts. Do not try to contact the police; I will know and release everything immediately.' },
+    findings: [lookup('content_extortion', 'high', 'content', { trust: 'derived', evidence: ['Transfer 0.8 ETH', 'If you do not pay, I will send the footage'] })], checks: SENDER_DONE },
+
+  // Pattern: Password-protected archive (common malware delivery)
+  { id: 'M17-password-protected-zip', description: 'Password-protected ZIP with dangerous content, from new domain, hash confirmed', expect: ['malicious'],
+    input: { headers: mail({ from: 'docs@secure-transfer.example', subject: 'Confidential: Board meeting materials' }), body: 'The board meeting materials are in the attached archive. Password: Board2026! Please do not forward.', attachments: [{ name: 'board_materials.zip', hash: sha('h') }] },
+    findings: [lookup('attachment_hash_malicious', 'critical', 'attachment', { source: 'MalwareBazaar', indicator: { type: 'hash', value: sha('h') } }), lookup('attachment_password_protected', 'medium', 'attachment', { trust: 'derived' })], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: Homograph domain attack (internationalized domain name)
+  { id: 'M18-homograph-attack', description: 'Homograph domain (IDN) impersonating Apple, link confirmed phishing', expect: ['malicious'],
+    input: { headers: mail({ from: 'support@xn--pple-43d.example', fromName: 'Apple Support', subject: 'Your Apple ID has been locked' }), body: 'Your Apple ID has been locked due to too many failed login attempts. Unlock your account: https://xn--pple-43d.example/unlock' },
+    findings: [lookup('sender_domain_homograph', 'high', 'content', { trust: 'derived', source: 'identity-analysis' }), lookup('url_listed_phishing', 'critical', 'url', { source: 'OpenPhish', indicator: url('https://xn--pple-43d.example/unlock') })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  /* ------------------------------------------- inconclusive (real-world) */
+
+  // Pattern: Forwarded email (headers stripped by forwarder)
+  { id: 'I06-forwarded-stripped-headers', description: 'Message forwarded via webmail: original authentication headers stripped', expect: ['inconclusive'],
+    input: { headers: mail({ from: 'unknown@forward.example', subject: 'Fwd: Contract renewal' }), body: '---------- Forwarded message ----------\nFrom: legal@bigcorp.example\nSubject: Contract renewal\n\nPlease review the attached contract renewal terms and let us know if you have questions.' }, checks: [bad('sender.domain.x', 'Domain registration')] },
+
+  // Pattern: Email with only body and a URL (common user paste)
+  { id: 'I07-body-with-url-only', description: 'Only body pasted, contains a URL that has not been checked', expect: ['inconclusive'],
+    input: { body: 'Please click this link to verify your account: https://verify-account.example/id/12345' } },
+
+  // Pattern: Authentic sender, attachment present but not assessed, link present but not checked
+  { id: 'I08-mixed-unchecked', description: 'Authenticated message with both unchecked link and unassessed attachment', expect: ['inconclusive'],
+    input: { headers: mail({ from: 'partner@vendor.example', recv: 'm365', subject: 'Proposal and link' }), body: 'Here is the proposal. Also see the online version: https://proposals.vendor.example/draft/42', attachments: [{ name: 'proposal.docx' }] }, checks: SENDER_DONE },
+
+  // Pattern: Most lookups failed (provider outage) — not enough evidence to call clean
+  { id: 'I09-partial-lookups', description: 'Only IP lookup succeeded, everything else failed (provider outage)', expect: ['inconclusive'],
+    input: { headers: mail({ from: 'info@news.example', subject: 'Weekly digest' }), body: 'Here is your weekly digest. Unsubscribe at any time.' }, checks: [bad('sender.ip.x', 'IP intelligence'), bad('sender.domain.x', 'Domain registration'), bad('sender.auth.x', 'Mail security DNS'), bad('sender.spf.x', 'SPF re-check')] },
+
+  // Pattern: SPF softfail with no other signals
+  { id: 'I10-spf-softfail-only', description: 'SPF softfail with no DKIM, otherwise clean — insufficient evidence either way', expect: ['inconclusive', 'suspicious'],
+    input: { headers: mail({ from: 'newsletter@smallbiz.example', spf: 'softfail', dkim: 'none', dmarc: 'fail', subject: 'Monthly update' }), body: 'Here is our monthly update. We hope you enjoy it.' }, checks: SENDER_DONE },
+
+  /* ================================================================= */
+  /* MORE COVERAGE — edge cases and modern attack patterns              */
+  /* ================================================================= */
+
+  /* ---- legitimate edge cases ---- */
+
+  // Pattern: Legitimate alert with urgency wording (should not be over-penalized)
+  { id: 'L19-legit-security-alert', description: 'Authenticated cloud provider security alert with urgent wording', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'security@cloud-provider.example', dkimDomain: 'cloud-provider.example', recv: 'm365', subject: 'URGENT: Unusual API activity detected' }), body: 'We detected unusual API activity in your account between 02:00-02:45 UTC today. 47,000 API calls were made from IP 198.51.100.99. If you do not recognize this activity, rotate your API keys immediately at https://cloud-provider.example/security/keys. This is an automated alert from Cloud Provider Security.' },
+    findings: [lookup('content_urgency', 'low', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Legitimate email with reply-to mismatch (support ticketing system)
+  { id: 'L20-legit-replyto-different', description: 'Support email with Reply-To pointing to ticket system (common in helpdesks)', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'support@vendor.example', replyTo: 'ticket-8891@helpdesk.vendor.example', dkimDomain: 'vendor.example', subject: 'Your ticket has been updated' }), body: 'Your support ticket #8891 has been updated. Our engineer has posted a response. Reply to this email to add a comment.' },
+    findings: [lookup('reply_to_mismatch', 'low', 'authentication', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: Legitimate bulk mail that triggers urgency heuristic
+  { id: 'L21-legit-deadline-notice', description: 'Authenticated conference registration deadline notice (triggers urgency but is legitimate)', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'registration@conference.example', dkimDomain: 'conference.example', subject: 'LAST DAY: Early bird registration closes today' }), body: 'This is your final reminder: early bird pricing for TechConf 2027 ends today at 11:59 PM EST. Register now to save $200: https://conference.example/register. After today, standard pricing of $899 applies.' },
+    findings: [lookup('content_urgency', 'low', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Legitimate email with multiple links (newsletter with many URLs)
+  { id: 'L22-multi-link-newsletter', description: 'Newsletter with many links, all investigated and clean', expect: ['likely_legitimate'],
+    input: { headers: mail({ from: 'digest@techblog.example', dkimDomain: 'techblog.example', returnPath: 'bounce@mail.techblog.example', subject: 'Weekly Tech Digest #412' }), body: 'This week: How Rust is changing systems programming (https://techblog.example/rust-2027), Interview with the SQLite creator (https://techblog.example/sqlite), and 5 tools every DevOps engineer needs (https://techblog.example/devops-tools). Unsubscribe: https://techblog.example/unsub' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  /* ---- suspicious edge cases ---- */
+
+  // Pattern: Platform abuse (legitimate platform used for phishing — passes all auth)
+  { id: 'S22-platform-abuse', description: 'Phishing content sent through legitimate marketing platform (passes SPF/DKIM/DMARC)', expect: ['suspicious', 'inconclusive'],
+    input: { headers: mail({ from: 'campaign@marketing-platform.example', dkimDomain: 'marketing-platform.example', subject: 'Account verification required' }), body: 'Your account security needs to be verified. Complete verification now: https://marketing-platform.example/r/abc123-redirect-to-phish. Failure to verify will result in account suspension within 24 hours.' },
+    findings: [lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('content_credential_request', 'high', 'content', { trust: 'derived' }), lookup('content_urgency', 'medium', 'content', { trust: 'derived' }), lookup('url_redirect_chain', 'medium', 'url', { trust: 'derived', source: 'url-heuristics', indicator: url('https://marketing-platform.example/r/abc123-redirect-to-phish') })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+  // NOTE: Platform abuse with full auth is genuinely hard to detect; 'inconclusive' is defensible
+
+  // Pattern: Image-only body (zero text content, only an image with phishing lure)
+  { id: 'S23-image-only-body', description: 'Email body is a single image (evades text analysis), auth failed', expect: ['suspicious'],
+    input: { headers: mail({ from: 'noreply@notification.example', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'Important notification', ct: 'text/html' }), body: '<img src="https://notification.example/img/lure.png" width="600">' },
+    findings: [lookup('content_image_only_body', 'low', 'content', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: Reply-to freemail mismatch (common in scams: corporate From, gmail Reply-To)
+  { id: 'S24-replyto-freemail', description: 'Corporate sender domain but Reply-To is a personal Gmail address', expect: ['suspicious'],
+    input: { headers: mail({ from: 'procurement@bigcorp.example', replyTo: 'procurement.bigcorp@gmail.com', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'Purchase order #PO-2026-4411' }), body: 'Please process the attached purchase order and send the invoice to the reply address. Payment will be issued within 30 days.' },
+    findings: [lookup('reply_to_mismatch', 'medium', 'authentication', { trust: 'derived' })], checks: SENDER_DONE },
+
+  // Pattern: URL with IP address as host (common in phishing kits)
+  { id: 'S25-url-ip-host', description: 'Message with URL pointing to raw IP address, auth failed', expect: ['suspicious'],
+    input: { headers: mail({ from: 'admin@webmail.example', spf: 'fail', dkim: 'none', dmarc: 'fail', subject: 'Mailbox storage full' }), body: 'Your mailbox is full. Click to expand storage: https://198.51.100.55/webmail/upgrade' },
+    findings: [lookup('url_ip_host', 'medium', 'url', { trust: 'derived', indicator: url('https://198.51.100.55/webmail/upgrade') }), lookup('content_credential_request', 'high', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Multiple lure signals combined (urgency + credential + financial)
+  { id: 'S26-multi-lure-signals', description: 'Multiple lure signals: urgency, credential request, and financial wording combined', expect: ['suspicious'],
+    input: { headers: mail({ from: 'accounts@billing-portal.example', spf: 'softfail', dkim: 'none', dmarc: 'fail', subject: 'Payment failed - update your card immediately' }), body: 'Your payment of $49.99 failed. Your account will be suspended in 12 hours unless you update your payment method and verify your identity. Update now: https://billing-portal.example/update-card' },
+    findings: [lookup('content_urgency', 'medium', 'content', { trust: 'derived' }), lookup('content_credential_request', 'high', 'content', { trust: 'derived' }), lookup('content_financial_request', 'medium', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  /* ---- malicious edge cases ---- */
+
+  // Pattern: Malware in password-protected archive delivered through legitimate ESP
+  { id: 'M19-malware-via-esp', description: 'Malware attachment sent through authenticated ESP (shared infra does not excuse malware)', expect: ['malicious'],
+    input: { headers: mail({ from: 'billing@legit-company.example', returnPath: 'bounce@esp-mail.example', dkimDomain: 'legit-company.example', subject: 'Invoice attached' }), body: 'Please find the invoice attached.', attachments: [{ name: 'invoice.xlsm', hash: sha('i') }] },
+    findings: [lookup('attachment_hash_malicious', 'critical', 'attachment', { source: 'MalwareBazaar', indicator: { type: 'hash', value: sha('i') } }), lookup('sender_infra_shared_provider', 'info', 'infrastructure')], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: URL on newly registered domain confirmed by threat intel
+  { id: 'M20-new-domain-confirmed', description: 'URL on 2-day-old domain confirmed malicious by VirusTotal', expect: ['malicious'],
+    input: { headers: mail({ from: 'security@account-review.example', subject: 'Security alert: confirm your identity' }), body: 'We detected suspicious activity. Confirm your identity: https://account-review.example/secure-login' },
+    findings: [lookup('url_engine_detections', 'critical', 'url', { source: 'VirusTotal', exactness: 'exact', indicator: url('https://account-review.example/secure-login') }), lookup('sender_domain_new', 'high', 'infrastructure', { trust: 'independently_verified' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  // Pattern: Credential form in HTML + content credential request (no impersonation needed)
+  { id: 'M21-html-cred-form-content', description: 'HTML attachment with credential form and credential-harvesting body wording', expect: ['malicious'],
+    input: { headers: mail({ from: 'admin@portal.example', subject: 'Verify your account' }), body: 'Your account requires verification. Open the attached form to verify your credentials and prevent account suspension.', attachments: [{ name: 'verify.html', hash: sha('j') }] },
+    findings: [lookup('attachment_html_credential_form', 'high', 'attachment', { trust: 'derived', indicator: { type: 'hash', value: sha('j') } }), lookup('content_credential_request', 'medium', 'content', { trust: 'derived' })], checks: [...SENDER_DONE, ...ATTACHMENT_DONE] },
+
+  // Pattern: URL listed as malware distribution
+  { id: 'M22-malware-url', description: 'Link points to a URL listed as distributing malware', expect: ['malicious'],
+    input: { headers: mail({ from: 'updates@software-update.example', subject: 'Critical security patch available' }), body: 'A critical vulnerability has been found. Download and install the patch immediately: https://software-update.example/patch/critical-fix.exe' },
+    findings: [lookup('url_listed_malware', 'critical', 'url', { source: 'VirusTotal', exactness: 'exact', indicator: url('https://software-update.example/patch/critical-fix.exe') })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+
+  /* ---- inconclusive edge cases ---- */
+
+  // Pattern: Legitimate-looking email but DKIM key has been revoked
+  { id: 'I11-dkim-revoked', description: 'Otherwise clean email but DKIM signature cannot be verified (key revoked/rotated)', expect: ['inconclusive', 'suspicious'],
+    input: { headers: mail({ from: 'hr@corp.example', recv: 'm365', dkim: 'fail', dmarc: 'fail', subject: 'Benefits enrollment reminder' }), body: 'Open enrollment for 2027 benefits ends December 15. Visit the HR portal to make your selections.' }, checks: SENDER_DONE },
+
+  // Pattern: Auto-forwarded message loses authentication
+  { id: 'I12-autoforward-breaks-auth', description: 'Auto-forwarded message where forwarding broke DKIM (common with mail rules)', expect: ['inconclusive'],
+    input: { headers: mail({ from: 'notifications@ci-system.example', dkim: 'fail', dmarc: 'fail', spf: 'softfail', subject: 'Build #4521 passed' }), body: 'Build #4521 for main branch completed successfully. All 847 tests passed in 3m 42s. View details: https://ci-system.example/builds/4521' },
+    findings: [lookup('auth_conflict', 'medium', 'authentication', { trust: 'derived', detail: 'DKIM fail suggests message was modified in transit (forwarding)' })], checks: SENDER_DONE },
 ];

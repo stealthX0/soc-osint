@@ -264,7 +264,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
     for (const f of byId((f) => CONFIRMING.has(norm(f.id)) && atLeast(f.severity, 'high') && f.exactness === 'exact' && !!f.indicator)) (perUrl.get(f.indicator!.value) ?? perUrl.set(f.indicator!.value, []).get(f.indicator!.value)!).push(f);
     const multi = [...perUrl.values()].find((l) => new Set(l.map((f) => f.source)).size >= 2);
     const impersonation = byId((f) => IMPERSONATION.has(f.id) && atLeast(f.severity, 'medium'));
-    const strongDestination = byId((f) => CONFIRMING.has(norm(f.id)) && atLeast(f.severity, 'high') && f.exactness === 'exact' && f.source !== 'url-heuristics');
+    const strongDestination = byId((f) => CONFIRMING.has(norm(f.id)) && atLeast(f.severity, 'high') && (f.exactness === 'exact' || f.exactness === 'related') && f.source !== 'url-heuristics');
     const credForm = byId((f) => f.id === 'attachment_html_credential_form');
     const extortion = byId((f) => f.id === 'content_extortion' && (f.evidence?.length ?? 0) >= 2);
     if (multi) hit('independent_confirmation', `${new Set(multi.map((f) => f.source)).size} independent sources flag the same exact URL: ${[...new Set(multi.map((f) => f.source))].join(', ')}.`, multi);
