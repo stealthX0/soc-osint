@@ -41,7 +41,7 @@ export function PageHeader({ icon, title, blurb, badge }: { icon: string; title:
       </div>
       <div className="min-w-0">
         <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight">{title}{badge}</h1>
-        <p className="text-sm text-muted">{blurb}</p>
+        {blurb && <p className="text-sm text-muted">{blurb}</p>}
       </div>
     </div>
   );

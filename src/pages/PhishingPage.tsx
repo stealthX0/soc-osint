@@ -37,7 +37,7 @@ export default function PhishingPage() {
 
   return (
     <div className="ph-page max-w-5xl">
-      <PageHeader icon="eye" title="Phishing Investigation" blurb={analysing ? undefined : 'Paste a suspicious email and collect the evidence: where it really came from, whether it authenticates, and where its links lead.'} badge={<Badge tone="warn">preview</Badge>} />
+      <PageHeader icon="eye" title="Phishing Investigation" blurb={analysing ? '' : 'Paste a suspicious email and collect the evidence: where it really came from, whether it authenticates, and where its links lead.'} badge={<Badge tone="warn">preview</Badge>} />
 
       {/* ── Input form: visible only before Analyse is pressed ── */}
       {!analysing && (
