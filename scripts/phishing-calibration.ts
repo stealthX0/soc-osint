@@ -13,7 +13,7 @@ import { dedupeFindings } from '../shared/phishing/findings';
 import { THRESHOLDS, type Thresholds } from '../shared/phishing/verdictRules';
 import { CORPUS } from '../tests/fixtures/phishing-corpus';
 
-const NOW = Date.parse('2026-11-07');
+const NOW = process.env.CALIBRATION_DATE ? Date.parse(process.env.CALIBRATION_DATE) : Date.now();
 const parsed = await Promise.all(CORPUS.map((s) => parseSubmission(s.input)));
 
 function run(tuning?: Partial<Thresholds>): Verdict[] {

@@ -201,7 +201,7 @@ const IP_REPUTATION = new Set(['sender_ip_abuse_reports', 'sender_ip_vt_detectio
 const ADDRESS_REPUTATION = new Set(['sender_address_spam_domain', 'sender_address_disposable', 'sender_address_no_mx', 'sender_address_misspelt_domain', 'sender_address_free_subdomain']);
 const URL_REPUTATION = new Set(['url_listed_phishing', 'url_listed_malware', 'url_engine_detections', 'url_engine_suspicious', 'url_scan_malicious', 'url_host_scan_malicious', 'url_threat_intel_rating', 'url_dns_blocked', 'url_host_listed', 'url_blocklisted_host']);
 const LINK_IMPERSONATION = new Set(['url_brand_mismatch', 'url_lookalike_domain', 'url_homograph_domain', 'url_deceptive_userinfo', 'link_text_mismatch']);
-const LURE_WORDING = new Set(['content_urgency', 'content_credential_request', 'content_financial_request', 'content_delivery_scam', 'content_advance_fee', 'content_document_share_lure']);
+const LURE_WORDING = new Set(['content_urgency', 'content_credential_request', 'content_financial_request', 'content_delivery_scam', 'content_advance_fee', 'content_document_share_lure', 'content_attachment_lure', 'content_qr_lure']);
 
 export function groupOf(f: Finding): string | null {
   const id = f.id.replace(/^url_final_/, 'url_');

@@ -21,7 +21,7 @@
  * "Likely legitimate" is deliberately not "safe": no automated system can promise that.
  */
 import type { ParseStageResult } from './parse';
-import type { CheckResult, Dimension, Finding, Severity } from './types';
+import type { CheckResult, Dimension, Finding, IndicatorType, Severity } from './types';
 import {
   DIMENSION_WEIGHTS, EXACTNESS_FACTOR, GROUP_CAP, GROUP_REST_FACTOR, RELIABILITY_FACTOR, SHARED_INFRA_AFFECTED, SHARED_INFRA_FACTOR, THRESHOLDS, TRUST_FACTOR,
   freshnessFactor, groupOf, pointsFor, type Thresholds,
@@ -71,7 +71,7 @@ export interface DimensionScore { dimension: Dimension; weight: number; effectiv
 export interface Gap { critical: boolean; text: string }
 export interface Reason { title: string; detail: string; severity: Severity; dimension: Dimension; points: number; findingIds: string[] }
 export interface RuleHit { id: string; text: string; findingIds: string[] }
-export interface Indicator { type: string; value: string; reason: string; severity: Severity }
+export interface Indicator { type: IndicatorType | string; value: string; reason: string; severity: Severity }
 
 export interface Verdict {
   label: VerdictLabel;

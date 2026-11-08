@@ -91,7 +91,7 @@ function splitSubmission(headersIn: string, bodyIn: string): { headers: string; 
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {
-  const d = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
+  const d = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
