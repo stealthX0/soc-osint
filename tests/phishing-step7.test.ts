@@ -1,0 +1,598 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { parseSubmission, type ParseStageResult } from '../shared/phishing/parse';
+import { computeVerdict, VERDICT_TEXT, type Verdict, type VerdictLabel } from '../shared/phishing/verdict';
+import { dedupeFindings, sortFindings } from '../shared/phishing/findings';
+import {
+  REPORT_DISCLAIMERS, buildReport, defangText, parseStoredReport, renderJson, renderMarkdown, renderTicketText, reportFilename, sanitizeFilenameStem, type Report, type ReportCheckInput,
+} from '../shared/phishing/report';
+import { buildTimeline, toIso } from '../shared/phishing/timeline';
+import {
+  HISTORY_KEY, HISTORY_MAX, clearHistory, deleteFromHistory, loadHistory, saveToHistory, summarizeEntry, type HistoryStore,
+} from '../src/lib/phishingHistory';
+import { EMPTY_FORM, EML_MAX_BYTES, EXAMPLE_FORM, buildInput, checkEmlFile, emlLoadedMessage, looksLikeBody, measureForm } from '../src/pages/phishing/formHelpers';
+import { allCheckRows, buildPipeline, type CheckRowX } from '../src/pages/phishing/model';
+import type { Finding } from '../shared/phishing/types';
+
+import { InputForm } from '../src/pages/phishing/InputForm';
+import { OverviewTab } from '../src/pages/phishing/OverviewTab';
+import { HeadersTab } from '../src/pages/phishing/HeadersTab';
+import { SenderTab } from '../src/pages/phishing/SenderTab';
+import { UrlTab } from '../src/pages/phishing/UrlTab';
+import { AttachmentTab, useAttachmentStage } from '../src/pages/phishing/AttachmentPanel';
+import { EvidenceTab } from '../src/pages/phishing/EvidenceTab';
+import { ResultsShell, TABS } from '../src/pages/phishing/ResultsShell';
+import { HistoryPanel } from '../src/pages/phishing/HistoryPanel';
+import { ReportView } from '../src/pages/phishing/ReportView';
+
+/* ------------------------------------------------------------------ fixtures */
+
+async function fixture(over: Partial<typeof EXAMPLE_FORM> = {}) {
+  const input = buildInput({ ...EXAMPLE_FORM, ...over });
+  const r = await parseSubmission(input);
+  const findings = sortFindings(dedupeFindings(r.findings));
+  const rows: CheckRowX[] = r.checks;
+  const verdict = computeVerdict({ parse: r, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, status: c.status, result: c.result ?? null, detail: c.detail })) });
+  const checks: ReportCheckInput[] = rows.map((c) => ({ id: c.id, label: c.label, stage: c.stage, status: c.status, result: c.result, detail: c.detail }));
+  const report = buildReport({ verdict, findings, checks, parse: r, generatedAt: '2026-11-07T10:30:00Z' });
+  return { input, r, findings, rows, verdict, checks, report };
+}
+const LABELS = Object.keys(VERDICT_TEXT) as VerdictLabel[];
+
+function fakeStore(initial?: unknown): HistoryStore & { data: Record<string, unknown>; writes: number } {
+  const s = { data: {} as Record<string, unknown>, writes: 0, read<T>(k: string, fb: T): T { return k in s.data ? (s.data[k] as T) : fb; }, write(k: string, v: unknown) { s.writes++; s.data[k] = JSON.parse(JSON.stringify(v)); } };
+  if (initial !== undefined) s.data[HISTORY_KEY] = initial;
+  return s;
+}
+const brokenStore: HistoryStore = { read() { throw new Error('blocked'); }, write() { throw new Error('blocked'); } };
+
+/* ------------------------------------------------------------------ defanging */
+
+describe('defangText', () => {
+  it('defangs URLs, domains, IPv4, IPv6 and e-mail addresses', () => {
+    assert.equal(defangText('go to https://evil.example/login?x=1 now'), 'go to hxxps://evil[.]example/login?x=1 now');
+    assert.equal(defangText('mail bob@evil.example today'), 'mail bob[@]evil[.]example today');
+    assert.equal(defangText('from 203.0.113.45 and mail.evil.example'), 'from 203[.]0[.]113[.]45 and mail[.]evil[.]example');
+    assert.equal(defangText('v6 2001:db8:0:0:0:0:0:1 here'), 'v6 2001[:]db8[:]0[:]0[:]0[:]0[:]0[:]1 here');
+    assert.equal(defangText('ftp://files.evil.example/a'), 'ftp://files[.]evil[.]example/a'.replace('ftp', 'ftp'));
+  });
+  it('is idempotent and leaves ordinary text alone', () => {
+    const once = defangText('see http://evil.example/a and 203.0.113.9 or x@evil.example');
+    assert.equal(defangText(once), once);
+    assert.equal(defangText('Authentication failed (e.g. SPF) at step 3, risk 45/100.'), 'Authentication failed (e.g. SPF) at step 3, risk 45/100.');
+  });
+});
+
+/* ------------------------------------------------------------------ buildReport */
+
+describe('buildReport', () => {
+  it('has a schema version, a timestamp and the tool name', async () => {
+    const { report } = await fixture();
+    assert.equal(report.schemaVersion, 1);
+    assert.equal(report.generatedAt, '2026-11-07T10:30:00.000Z');
+    assert.match(report.tool, /Spectrix/);
+    assert.deepEqual(Object.keys(report).sort(), ['actions', 'checkSummary', 'checks', 'conflicts', 'disclaimers', 'findings', 'gaps', 'generatedAt', 'indicators', 'message', 'mitigating', 'reasons', 'schemaVersion', 'tool', 'verdict'].sort());
+  });
+
+  it('defangs every indicator type, everywhere in the report', async () => {
+    const { report, input } = await fixture();
+    const json = renderJson(report);
+    for (const raw of ['paypa1-secure.example', 'paypal-support.example', 'mailbox-help.example', 'support@paypal-support.example', '203.0.113.45', 'bounce.paypa1-secure.example']) {
+      assert.ok(!json.includes(raw), `${raw} must not appear un-defanged`);
+    }
+    assert.ok(json.includes('paypa1-secure[.]example'));
+    assert.ok(json.includes('203[.]0[.]113[.]45'));
+    assert.ok(json.includes('support[@]paypal-support[.]example'));
+    assert.ok(!/https?:\/\//i.test(json), 'no live URL schemes');
+    assert.ok(json.includes('hxxps://'), 'URLs are written as hxxps://');
+    assert.ok(report.indicators.some((i) => i.type === 'url' && i.value.startsWith('hxxps://')));
+    assert.ok(report.indicators.some((i) => i.type === 'ip' && i.value === '203[.]0[.]113[.]45'));
+    assert.ok(report.indicators.some((i) => i.type === 'domain'));
+    assert.ok(report.indicators.some((i) => i.type === 'email'));
+    // and in text produced from findings
+    for (const text of [renderTicketText(report), renderMarkdown(report)]) {
+      assert.ok(!/\b203\.0\.113\.45\b/.test(text));
+      assert.ok(!/paypa1-secure\.example/.test(text));
+    }
+    assert.ok(input.sender?.ip === '203.0.113.45', 'the live input is untouched');
+  });
+
+  it('never contains the message body, the headers or attachment bytes', async () => {
+    const f = await fixture({
+      body: `${EXAMPLE_FORM.body}\n\nZQXBODYMARKER-9f31 this sentence is only in the body and must stay out of every export.`,
+      headers: `${EXAMPLE_FORM.headers}\nX-Spectrix-Marker: HDRMARKER-77aa-private-header-value`,
+    });
+    const all = [renderJson(f.report), renderTicketText(f.report), renderMarkdown(f.report)].join('\n');
+    assert.ok(!all.includes('ZQXBODYMARKER'));
+    assert.ok(!all.includes('HDRMARKER'));
+    assert.ok(!all.includes('TRAINING0001'), 'raw Received lines are not copied');
+    assert.ok(!JSON.stringify(f.report).includes('"raw"'));
+    const keys = JSON.stringify(Object.keys(f.report));
+    assert.ok(!/body|headers|raw/i.test(keys));
+  });
+
+  it('states the weights are uncalibrated decision support, and never calls anything safe or clean', async () => {
+    const { report } = await fixture();
+    assert.ok(report.disclaimers.some((d) => /uncalibrated/i.test(d) && /decision support/i.test(d)));
+    for (const label of LABELS) {
+      const r = buildReport({ ...(await fixture()), verdict: { ...(await fixture()).verdict, label }, parse: (await fixture()).r, generatedAt: Date.now() } as never);
+      const rendered = [renderTicketText(r), renderMarkdown(r)].join('\n');
+      assert.match(rendered, /uncalibrated/i);
+    }
+    const templated = [...REPORT_DISCLAIMERS, ...LABELS.flatMap((l) => [VERDICT_TEXT[l].label, VERDICT_TEXT[l].short])].join('\n');
+    assert.doesNotMatch(templated, /\b(safe|clean)\b/i);
+    const { report: rp } = await fixture();
+    assert.doesNotMatch(renderTicketText(rp), /\b(is|are|looks) (safe|clean)\b/i);
+    assert.doesNotMatch(renderMarkdown(rp), /\bsafe email\b|\bclean email\b/i);
+  });
+
+  it('covers all five verdict labels in the report and all three renderers', async () => {
+    const base = await fixture();
+    for (const label of LABELS) {
+      const v: Verdict = { ...base.verdict, label };
+      const r = buildReport({ verdict: v, findings: base.findings, checks: base.checks, parse: base.r, generatedAt: '2026-11-07T10:30:00Z' });
+      assert.equal(r.verdict.label, label);
+      assert.equal(r.verdict.labelText, VERDICT_TEXT[label].label);
+      assert.ok(renderTicketText(r).includes(`Verdict: ${VERDICT_TEXT[label].label}`));
+      assert.ok(renderMarkdown(r).includes(`## Verdict: ${VERDICT_TEXT[label].label}`));
+      assert.equal(JSON.parse(renderJson(r)).verdict.label, label);
+    }
+    assert.equal(LABELS.length, 5);
+  });
+
+  it('summarises checks, including failed and skipped ones, and does not hide them', async () => {
+    const base = await fixture();
+    const checks: ReportCheckInput[] = [...base.checks, { id: 'x.1', label: 'VirusTotal: https://evil.example/a', stage: 'urls', status: 'failed', detail: 'timed out' }, { id: 'x.2', label: 'Pulsedive', stage: 'urls', status: 'skipped', detail: 'No key' }, { id: 'x.3', label: 'urlscan', stage: 'urls', status: 'running' }];
+    const r = buildReport({ verdict: base.verdict, findings: base.findings, checks, parse: base.r, generatedAt: Date.now() });
+    assert.equal(r.checkSummary.failed, base.checks.filter((c) => c.status === 'failed').length + 1);
+    assert.equal(r.checkSummary.running, 1);
+    assert.equal(r.checkSummary.total, checks.length);
+    const ticket = renderTicketText(r);
+    assert.match(ticket, /- failed: VirusTotal: hxxps:\/\/evil\[\.\]example\/a/);
+    assert.match(ticket, /- skipped: Pulsedive/);
+    assert.match(ticket, /- running: urlscan/);
+  });
+
+  it('keeps only short evidence excerpts from findings', async () => {
+    const base = await fixture();
+    const long: Finding = { id: 'x', dimension: 'content', severity: 'low', title: 't', detail: 'd', source: 's', exactness: 'exact', reliability: 'low', trust: 'derived', evidence: ['a'.repeat(5000), 'b', 'c', 'd', 'e', 'f', 'g'] };
+    const r = buildReport({ verdict: base.verdict, findings: [long], checks: [], parse: base.r });
+    assert.equal(r.findings[0].evidence.length, 5);
+    assert.ok(r.findings[0].evidence[0].length <= 240);
+  });
+});
+
+describe('the three renderers', () => {
+  it('ticket text has the verdict, risk, reasons, missing items, actions, defanged indicators, check summary and date', async () => {
+    const { report } = await fixture();
+    const t = renderTicketText(report);
+    assert.match(t, /^SPECTRIX PHISHING INVESTIGATION/);
+    assert.match(t, /Date: 2026-11-07 10:30 UTC/);
+    assert.match(t, new RegExp(`Verdict: ${report.verdict.labelText}`));
+    assert.match(t, /Risk: \d+\/100 · Confidence: (low|medium|high)/);
+    assert.match(t, /\nWHY\n1\. \[/);
+    assert.match(t, /INDICATORS \(defanged\)/);
+    assert.match(t, /CHECKS\n\d+ total: \d+ complete/);
+    assert.match(t, /NOTES\n- The scoring weights/);
+    if (report.gaps.length) assert.match(t, /WHAT IS MISSING/);
+    if (report.actions.length) assert.match(t, /RECOMMENDED ACTIONS/);
+  });
+
+  it('markdown has headings and tables, escapes pipes, and JSON round-trips through the schema guard', async () => {
+    const { report } = await fixture();
+    const md = renderMarkdown(report);
+    assert.match(md, /^# Spectrix Phishing Investigation/);
+    assert.match(md, /\| Field \| Value \|/);
+    assert.match(md, /## Checks/);
+    const evil: Report = { ...report, message: { ...report.message, subject: 'a | b | c\nnew line' } };
+    assert.ok(!/\| Subject \| a \| b/.test(renderMarkdown(evil)));
+    const back = parseStoredReport(JSON.parse(renderJson(report)));
+    assert.deepEqual(back, report);
+  });
+
+  it('file names are lower-case [a-z0-9-] with a fixed extension', async () => {
+    const { report } = await fixture();
+    for (const ext of ['md', 'json', 'txt'] as const) {
+      const n = reportFilename({ ...report, message: { ...report.message, subject: '../../Évil/Subject: "<script>" & \\ name.exe ' } }, ext);
+      assert.match(n, /^[a-z0-9-]+\.(md|json|txt)$/);
+      assert.ok(n.endsWith(`.${ext}`));
+      assert.ok(!n.includes('..') && !n.includes('/') && !n.includes('\\'));
+    }
+    assert.equal(sanitizeFilenameStem('../../etc/passwd'), 'etc-passwd');
+    assert.equal(sanitizeFilenameStem('   '), 'report');
+    assert.equal(sanitizeFilenameStem('Ünïcödé'), 'n-c-d');
+    assert.equal(sanitizeFilenameStem('a'.repeat(200)).length, 60);
+    assert.match(reportFilename(report, 'md'), /^spectrix-phishing-[a-z-]+-2026-11-07-/);
+  });
+});
+
+describe('parseStoredReport', () => {
+  it('rejects non-reports and drops unknown fields', async () => {
+    const { report } = await fixture();
+    for (const bad of [null, 5, 'x', [], {}, { schemaVersion: 2 }, { ...report, schemaVersion: 2 }, { ...report, verdict: { ...report.verdict, label: 'safe' } }, { ...report, generatedAt: 'nope' }]) assert.equal(parseStoredReport(bad), null);
+    const tampered = { ...report, headers: 'RAW HEADERS', body: 'RAW BODY', message: { ...report.message, rawBody: 'x' } };
+    const clean = parseStoredReport(tampered)!;
+    assert.ok(!('headers' in clean) && !('body' in clean) && !('rawBody' in clean.message));
+    assert.ok(!JSON.stringify(clean).includes('RAW BODY'));
+  });
+});
+
+/* ------------------------------------------------------------------ timeline */
+
+describe('buildTimeline', () => {
+  it('lists real timestamps in chronological order', async () => {
+    const { r, findings } = await fixture();
+    const f: Finding[] = [...findings, { id: 'obs', dimension: 'url', severity: 'low', title: 'Seen on a feed', detail: 'd', source: 'OpenPhish', exactness: 'exact', reliability: 'high', trust: 'independently_verified', observedAt: '2026-11-06T09:00:00Z' }];
+    const marks = { investigationStartedAt: Date.parse('2026-11-07T10:00:00Z'), senderChecksFinishedAt: Date.parse('2026-11-07T10:00:05Z'), linksInvestigatedAt: Date.parse('2026-11-07T10:00:20Z') };
+    const t = buildTimeline({ parse: r, findings: f, marks });
+    const times = t.map((e) => e.at);
+    assert.deepEqual([...times].sort(), times, 'ascending');
+    assert.ok(t.some((e) => e.kind === 'message' && /Date header/.test(e.label)));
+    assert.ok(t.some((e) => e.kind === 'delivery'));
+    assert.ok(t.some((e) => e.kind === 'finding' && /Seen on a feed/.test(e.label)));
+    assert.deepEqual(t.filter((e) => e.kind === 'investigation').map((e) => e.label), ['Investigation started', 'Sender checks finished', 'Links investigated']);
+    assert.ok(t.every((e) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(e.at)));
+  });
+
+  it('ignores unparsable dates and invents nothing', async () => {
+    assert.deepEqual(buildTimeline({ parse: null }), []);
+    assert.deepEqual(buildTimeline({ parse: null, marks: {} }), []);
+    assert.deepEqual(buildTimeline({ parse: null, marks: { investigationStartedAt: 'not a date', senderChecksFinishedAt: NaN, linksInvestigatedAt: null } }), []);
+    for (const bad of ['', '12', 'yesterday', 'Tue, 99 Foo 2026', '1850-01-01', '2500-01-01', null, undefined, {}, NaN]) assert.equal(toIso(bad), null, String(bad));
+    assert.equal(toIso('2026-11-07T10:00:00Z'), '2026-11-07T10:00:00.000Z');
+    const { r } = await fixture();
+    const broken = { ...r, forensics: { ...r.forensics!, summary: { ...r.forensics!.summary, date: 'garbage' }, hops: r.forensics!.hops.map((h) => ({ ...h, timestamp: 'garbage' })) } } as ParseStageResult;
+    assert.deepEqual(buildTimeline({ parse: broken }), [], 'no dated source, no events');
+    const none = await parseSubmission({ body: 'hello there, no headers at all' });
+    assert.deepEqual(buildTimeline({ parse: none }), []);
+  });
+
+  it('takes registration, abuse-report and VirusTotal dates from the lookups the page holds', () => {
+    const sender = [
+      { request: {}, checks: [], findings: [], data: { check: 'domain', value: { domain: 'evil.example', registrar: { name: 'Reg Co' }, dates: { registered: '2026-11-01T00:00:00Z' } } } },
+      { request: {}, checks: [], findings: [], data: { check: 'ip', value: { ip: '203.0.113.9', reputation: { lastReportedAt: '2026-11-05T12:00:00Z', totalReports: 4 }, virustotal: { lastAnalysis: '2026-11-04T08:00:00Z', malicious: 3, suspicious: 1 } } } },
+      { request: {}, checks: [], findings: [], data: { check: 'domain', value: { domain: 'nodate.example', dates: { registered: null } } } },
+      { request: {}, checks: [], findings: [], data: null },
+    ];
+    const att = [{ data: { hash: 'a'.repeat(64), virustotal: { observed: true, lastAnalysis: '2026-11-03T08:00:00Z', malicious: 9, suspicious: 0, harmless: 0, undetected: 50 } } }, { data: null }];
+    const t = buildTimeline({ parse: null, senderResults: sender as never, attachmentResults: att as never });
+    assert.deepEqual(t.map((e) => e.kind), ['registration', 'scan', 'scan', 'reputation']);
+    assert.deepEqual(t.map((e) => e.at), ['2026-11-01T00:00:00.000Z', '2026-11-03T08:00:00.000Z', '2026-11-04T08:00:00.000Z', '2026-11-05T12:00:00.000Z']);
+    assert.equal(t.length, 4);
+    assert.ok(t.some((e) => /Domain registered: evil\.example/.test(e.label)));
+    assert.ok(t.some((e) => /Last abuse report for 203\.0\.113\.9/.test(e.label)));
+    assert.ok(t.some((e) => /VirusTotal last analysed attachment aaaaaaaaaaaa/.test(e.label)));
+    assert.ok([...t.map((e) => e.at)].every((x, i, a) => i === 0 || a[i - 1] <= x));
+  });
+
+  it('removes exact duplicates', () => {
+    const f: Finding = { id: 'a', dimension: 'url', severity: 'low', title: 'Same', detail: 'd', source: 's', exactness: 'exact', reliability: 'low', trust: 'derived', observedAt: '2026-11-06T09:00:00Z' };
+    assert.equal(buildTimeline({ parse: null, findings: [f, { ...f }] }).length, 1);
+  });
+});
+
+/* ------------------------------------------------------------------ history */
+
+describe('phishing history store', () => {
+  it('saves, reads back newest first, and keeps only the last 20', async () => {
+    const { report } = await fixture();
+    const store = fakeStore();
+    for (let i = 0; i < 25; i++) saveToHistory({ ...report, message: { ...report.message, subject: `s${i}` } }, { store, now: 1_800_000_000_000 + i * 1000 });
+    const h = loadHistory(store);
+    assert.equal(h.length, HISTORY_MAX);
+    assert.equal(h[0].report.message.subject, 's24');
+    assert.equal(h[19].report.message.subject, 's5');
+    assert.ok(h.every((e, i, a) => i === 0 || a[i - 1].savedAt >= e.savedAt));
+  });
+
+  it('replaces an entry with the same id instead of duplicating it, and deletes and clears', async () => {
+    const { report } = await fixture();
+    const store = fakeStore();
+    saveToHistory(report, { store, id: 'run-1', now: 1_800_000_000_000 });
+    saveToHistory({ ...report, verdict: { ...report.verdict, risk: 77 } }, { store, id: 'run-1', now: 1_800_000_005_000 });
+    saveToHistory(report, { store, id: 'run-2', now: 1_800_000_006_000 });
+    assert.deepEqual(loadHistory(store).map((e) => e.id), ['run-2', 'run-1']);
+    assert.equal(loadHistory(store).find((e) => e.id === 'run-1')!.report.verdict.risk, 77);
+    assert.deepEqual(deleteFromHistory('run-2', store).map((e) => e.id), ['run-1']);
+    assert.deepEqual(clearHistory(store), []);
+    assert.deepEqual(loadHistory(store), []);
+  });
+
+  it('survives corrupt JSON and damaged entries', async () => {
+    const { report } = await fixture();
+    for (const junk of ['garbage', 42, null, {}, [null, 3, 'x'], [{ id: 'a' }], [{ id: 'a', savedAt: 'x', report }], [{ id: 'a', savedAt: '2026-11-07T00:00:00Z', report: { schemaVersion: 9 } }]]) {
+      assert.deepEqual(loadHistory(fakeStore(junk)), [], JSON.stringify(junk)?.slice(0, 40));
+    }
+    const mixed = loadHistory(fakeStore([{ id: 'ok', savedAt: '2026-11-07T00:00:00Z', report }, { id: 'bad' }, 'x']));
+    assert.deepEqual(mixed.map((e) => e.id), ['ok']);
+    // a refused report is not stored
+    const store = fakeStore();
+    saveToHistory({ nope: true } as never, { store });
+    assert.equal(store.writes, 0);
+  });
+
+  it('stores only the report, an id and a timestamp: never the pasted input', async () => {
+    const f = await fixture({ body: `${EXAMPLE_FORM.body}\nZQXBODYMARKER-9f31` });
+    const store = fakeStore();
+    const poisoned = { ...f.report, headers: f.input.headers, body: f.input.body, attachments: [{ name: 'x', bytes: [1, 2, 3] }], input: f.input } as never;
+    saveToHistory(poisoned, { store, id: 'r1', now: 1_800_000_000_000 });
+    const raw = JSON.stringify(store.data[HISTORY_KEY]);
+    assert.ok(!raw.includes('ZQXBODYMARKER'));
+    const keys = new Set<string>();
+    const walkKeys = (v: unknown) => { if (Array.isArray(v)) v.forEach(walkKeys); else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { keys.add(k); walkKeys(x); } };
+    walkKeys(store.data[HISTORY_KEY]);
+    for (const k of ['headers', 'body', 'attachments', 'input', 'raw', 'bytes']) assert.ok(!keys.has(k), `no "${k}" key is stored`);
+    const entry = (store.data[HISTORY_KEY] as Record<string, unknown>[])[0];
+    assert.deepEqual(Object.keys(entry).sort(), ['id', 'report', 'savedAt']);
+  });
+
+  it('a blocked or throwing storage never throws into the UI', async () => {
+    const { report } = await fixture();
+    assert.deepEqual(loadHistory(brokenStore), []);
+    assert.doesNotThrow(() => saveToHistory(report, { store: brokenStore }));
+    assert.doesNotThrow(() => deleteFromHistory('x', brokenStore));
+    assert.doesNotThrow(() => clearHistory(brokenStore));
+    // and with no window at all (server rendering), the default store falls back quietly
+    assert.doesNotThrow(() => loadHistory());
+    assert.doesNotThrow(() => saveToHistory(report));
+  });
+
+  it('list rows show date, verdict, risk, subject cut to 80 characters and the From domain', async () => {
+    const { report } = await fixture();
+    const store = fakeStore();
+    saveToHistory({ ...report, message: { ...report.message, subject: 'x'.repeat(200), fromDomain: 'paypal-support[.]example' } }, { store, id: 'r', now: Date.parse('2026-11-07T10:30:00Z') });
+    const row = summarizeEntry(loadHistory(store)[0]);
+    assert.equal(row.subject.length, 80);
+    assert.ok(row.subject.endsWith('…'));
+    assert.equal(row.fromDomain, 'paypal-support[.]example');
+    assert.equal(row.date, '2026-11-07T10:30:00.000Z');
+    assert.equal(row.labelText, report.verdict.labelText);
+    assert.equal(row.risk, report.verdict.risk);
+  });
+});
+
+/* ------------------------------------------------------------------ form helpers */
+
+describe('guided input helpers', () => {
+  it('.eml size check: 3 MB limit, with a clear message', () => {
+    assert.deepEqual(checkEmlFile({ name: 'a.eml', size: 1000 }), { ok: true });
+    assert.deepEqual(checkEmlFile({ name: 'a.eml', size: EML_MAX_BYTES }), { ok: true });
+    const big = checkEmlFile({ name: 'huge.eml', size: EML_MAX_BYTES + 1 });
+    assert.equal(big.ok, false);
+    if (!big.ok) assert.match(big.message, /huge\.eml is 3\.0 MB\. Files larger than 3\.0 MB are not loaded/);
+    assert.equal(checkEmlFile({ name: 'e.eml', size: 0 }).ok, false);
+    assert.equal(emlLoadedMessage('a.eml', 12345), 'Loaded a.eml: 12,345 bytes placed in the raw headers box.');
+  });
+
+  it('notices text that looks like a body rather than headers', () => {
+    assert.equal(looksLikeBody(EXAMPLE_FORM.headers), false);
+    assert.equal(looksLikeBody(`${EXAMPLE_FORM.headers}\n\n${EXAMPLE_FORM.body}`), false, 'a whole .eml is fine');
+    assert.equal(looksLikeBody('Dear customer,\n\nYour account will be suspended unless you verify it today by clicking the link below.'), true);
+    assert.equal(looksLikeBody('<html><body><p>Hello, please verify your account here</p></body></html>'), true);
+    assert.equal(looksLikeBody('https://evil.example/verify/account?token=abcdefghijklmnop'), true);
+    assert.equal(looksLikeBody('short'), false);
+    assert.equal(looksLikeBody(''), false);
+  });
+
+  it('reports how much of the size limit is used', () => {
+    const small = measureForm(EMPTY_FORM);
+    assert.equal(small.level, 'ok');
+    assert.ok(small.remaining > 2_900_000);
+    assert.equal(measureForm({ ...EMPTY_FORM, headers: 'a'.repeat(150_000) }).level, 'over');
+    assert.equal(measureForm({ ...EMPTY_FORM, body: 'a'.repeat(2_800_000) }).level, 'over');
+  });
+
+  it('the built-in example is a clearly fake training sample on reserved domains and documentation IPs', () => {
+    assert.equal(EXAMPLE_FORM.origin, 'training');
+    const text = Object.entries(EXAMPLE_FORM).filter(([k]) => k !== 'attachments').map(([, v]) => v).join('\n');
+    const domains = [...text.matchAll(/\b(?:[a-z0-9-]+\.)+(?:[a-z]{2,})\b/gi)].map((m) => m[0].toLowerCase()).filter((d) => !/^\d/.test(d) && d !== 'paypal.com' && !['smtp.mailfrom', 'header.from'].includes(d));
+    assert.ok(domains.length > 3);
+    for (const d of domains) assert.ok(d.endsWith('.example') || d === 'example.com' || d.endsWith('.example.com'), d);
+    for (const ip of text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g) ?? []) assert.match(ip, /^203\.0\.113\.\d+$/);
+    assert.match(EXAMPLE_FORM.body, /TRAINING SAMPLE/);
+  });
+});
+
+/* ------------------------------------------------------------------ pipeline model */
+
+describe('pipeline strip', () => {
+  const row = (stage: CheckRowX['stage'], status: CheckRowX['status'], id = Math.random().toString()): CheckRowX => ({ id, label: id, stage, status });
+  it('uses complete / running / not run / failed and counts failed and skipped checks', () => {
+    const chips = buildPipeline([row('parse', 'complete'), row('headers', 'complete'), row('authentication', 'skipped'), row('sender', 'running'), row('sender', 'complete'), row('attachments', 'failed'), row('attachments', 'skipped'), row('content', 'not_applicable')], { provisional: false, unavailable: false });
+    const by = Object.fromEntries(chips.map((c) => [c.id, c]));
+    assert.deepEqual(chips.map((c) => c.label), ['Parse', 'Headers and authentication', 'Sender intelligence', 'Links', 'Attachments', 'Wording', 'Verdict']);
+    assert.equal(by.parse.status, 'complete');
+    assert.equal(by.headers.status, 'complete');
+    assert.equal(by.headers.skipped, 1);
+    assert.equal(by.sender.status, 'running');
+    assert.equal(by.urls.status, 'not run', 'links nobody has investigated yet');
+    assert.equal(by.attachments.status, 'failed');
+    assert.deepEqual([by.attachments.failed, by.attachments.skipped], [1, 1]);
+    assert.equal(by.content.status, 'not run', 'only not-applicable rows');
+    assert.equal(by.verdict.status, 'complete');
+    assert.equal(buildPipeline([], { provisional: true, unavailable: false }).at(-1)!.status, 'running');
+    assert.equal(buildPipeline([], { provisional: false, unavailable: true }).at(-1)!.status, 'failed');
+  });
+
+  it('shows unfinished and errored sender requests as running and failed, never as complete', () => {
+    const slots = [
+      { req: { check: 'ip', ip: '203.0.113.1', role: 'connecting' }, state: 'running' as const },
+      { req: { check: 'domain', domain: 'a.example', roles: ['from'] }, state: 'done' as const, error: 'The lookup failed.' },
+    ];
+    const rows = allCheckRows({ parse: [], skipped: [], slots: slots as never, links: [], attachments: [] });
+    assert.deepEqual(rows.map((r) => r.status), ['running', 'failed']);
+    assert.ok(rows.every((r) => r.stage === 'sender'));
+  });
+});
+
+/* ------------------------------------------------------------------ server-render smoke tests */
+
+/** React inserts <!-- --> between adjacent text nodes; they are removed so assertions read like the visible text. */
+const html = (el: unknown) => renderToString(el as never).replace(/<!-- -->/g, '');
+const noop = () => {};
+const linkStub = { stage: null, busy: false, error: null, run: async () => {}, deepNext: async () => {}, remaining: [], investigatedAt: null };
+
+describe('server-render smoke tests: every tab and the form render without throwing', () => {
+  it('the input form', () => {
+    const out = html(createElement(InputForm, { f: EMPTY_FORM, setF: noop, emailRep: true, setEmailRep: noop, autoLinks: false, setAutoLinks: noop, onSubmit: noop, busy: false }));
+    for (const s of ['Raw email headers', 'Email information', 'Sender information', 'Links and attachments', 'Load example', 'Choose a .eml file', 'Analyse email', 'Investigate links automatically after parsing', 'Where did this email come from?']) assert.ok(out.includes(s), s);
+    assert.match(out, /id="ph-h"/);
+    const filled = html(createElement(InputForm, { f: { ...EXAMPLE_FORM, headers: 'Dear customer, your account will be suspended unless you act today, please click here.' }, setF: noop, emailRep: true, setEmailRep: noop, autoLinks: true, setAutoLinks: noop, onSubmit: noop, busy: true }));
+    assert.match(filled, /looks like a message body/);
+    assert.match(filled, /of 3\.0 MB used/);
+  });
+
+  it('1 Overview', async () => {
+    const f = await fixture();
+    const pipeline = buildPipeline(allCheckRows({ parse: f.r.checks, skipped: [], slots: [], links: [], attachments: [] }), { provisional: false, unavailable: false });
+    const out = html(createElement(OverviewTab, { r: f.r, verdict: f.verdict, findings: f.findings, pipeline, report: f.report, running: 0 }));
+    for (const s of ['Investigation verdict', 'Pipeline', 'Key facts', 'Top findings', 'Message wording analysis', 'Indicators', 'Export report', 'Copy ticket text', 'Download Markdown', 'Download JSON', 'Print / save as PDF', 'Headers and authentication', 'Sender intelligence', 'not run']) assert.ok(out.includes(s), s);
+    assert.match(out, /<details/);
+    assert.ok(!/<details[^>]* open/.test(out.split('Message wording analysis')[0].slice(-200)), 'wording analysis is collapsed by default');
+    assert.match(out, /initial values still being calibrated/);
+  });
+
+  it('2 Email Headers', async () => {
+    const f = await fixture();
+    const out = html(createElement(HeadersTab, { r: f.r }));
+    assert.ok(out.length > 500);
+    assert.match(out, /Sending infrastructure/);
+    assert.match(out, /Receiving server/);
+    const none = html(createElement(HeadersTab, { r: await parseSubmission({ body: 'hello' }) }));
+    assert.match(none, /Paste the raw headers/);
+  });
+
+  it('3 Sender Intelligence', async () => {
+    const f = await fixture();
+    const out = html(createElement(SenderTab, { slots: [], skipped: [], running: 0, findings: f.findings }));
+    assert.match(out, /Sender identity findings/);
+    assert.match(out, /Reputation describes the IP, domain or address/);
+    const ident = html(createElement(SenderTab, { slots: [], skipped: [], running: 0, findings: f.findings.filter((x) => /brand|lookalike|display_name/i.test(x.id)) }));
+    assert.ok(f.findings.some((x) => /brand|lookalike|display_name/i.test(x.id)), 'the sample trips an identity finding');
+    assert.ok(!ident.includes('No brand, look-alike or display-name findings'));
+  });
+
+  it('4 URL Analysis', async () => {
+    const f = await fixture();
+    const out = html(createElement(UrlTab, { r: f.r, links: linkStub }));
+    assert.match(out, /Investigate links/);
+    assert.match(out, /This is an active check/);
+    assert.match(out, /paypa1-secure\.example/);
+    const empty = html(createElement(UrlTab, { r: await parseSubmission({ body: 'no links here at all' }), links: linkStub }));
+    assert.match(empty, /No links were found/);
+  });
+
+  it('5 Attachment Analysis', async () => {
+    const f = await fixture();
+    const Harness = () => createElement(AttachmentTab, { att: useAttachmentStage(f.r) });
+    const out = html(createElement(Harness));
+    assert.match(out, /Drop an attachment here/);
+    assert.match(out, /Invoice_4491\.pdf\.exe/);
+    assert.match(out, /Check hash reputation/);
+  });
+
+  it('6 Evidence & Timeline', async () => {
+    const f = await fixture();
+    const timeline = buildTimeline({ parse: f.r, findings: f.findings, marks: { investigationStartedAt: Date.now() } });
+    const out = html(createElement(EvidenceTab, { findings: f.findings, checks: f.rows, timeline, raw: { sender: [], urls: null, attachments: [] } }));
+    for (const s of ['All findings', 'Check status', 'Timeline', 'Raw provider results', 'Severity', 'Dimension', 'Source', 'Trust', 'Showing']) assert.ok(out.includes(s), s);
+    assert.match(out, /<details/);
+    assert.match(out, /Investigation started/);
+    assert.match(out, /skipped|complete/);
+  });
+
+  it('failed and skipped checks look different from complete ones, with a word and a symbol', async () => {
+    const rows: CheckRowX[] = [
+      { id: 'a', label: 'AAA', stage: 'sender', status: 'complete', result: 'ok' },
+      { id: 'b', label: 'BBB', stage: 'sender', status: 'failed', result: null, detail: 'timed out' },
+      { id: 'c', label: 'CCC', stage: 'urls', status: 'skipped', result: null, detail: 'No key' },
+      { id: 'd', label: 'DDD', stage: 'urls', status: 'running' },
+    ];
+    const out = html(createElement(EvidenceTab, { findings: [], checks: rows, timeline: [], raw: { sender: [], urls: null, attachments: [] } }));
+    for (const s of ['✓ complete', '✕ failed', '– skipped', '… running']) assert.ok(out.includes(s), s);
+    const row = (label: string) => out.slice(out.indexOf(`>${label}<`), out.indexOf(`>${label}<`) + 700);
+    assert.ok(!/text-green|border-green/.test(row('BBB').split('</tr>')[0]), 'failed is not styled green');
+    assert.ok(!/text-green|border-green/.test(row('CCC').split('</tr>')[0]), 'skipped is not styled green');
+    assert.ok(!/text-green|border-green/.test(row('DDD').split('</tr>')[0]), 'running is not styled green');
+    assert.ok(/text-green/.test(row('AAA').split('</tr>')[0]));
+  });
+
+  it('the whole results shell: six ARIA tabs in order, panels wired to tabs, only Overview shown, heading focusable', async () => {
+    const f = await fixture();
+    const out = html(createElement(ResultsShell, { r: f.r, input: f.input, emailRep: false, startedAt: Date.now() }));
+    assert.deepEqual(TABS.map((t) => t.label), ['Overview', 'Email Headers', 'Sender Intelligence', 'URL Analysis', 'Attachment Analysis', 'Evidence & Timeline']);
+    assert.match(out, /role="tablist"/);
+    assert.equal((out.match(/role="tab"/g) ?? []).length, 6);
+    assert.equal((out.match(/role="tabpanel"/g) ?? []).length, 6);
+    assert.equal((out.match(/aria-selected="true"/g) ?? []).length, 1);
+    assert.match(out, /id="ph-tab-overview"[^>]*aria-selected="true"[^>]*aria-controls="ph-panel-overview"|aria-selected="true"[^>]*id="ph-tab-overview"/);
+    for (const t of TABS) {
+      assert.ok(out.includes(`aria-controls="ph-panel-${t.id}"`), `${t.id} controls its panel`);
+      assert.ok(out.includes(`id="ph-panel-${t.id}"`) && out.includes(`aria-labelledby="ph-tab-${t.id}"`), `${t.id} panel is labelled by its tab`);
+    }
+    assert.equal((out.match(/tabindex="0"[^>]*role="tab"|role="tab"[^>]*tabindex="0"/g) ?? []).length, 1, 'roving tabindex: only the selected tab is in the tab order');
+    assert.equal((out.match(/role="tabpanel"[^>]*hidden/g) ?? []).length + (out.match(/hidden=""[^>]*role="tabpanel"/g) ?? []).length >= 5 || (out.match(/hidden/g) ?? []).length >= 5, true);
+    assert.match(out, /<h2[^>]*tabindex="-1"[^>]*>Investigation results<\/h2>|tabindex="-1"[^>]*id="ph-results-heading"/);
+    assert.match(out, /Investigation verdict/);
+  });
+
+  it('the history panel and the read-only report view', async () => {
+    const f = await fixture();
+    const out = html(createElement(HistoryPanel, { enabled: true, setEnabled: noop, version: 0 }));
+    assert.match(out, /Save investigations on this device/);
+    assert.match(out, /never stored/);
+    assert.match(out, /checked/);
+    const off = html(createElement(HistoryPanel, { enabled: false, setEnabled: noop, version: 0 }));
+    assert.ok(!/checked=""/.test(off));
+    const view = html(createElement(ReportView, { report: f.report }));
+    assert.match(view, /saved report · read-only/);
+    assert.match(view, /Indicators \(defanged/);
+    assert.match(view, /hxxps:\/\/paypa1-secure\[\.\]example/);
+  });
+
+  it('message-derived text is escaped, never rendered as HTML', async () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const f = await fixture({ subject: evil, attachments: `${evil}.exe`, displayName: `<script>alert(1)</script>` });
+    const shell = html(createElement(ResultsShell, { r: f.r, input: f.input, emailRep: false, startedAt: Date.now() }));
+    assert.ok(!shell.includes(evil), 'raw tag never appears');
+    assert.ok(!shell.includes('<script>alert'), 'raw script never appears');
+    const view = html(createElement(ReportView, { report: f.report }));
+    assert.ok(!view.includes(evil) && !view.includes('<script>alert'));
+  });
+});
+
+/* ------------------------------------------------------------------ source rules */
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const n of readdirSync(dir)) { const p = join(dir, n); if (statSync(p).isDirectory()) walk(p, out); else if (/\.(ts|tsx)$/.test(n)) out.push(p); }
+  return out;
+}
+
+describe('UI safety rules', () => {
+  const files = [...walk('src/pages/phishing'), 'src/pages/PhishingPage.tsx', 'src/lib/phishingHistory.ts'];
+  it('never uses dangerouslySetInnerHTML, never imports from worker/, adds no network calls of its own', () => {
+    for (const p of files) {
+      const t = readFileSync(p, 'utf8');
+      assert.ok(!t.includes('dangerouslySetInnerHTML'), `${p}: dangerouslySetInnerHTML`);
+      assert.ok(!/from ['"][./]*worker\//.test(t), `${p}: imports from worker/`);
+      assert.ok(!/\bXMLHttpRequest\b|\bsendBeacon\b|new WebSocket|\bEventSource\b/.test(t), `${p}: unexpected network API`);
+      for (const m of t.matchAll(/fetch\(\s*['"`]([^'"`]+)/g)) assert.fail(`${p}: direct fetch to ${m[1]}`);
+    }
+  });
+  it('only calls the existing phishing endpoints', () => {
+    const endpoints = new Set<string>();
+    for (const p of files) for (const m of readFileSync(p, 'utf8').matchAll(/api[<(][^'"`]*['"`](\/api\/[a-z/]+)['"`]/g)) endpoints.add(m[1]);
+    for (const e of endpoints) assert.ok(['/api/phishing/parse', '/api/phishing/sender', '/api/phishing/urls', '/api/phishing/attachments'].includes(e), e);
+    assert.ok(endpoints.size >= 4);
+  });
+  it('no outcome is described as safe or clean in any UI string we added', () => {
+    for (const p of files.filter((f) => /Overview|Evidence|History|ReportView|ExportBar|InputForm/.test(f))) {
+      const strings = [...readFileSync(p, 'utf8').matchAll(/>([^<>{}]{4,})</g)].map((m) => m[1]).join(' ');
+      assert.doesNotMatch(strings, /\b(is|are|looks|marked) (safe|clean)\b/i, p);
+    }
+  });
+});

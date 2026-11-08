@@ -2,11 +2,15 @@ import { detectInput, parseEmail, type InputKind } from '../../shared/domain';
 
 export interface Route { to: string; kind: InputKind; label: string }
 
+/** Words that mean "I want to investigate a suspicious email", not "search the resource directory". */
+const PHISHING_WORDS = /^(phish(?:ing)?|e-?mail investigation|suspicious e-?mail|investigate (?:an? )?e-?mail)\b/i;
+
 /** Decides which tool page a pasted value belongs to. Pure so it can be unit-tested. */
 export function routeFor(raw: string): Route | null {
   const { kind, value } = detectInput(raw);
   if (!value) return null;
   const enc = encodeURIComponent;
+  if (kind === 'text' && PHISHING_WORDS.test(value.trim())) return { to: '/phishing', kind: 'text', label: 'Phishing Investigation' };
   switch (kind) {
     case 'ipv4':
     case 'ipv6':

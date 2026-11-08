@@ -33,7 +33,14 @@ export interface AttachmentStage {
   checks: CheckResult[];
   /** URLs found inside attachments, ready to feed to the link stage. */
   urls: string[];
+  /** Raw hash-lookup responses (for the evidence tab and the timeline). */
+  results: AttachmentHashResponse[];
   panel: ReactNode;
+}
+
+/** The Attachment Analysis tab: the panel the hook built (drop zone, hash lookups, per-file findings). */
+export function AttachmentTab({ att }: { att: AttachmentStage }) {
+  return <>{att.panel}</>;
 }
 
 /** Badge for one provider row. A completed lookup is never shown as "clean": no detections is not proof of safety. */
@@ -172,5 +179,7 @@ export function useAttachmentStage(r: ParseStageResult): AttachmentStage {
     </div>
   );
 
-  return { findings, checks, urls, panel };
+  const results = useMemo(() => Object.values(rep).flatMap((x) => (x.status === 'done' ? [x.res] : [])), [rep]);
+
+  return { findings, checks, urls, results, panel };
 }

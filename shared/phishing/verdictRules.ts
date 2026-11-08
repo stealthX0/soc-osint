@@ -130,7 +130,7 @@ export const POINTS: Record<string, Spec> = {
   sender_domain_risky_tld: 3,
   display_name_brand_spoof: by({ high: 18, medium: 12 }),
   display_name_embeds_address: 10,
-  role_impersonation_freemail: 10,
+  role_impersonation_freemail: 14,
   sender_domain_new: by({ high: 12, medium: 8, low: 3 }), // doc: newly registered +5
   sender_domain_unregistered: by({ medium: 8, low: 3 }),
   sender_domain_expired: 3,
@@ -176,8 +176,9 @@ export const POINTS: Record<string, Spec> = {
 };
 
 /** Ids whose points are zero by design (context only). Listed so the audit can tell "mapped to zero" from "unmapped". */
-export const pointsFor = (f: Finding): { points: number; mapped: boolean } => {
+export const pointsFor = (f: Finding, overrides?: Record<string, number>): { points: number; mapped: boolean } => {
   const id = f.id.replace(/^url_final_/, 'url_');
+  if (overrides && id in overrides) return { points: overrides[id], mapped: true };
   const spec = POINTS[id];
   if (spec === undefined) return { points: SEVERITY_POINTS[f.severity] * UNMAPPED_FACTOR, mapped: false };
   if (typeof spec === 'number') return { points: spec, mapped: true };
@@ -260,3 +261,5 @@ export const THRESHOLDS = {
   highConfidence: 75,
   mediumConfidence: 50,
 } as const;
+
+export type Thresholds = { -readonly [K in keyof typeof THRESHOLDS]: number };

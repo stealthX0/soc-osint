@@ -112,6 +112,12 @@ The **File Analysis** page inspects a file entirely in the browser (`shared/file
 * **Authentication passes never subtract risk.** They are shown as supporting evidence: an authenticated sender can still send phishing. Findings about shared mail infrastructure (Google, Microsoft, mailing services) are discounted.
 * **Calibration.** The weights and thresholds in `shared/phishing/verdictRules.ts` are initial design values, not validated probabilities. `tests/phishing-step6.test.ts` holds a corpus of scenarios with the verdict an analyst would give: add real, sanitised samples there and adjust the rules until the corpus agrees. A test fails if a stage emits a finding id that has no scoring rule.
 
+Full documentation: [`docs/phishing-investigation.md`](docs/phishing-investigation.md) (architecture, what leaves the app, trust model, the finding catalogue, operations, hardening limits, known limits) and [`docs/phishing-calibration.md`](docs/phishing-calibration.md). `npm run calibrate:phishing` prints the calibration report.
+
+## Phishing Investigation: report export and history
+
+The investigation page presents one six-tab report (Overview, Email Headers, Sender Intelligence, URL Analysis, Attachment Analysis, Evidence & Timeline). Any investigation can be exported as ticket text, Markdown or JSON, or printed / saved as a PDF; every URL, domain, IP and address in an export is defanged, and an export never contains the message body, the full headers or attachment content, only summary fields and the short evidence excerpts attached to findings. With "Save investigations on this device" on (the default), the last 20 investigations are kept in this browser's local storage (`spectrix.phishing.history.v1`). What is stored is only that exported report plus an id and a timestamp; the pasted headers, body and attachments are never stored, and nothing is sent anywhere. History can be viewed, copied, downloaded, deleted or cleared from the History panel, and switched off there.
+
 ## Security model
 
 * **SSRF:** every outbound request to a user-supplied host goes through `worker/_lib/safeFetch.ts`: http/https only, ports 80/443/8080/8443,

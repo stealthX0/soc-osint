@@ -1,0 +1,72 @@
+/* Phishing Investigation: print layout, visible focus and reduced motion. Scoped to .ph-page so nothing else changes. */
+
+.ph-page :focus-visible {
+  outline: 2px solid #2dd4bf;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ph-page *,
+  .ph-page *::before,
+  .ph-page *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  /* app chrome: sticky top bar, sidebar, primary navigation, and everything marked as screen-only */
+  header.sticky,
+  aside,
+  nav,
+  .ph-noprint,
+  .ph-tablist {
+    display: none !important;
+  }
+  .ph-page {
+    max-width: none !important;
+  }
+  .ph-page *,
+  .ph-page *::before,
+  .ph-page *::after {
+    color: #111 !important;
+    background: transparent !important;
+    border-color: #888 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  /* the report prints the Overview and the evidence sections; the other tabs stay on screen only */
+  .ph-results .ph-panel {
+    display: none !important;
+  }
+  .ph-results .ph-panel[data-panel='overview'],
+  .ph-results .ph-panel[data-panel='evidence'] {
+    display: block !important;
+    margin-bottom: 1.5rem;
+  }
+  .ph-results pre {
+    max-height: none !important;
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+  }
+  .ph-results [class*='overflow-'] {
+    overflow: visible !important;
+  }
+  .ph-results details > summary {
+    list-style: none;
+  }
+  .ph-results li,
+  .ph-results tr {
+    break-inside: avoid;
+  }
+  .ph-results h3 {
+    break-after: avoid;
+  }
+}

@@ -13,6 +13,7 @@
  * These findings describe a FILE. They never say whether the email is malicious, an unknown hash is never worded as
  * safe, and a provider that failed or was skipped is reported as such. Attachments are never executed or rendered.
  */
+import { eachTag } from './html';
 import { detectType, inspect } from '../fileAnalysis';
 import type { FileReputation } from '../types';
 import { check, makeFinding } from './findings';
@@ -267,14 +268,23 @@ export function analyzeAttachmentBytes(bytes: Uint8Array, subject: Subject, decl
   const htmlLike = type.id === 'html' || (['html', 'htm', 'shtml', 'xhtml', 'svg', 'mht', 'mhtml'].includes(ext ?? '') && (type.id === 'text' || type.id === 'unknown'));
   if (htmlLike) {
     const body = latin1.decode(bytes.subarray(0, 2_000_000));
-    const pw = body.match(/<input\b[^>]*\btype\s*=\s*["']?password/i);
-    const form = body.match(/<form\b[^>]*\baction\s*=\s*["']?\s*((?:https?:)?\/\/[^"'\s>]+)/i);
+    // linear scan: a file of "<input <input <input ..." must not make this quadratic
+    let pw: string | null = null;
+    let form: string | null = null;
+    let action = '';
+    eachTag(body.length > 800_000 ? body.slice(0, 800_000) : body, ['input', 'form'], 20_000, (name, attrs) => {
+      if (name === 'input' && !pw && /\btype\s*=\s*["']?password/i.test(attrs)) pw = `<input ${attrs.trim()}>`;
+      if (name === 'form' && !form) {
+        const m = attrs.match(/\baction\s*=\s*["']?\s*((?:https?:)?\/\/[^"'\s>]+)/i);
+        if (m) { form = `<form ${attrs.trim()}>`; action = m[1]; }
+      }
+    });
     if (pw || form) {
       out.push(mk(subject, 'exact', {
         id: 'attachment_html_credential_form', severity: 'high', reliability: 'medium',
         title: pw && form ? 'Web page attachment asks for a password and posts it to an external address' : pw ? 'Web page attachment contains a password field' : 'Web page attachment contains a form that posts to an external address',
         detail: 'A web page delivered as an attachment that collects credentials is a standard way to harvest logins: the page runs from the recipient’s own disk, so link scanners never see it.',
-        evidence: [...(pw ? [clip(pw[0].replace(/\s+/g, ' '), 120)] : []), ...(form ? [`form action: ${clip(form[1], 120)}`] : [])],
+        evidence: [...(pw ? [clip((pw as string).replace(/\s+/g, ' '), 120)] : []), ...(form ? [`form action: ${clip(action, 120)}`] : [])],
       }));
     }
   }

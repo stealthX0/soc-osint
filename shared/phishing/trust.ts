@@ -46,7 +46,7 @@ function ipsIn(text: string): string[] {
 }
 
 export function clientIpsOf(hop: Hop): string[] {
-  const from = hop.raw.match(/\bfrom\s+([\s\S]*?)\s+by\s/i)?.[1];
+  const from = hop.raw.slice(0, 4000).match(/\bfrom\s+([\s\S]{0,1500}?)\s+by\s/i)?.[1]; // bounded: a header of repeated "from" must not go quadratic
   const ips = from ? ipsIn(from) : hop.publicIps;
   return ips.filter((ip) => classifyIP(ip)?.public);
 }

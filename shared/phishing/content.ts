@@ -16,6 +16,7 @@
  */
 import { BRANDS, isOfficial } from '../url';
 import { registrableOf } from './domains';
+import { eachTag, stripTags } from './html';
 import { makeFinding } from './findings';
 import type { Finding, Severity } from './types';
 
@@ -146,13 +147,21 @@ function mixedScriptWords(text: string): string[] {
   return out;
 }
 
-function hiddenText(html: string): number {
+/** Amount of text hidden with CSS. Linear: only the first 500 KB is scanned and only 40 hidden blocks are measured. */
+function hiddenText(htmlIn: string): number {
+  const html = htmlIn.length > 500_000 ? htmlIn.slice(0, 500_000) : htmlIn;
+  if (!/display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|max-height\s*:\s*0|mso-hide\s*:\s*all/i.test(html)) return 0;
+  const lower = html.toLowerCase();
   let total = 0;
-  const re = /<(span|div|p|td|font)\b[^>]*style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|max-height\s*:\s*0|mso-hide\s*:\s*all)[^"']*["'][^>]*>([\s\S]*?)<\/\1\s*>/gi;
-  for (const m of html.matchAll(re)) {
-    const visible = m[2].replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, ' ').trim();
-    total += visible.length;
-  }
+  let blocks = 0;
+  eachTag(html, ['span', 'div', 'p', 'td', 'font'], 20_000, (name, attrs, _start, end) => {
+    if (blocks >= 40) return;
+    if (!/style\s*=\s*["'][^"']{0,500}(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|max-height\s*:\s*0|mso-hide\s*:\s*all)/i.test(attrs)) return;
+    blocks++;
+    const close = lower.indexOf(`</${name}`, end);
+    const inner = html.slice(end, close < 0 ? end + 2000 : Math.min(close, end + 20_000));
+    total += stripTags(inner).replace(/&[a-z#0-9]+;/gi, ' ').replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, ' ').trim().length;
+  });
   return total;
 }
 
@@ -251,7 +260,7 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   // specific, high-precision patterns (a request for gift cards, a change of bank details, a crypto threat) are more reliable than general lure wording
   const SPECIFIC = new Set(['content_gift_card_request', 'content_payment_redirection', 'content_payroll_diversion', 'content_extortion', 'content_brand_impersonation']);
   const F = (id: string, c: ContentCategory, severity: Severity, title: string, detail: string) =>
-    findings.push(makeFinding({ id, dimension: 'content', severity, title, detail, source: 'content-rules', exactness: 'exact', reliability: SPECIFIC.has(id) ? 'medium' : 'low', evidence: ev(c) }));
+    findings.push(makeFinding({ id, dimension: 'content', severity, title, detail, source: 'content-rules', exactness: 'exact', reliability: SPECIFIC.has(id) || (id === 'content_bec_request' && input.fromIsFreeMail) ? 'medium' : 'low', evidence: ev(c) }));
   const get = (id: ContentCategoryId) => cats.get(id);
   let c: ContentCategory | undefined;
 

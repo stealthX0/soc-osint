@@ -22,6 +22,15 @@ export function Dashboard() {
         <p className="mt-2 text-xs text-faint">Try <Link to="/ip?q=1.1.1.1" className="text-muted underline-offset-2 hover:text-teal hover:underline">1.1.1.1</Link>, <Link to="/domain?q=example.com" className="text-muted underline-offset-2 hover:text-teal hover:underline">example.com</Link> or <Link to="/email?q=gmail.com" className="text-muted underline-offset-2 hover:text-teal hover:underline">gmail.com</Link></p>
       </section>
 
+      <Link to="/phishing" className="group mb-4 flex items-center gap-4 rounded-xl border border-teal/30 bg-teal/[.06] p-4 transition hover:border-teal/60 hover:shadow-[0_0_0_1px_rgba(45,212,191,.25),0_0_24px_rgba(45,212,191,.08)]">
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl border border-teal/30 bg-bg2 text-teal"><Icon name="eye" size={22} /></span>
+        <div className="min-w-0 flex-1">
+          <h2 className="flex flex-wrap items-center gap-2 font-medium">Phishing Investigation <Badge tone="accent">new</Badge></h2>
+          <p className="text-sm text-muted">Got a suspicious email? Paste its headers and get an evidence-backed report: real sender, authentication, links, attachments, and a verdict you can export.</p>
+        </div>
+        <Icon name="arrow" className="shrink-0 text-teal" />
+      </Link>
+
       <section aria-label="Tools" className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tools.map((t) => (
           <Link key={t.to} to={t.to} className="group rounded-xl border border-line bg-panel/90 p-4 transition hover:border-teal/40 hover:shadow-[0_0_0_1px_rgba(45,212,191,.25),0_0_24px_rgba(45,212,191,.08)]">

@@ -24,7 +24,7 @@ import type { ParseStageResult } from './parse';
 import type { CheckResult, Dimension, Finding, Severity } from './types';
 import {
   DIMENSION_WEIGHTS, EXACTNESS_FACTOR, GROUP_CAP, GROUP_REST_FACTOR, RELIABILITY_FACTOR, SHARED_INFRA_AFFECTED, SHARED_INFRA_FACTOR, THRESHOLDS, TRUST_FACTOR,
-  freshnessFactor, groupOf, pointsFor,
+  freshnessFactor, groupOf, pointsFor, type Thresholds,
 } from './verdictRules';
 
 export type VerdictLabel = 'malicious' | 'suspicious' | 'likely_legitimate' | 'inconclusive' | 'analysis_unavailable';
@@ -48,6 +48,8 @@ export interface VerdictInput {
   checks: CheckRow[];
   /** Override for tests. */
   now?: number;
+  /** Calibration only: try other thresholds or per-finding points without editing the rule tables. */
+  tuning?: { thresholds?: Partial<Thresholds>; points?: Record<string, number> };
 }
 
 export interface Contribution {
@@ -129,6 +131,11 @@ function assessCoverage(parse: ParseStageResult, checks: CheckRow[]): Coverage {
   if (!sender.length && hasHeaders) gaps.push({ critical: true, text: 'The sender and infrastructure lookups have not run.' });
   else if (senderDone === 0 && !pending) gaps.push({ critical: true, text: 'None of the sender and infrastructure lookups completed.' });
 
+  /* truncation: what was cut off cannot be assessed, and an attacker can pad a message to push the bad part past the limits */
+  if (parse.truncation?.links) gaps.push({ critical: true, text: 'The message has more links than the analysis keeps; the remaining links were not examined. Review them manually: one bad link can hide among many harmless ones.' });
+  if (parse.truncation?.mime) gaps.push({ critical: true, text: 'The message structure exceeded the parsing limits, so some parts (possibly attachments) were not examined.' });
+  if (parse.truncation?.text) gaps.push({ critical: false, text: 'Only the first part of a very long message was read for wording.' });
+
   /* URLs */
   if (parse.links.length) {
     cov.url.active = true;
@@ -175,6 +182,7 @@ const unavailable = (why: string): Verdict => ({
 
 export function computeVerdict(input: VerdictInput): Verdict {
   const now = input.now ?? Date.now();
+  const T: Thresholds = { ...THRESHOLDS, ...input.tuning?.thresholds };
   const { parse } = input;
   if (!parse) return unavailable('The message could not be parsed, so no investigation was possible.');
   const realAttachments = parse.attachments.filter((a) => !a.inline);
@@ -187,7 +195,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
 
   /* 1. contributions */
   const contributions: Contribution[] = findings.map((f) => {
-    const { points, mapped } = pointsFor(f);
+    const { points, mapped } = pointsFor(f, input.tuning?.points);
     const mult = {
       exactness: EXACTNESS_FACTOR[f.exactness], reliability: RELIABILITY_FACTOR[f.reliability], trust: TRUST_FACTOR[f.trust], freshness: freshnessFactor(f.observedAt, now),
       context: sharedInfra && SHARED_INFRA_AFFECTED.has(f.id) ? SHARED_INFRA_FACTOR : 1,
@@ -219,7 +227,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
     const list = contributions.filter((c) => c.dimension === d);
     const points = list.reduce((s, c) => s + c.counted, 0);
     const active = cov.byDimension[d].active || list.some((c) => c.counted > 0);
-    return { dimension: d, weight: DIMENSION_WEIGHTS[d], effectiveWeight: 0, active, points: Math.round(points * 10) / 10, score: Math.round(100 * (1 - Math.exp(-points / THRESHOLDS.saturation))), coverage: cov.byDimension[d].coverage, findings: list.length };
+    return { dimension: d, weight: DIMENSION_WEIGHTS[d], effectiveWeight: 0, active, points: Math.round(points * 10) / 10, score: Math.round(100 * (1 - Math.exp(-points / T.saturation))), coverage: cov.byDimension[d].coverage, findings: list.length };
   });
   // The denominator is the dimensions that APPLY to this message; a dimension that only has findings still adds to the numerator.
   // This keeps the score monotonic: more evidence can never lower it.
@@ -227,12 +235,12 @@ export function computeVerdict(input: VerdictInput): Verdict {
   for (const d of dims) d.effectiveWeight = d.active ? d.weight / applicableW : 0;
   const weighted = Math.min(100, dims.reduce((s, d) => s + d.effectiveWeight * d.score, 0));
   const strongest = Math.max(0, ...dims.filter((d) => d.active).map((d) => d.score));
-  const risk = Math.round(THRESHOLDS.strongestShare * strongest + (1 - THRESHOLDS.strongestShare) * weighted);
+  const risk = Math.round(T.strongestShare * strongest + (1 - T.strongestShare) * weighted);
   const coverage = Math.round(dims.reduce((s, d) => s + d.effectiveWeight * d.coverage, 0) * 100) / 100;
 
   /* 4. evidence helpers */
   const byId = (pred: (f: Finding) => boolean) => findings.filter(pred);
-  const meaningful = contributions.filter((c) => c.counted >= THRESHOLDS.meaningful);
+  const meaningful = contributions.filter((c) => c.counted >= T.meaningful);
   const maxCounted = Math.max(0, ...contributions.map((c) => c.counted));
   const conflicts = [...new Set(findings.filter((f) => ['auth_conflict', 'spf_independent_disagrees', 'dmarc_policy_not_applied'].includes(f.id)).map((f) => f.detail))];
   if (findings.some((f) => f.id === 'attachment_hash_known_good') && findings.some((f) => f.id === 'attachment_hash_malicious')) conflicts.push('A file hash is reported both as a known file and as malware.');
@@ -269,8 +277,8 @@ export function computeVerdict(input: VerdictInput): Verdict {
   const critGaps = cov.gaps.filter((g) => g.critical);
   const onlyAuth = contributions.filter((c) => c.counted > 0).every((c) => c.dimension === 'authentication');
   const onlyIp = contributions.filter((c) => c.counted > 0).every((c) => c.group?.startsWith('ip_reputation') || c.group?.startsWith('address_reputation'));
-  const strongSingle = maxCounted >= THRESHOLDS.strongSingle;
-  const suspicious = risk >= THRESHOLDS.suspiciousRisk || strongSingle || (meaningful.length >= 2 && risk >= THRESHOLDS.twoSignalsRisk);
+  const strongSingle = maxCounted >= T.strongSingle;
+  const suspicious = risk >= T.suspiciousRisk || strongSingle || (meaningful.length >= 2 && risk >= T.twoSignalsRisk);
 
   let label: VerdictLabel;
   let headline: string;
@@ -282,8 +290,8 @@ export function computeVerdict(input: VerdictInput): Verdict {
       : onlyIp ? 'Only the sender\'s IP or address has a bad reputation: that alone is not enough to call the email malicious.'
       : 'Meaningful warning signs were found, but nothing confirms the email as malicious.';
   } else if (conflicts.length) { label = 'inconclusive'; headline = 'The evidence conflicts with itself, so no confident call can be made.'; }
-  else if (critGaps.length || coverage < THRESHOLDS.legitimateCoverage) { label = 'inconclusive'; headline = 'Important checks have not completed, so the investigation cannot clear this email.'; }
-  else if (risk < THRESHOLDS.legitimateRisk && meaningful.length === 0) { label = 'likely_legitimate'; headline = 'No meaningful threat indicators were found. That is not a guarantee: no automated check can promise an email is safe.'; }
+  else if (critGaps.length || coverage < T.legitimateCoverage) { label = 'inconclusive'; headline = 'Important checks have not completed, so the investigation cannot clear this email.'; }
+  else if (risk < T.legitimateRisk && meaningful.length === 0) { label = 'likely_legitimate'; headline = 'No meaningful threat indicators were found. That is not a guarantee: no automated check can promise an email is safe.'; }
   else { label = 'inconclusive'; headline = meaningful.length ? 'One warning sign was found, which is not enough to decide either way.' : 'Several minor oddities were found but nothing decisive.'; }
   if (label === 'suspicious' && onlyAuth) notes.push('Rule applied: SPF / DKIM / DMARC failure alone is never enough to declare an email malicious.');
   if (label === 'suspicious' && onlyIp) notes.push('Rule applied: a bad reputation on an associated IP or address is Suspicious at most.');
@@ -332,7 +340,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
   if (cov.pending) { conf -= 10; confNotes.push('Lookups are still running; the verdict may change.'); }
   if (coverage < 0.5) confNotes.push('Less than half of the expected checks completed.');
   const score = Math.round(clamp(conf, 5, 98));
-  const level = score >= THRESHOLDS.highConfidence ? 'high' : score >= THRESHOLDS.mediumConfidence ? 'medium' : 'low';
+  const level = score >= T.highConfidence ? 'high' : score >= T.mediumConfidence ? 'medium' : 'low';
 
   /* 10. indicators worth blocking or hunting for */
   const seen = new Set<string>();

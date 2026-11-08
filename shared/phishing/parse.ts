@@ -36,6 +36,8 @@ export interface ParseStageResult {
   content: { subject: string | null; text: string; hasHtml: boolean; bodyKind: 'none' | 'plain' | 'html' | 'multipart'; partCount: number; truncated: boolean; warnings: string[]; analysis: ContentAnalysis };
   links: ExtractedLink[];
   skippedLinks: SkippedLink[];
+  /** What was cut off for size. The verdict treats truncation as an evidence gap: a message can hide one bad link among many. */
+  truncation: { links: boolean; text: boolean; mime: boolean };
   attachments: AttachmentMeta[];
   /** Static analysis summary per attachment (detected type, entropy, URLs/IPs found inside). Index matches `attachments`. */
   attachmentStatic: AttachmentStaticSummary[];
@@ -146,7 +148,7 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
   /* links */
   const ext = extractLinks({ text: msg.text, html: msg.html, manual: input.urls });
   checks.push(check('parse.links', 'parse', 'Link extraction', 'complete', `${ext.links.length} unique link(s)${ext.skipped.length ? `, ${ext.skipped.length} skipped` : ''}`, ext.truncated ? `Only the first ${LIMITS.links} links were kept.` : undefined));
-  if (ext.truncated) limits.push(`The message has more than ${LIMITS.links} links; only the first ${LIMITS.links} are listed.`);
+  if (ext.truncated) limits.push(`The message has more links than could be analysed (at most ${LIMITS.links} unique links are kept). Review the rest manually: a bad link can hide among many harmless ones.`);
   if (ext.links.length) {
     const roles = ['from', 'return_path', 'dkim', 'sender_header'];
     const off = offlineLinkFindings(
@@ -228,6 +230,7 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
     content: { subject, text: msg.text, hasHtml: !!msg.html, bodyKind: msg.bodyKind, partCount: msg.partCount, truncated: msg.truncated, warnings: msg.warnings, analysis: wording.analysis },
     links: ext.links,
     skippedLinks: ext.skipped,
+    truncation: { links: ext.truncated, text: msg.truncated, mime: msg.warnings.some((w) => /limit reached|deeper than/i.test(w)) },
     attachments,
     attachmentStatic: attStatic.summaries,
     indicators,
