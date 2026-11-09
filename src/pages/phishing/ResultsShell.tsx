@@ -7,25 +7,10 @@ import { buildTimeline } from '../../../shared/phishing/timeline';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
 import type { PhishingInput } from '../../../shared/phishing/types';
 import { newHistoryId, saveToHistory } from '../../lib/phishingHistory';
-import { AttachmentTab, useAttachmentStage, type AttachmentStage } from './AttachmentPanel';
-import { EvidenceTab } from './EvidenceTab';
-import { HeadersTab } from './HeadersTab';
-import { OverviewTab } from './OverviewTab';
-import { SenderTab } from './SenderTab';
-import { TabList, TabPanel, type TabDef } from './Tabs';
-import { UrlTab } from './UrlTab';
+import { useAttachmentStage, type AttachmentStage } from './AttachmentPanel';
 import { allCheckRows, buildPipeline } from './model';
 import { useLinkStage, useSenderStage, type LinkStage, type SenderStage } from './hooks';
-
-export type TabId = 'overview' | 'headers' | 'sender' | 'urls' | 'attachments' | 'evidence';
-export const TABS: TabDef<TabId>[] = [
-  { id: 'overview', label: 'Overview', icon: 'eye' },
-  { id: 'headers', label: 'Email Headers', icon: 'mail' },
-  { id: 'sender', label: 'Sender Intelligence', icon: 'globe' },
-  { id: 'urls', label: 'URL Analysis', icon: 'shield' },
-  { id: 'attachments', label: 'Attachment Analysis', icon: 'file' },
-  { id: 'evidence', label: 'Evidence & Timeline', icon: 'warn' },
-];
+import { InvestigationDashboard } from './InvestigationDashboard';
 
 export interface ResultsShellProps {
   r: ParseStageResult;
@@ -79,10 +64,8 @@ function RunningChecks({ sender, links, att, linkCount, fileCount }: { sender: S
   );
 }
 
-/** The six-tab report. Mounted only after every stage has settled, so the verdict is computed once from complete evidence. */
+/** The single-page investigation dashboard. Mounted only after every stage has settled, so the verdict is computed once from complete evidence. */
 export function FinishedReport({ r, input, sender, links, att, startedAt, historyEnabled, onHistorySaved }: { r: ParseStageResult; input: PhishingInput; sender: SenderStage; links: LinkStage; att: AttachmentStage; startedAt: number; historyEnabled: boolean; onHistorySaved?: () => void }) {
-  const [tab, setTab] = useState<TabId>('overview');
-
   const findings = useMemo(() => sortFindings(dedupeFindings([...r.findings, ...sender.findings, ...(links.stage?.findings ?? []), ...att.findings])), [r.findings, sender.findings, links.stage, att.findings]);
   const rows = useMemo(() => allCheckRows({ parse: r.checks, skipped: sender.plan.skipped, slots: sender.slots, links: links.stage?.checks ?? [], attachments: att.checks }), [r.checks, sender.plan.skipped, sender.slots, links.stage, att.checks]);
   const verdict = useMemo(() => computeVerdict({ parse: r, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, status: c.status, result: c.result ?? null, detail: c.detail })) }), [r, findings, rows]);
@@ -93,14 +76,9 @@ export function FinishedReport({ r, input, sender, links, att, startedAt, histor
     marks: { investigationStartedAt: startedAt, senderChecksFinishedAt: sender.finishedAt, linksInvestigatedAt: links.investigatedAt },
   }), [r, sender.results, sender.finishedAt, att.results, findings, startedAt, links.investigatedAt]);
 
-  // Focus moves to the results heading after a run, so keyboard and screen-reader users land on the new report.
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { heading.current?.focus(); }, []);
-
   // History: one entry per investigation, updated as lookups complete. Only the exported report is stored.
   const runId = useRef<string>('');
   if (!runId.current) runId.current = newHistoryId();
-  // This component only exists once every lookup has finished, so what is saved is always the complete result.
   useEffect(() => {
     if (!historyEnabled) return;
     saveToHistory(report, { id: runId.current });
@@ -119,15 +97,12 @@ export function FinishedReport({ r, input, sender, links, att, startedAt, histor
   }, []);
 
   return (
-    <div ref={root} className="ph-results space-y-4">
-      <h2 ref={heading} tabIndex={-1} id="ph-results-heading" className="text-lg font-semibold tracking-tight focus:outline-none">Investigation results</h2>
-      <TabList tabs={TABS} value={tab} onChange={setTab} />
-      <TabPanel id="overview" active={tab === 'overview'}><OverviewTab r={r} verdict={verdict} findings={findings} pipeline={pipeline} report={report} running={sender.running} onOpenEvidence={() => setTab('evidence')} /></TabPanel>
-      <TabPanel id="headers" active={tab === 'headers'}><HeadersTab r={r} /></TabPanel>
-      <TabPanel id="sender" active={tab === 'sender'}><SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} /></TabPanel>
-      <TabPanel id="urls" active={tab === 'urls'}><UrlTab r={r} links={links} /></TabPanel>
-      <TabPanel id="attachments" active={tab === 'attachments'}><AttachmentTab att={att} /></TabPanel>
-      <TabPanel id="evidence" active={tab === 'evidence'}><EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} /></TabPanel>
+    <div ref={root}>
+      <InvestigationDashboard
+        r={r} input={input} verdict={verdict} findings={findings} rows={rows}
+        pipeline={pipeline} report={report} timeline={timeline}
+        sender={sender} links={links} att={att} startedAt={startedAt}
+      />
     </div>
   );
 }

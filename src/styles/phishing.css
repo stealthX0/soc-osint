@@ -1,8 +1,39 @@
-/* Phishing Investigation: print layout, visible focus and reduced motion. Scoped to .ph-page so nothing else changes. */
+/* Phishing Investigation: dashboard layout, print layout, visible focus and reduced motion. Scoped to .ph-page so nothing else changes. */
 
 .ph-page :focus-visible {
   outline: 2px solid #2dd4bf;
   outline-offset: 2px;
+}
+
+/* ── Dashboard grid layout ── */
+.ph-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Detail tab content panels: constrain height so the dashboard stays in one viewport */
+.ph-db-detail-content {
+  max-height: 50vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #26375a transparent;
+}
+
+/* Findings list in left column: constrained scroll */
+.ph-db-findings {
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #26375a transparent;
+}
+
+/* Timeline in sidebar: constrained scroll */
+.ph-db-timeline {
+  max-height: 28vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #26375a transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -22,12 +53,12 @@
     background: #fff !important;
     color: #000 !important;
   }
-  /* app chrome: sticky top bar, sidebar, primary navigation, and everything marked as screen-only */
   header.sticky,
   aside,
   nav,
   .ph-noprint,
-  .ph-tablist {
+  .ph-tablist,
+  .ph-db-detail-tabs {
     display: none !important;
   }
   .ph-page {
@@ -42,14 +73,11 @@
     box-shadow: none !important;
     text-shadow: none !important;
   }
-  /* the report prints the Overview and the evidence sections; the other tabs stay on screen only */
-  .ph-results .ph-panel {
-    display: none !important;
-  }
-  .ph-results .ph-panel[data-panel='overview'],
-  .ph-results .ph-panel[data-panel='evidence'] {
-    display: block !important;
-    margin-bottom: 1.5rem;
+  .ph-db-detail-content,
+  .ph-db-findings,
+  .ph-db-timeline {
+    max-height: none !important;
+    overflow: visible !important;
   }
   .ph-results pre {
     max-height: none !important;
