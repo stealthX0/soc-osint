@@ -23,6 +23,8 @@ export interface ResultsShellProps {
   onHistorySaved?: () => void;
   /** Callback to reset to input form for a new analysis. */
   onNewAnalysis?: () => void;
+  /** Called once when all lookup stages settle and the dashboard is about to render. */
+  onReady?: () => void;
 }
 
 /**
@@ -30,11 +32,15 @@ export interface ResultsShellProps {
  * scored or shown until every one of them has finished: while lookups are outstanding only a progress list is rendered,
  * so no provisional verdict, score or confidence is ever displayed. The finished report is the six-tab view below.
  */
-export function ResultsShell({ r, input, files = [], startedAt, historyEnabled = false, onHistorySaved, onNewAnalysis }: ResultsShellProps) {
+export function ResultsShell({ r, input, files = [], startedAt, historyEnabled = false, onHistorySaved, onNewAnalysis, onReady }: ResultsShellProps) {
   const sender = useSenderStage(r);
   const att = useAttachmentStage(r, files);
   const links = useLinkStage(r, input);
   const ready = sender.settled && links.settled && att.settled;
+  const firedReady = useRef(false);
+  useEffect(() => {
+    if (ready && !firedReady.current) { firedReady.current = true; onReady?.(); }
+  }, [ready, onReady]);
   return ready
     ? <FinishedReport r={r} input={input} sender={sender} links={links} att={att} startedAt={startedAt} historyEnabled={historyEnabled} onHistorySaved={onHistorySaved} onNewAnalysis={onNewAnalysis} />
     : <RunningChecks sender={sender} links={links} att={att} linkCount={r.links.length} fileCount={files.length} />;

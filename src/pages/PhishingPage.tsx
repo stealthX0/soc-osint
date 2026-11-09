@@ -29,21 +29,23 @@ export default function PhishingPage() {
   /** Whether the analysis has been triggered (loading, error, or success). */
   const analysing = act.status !== 'idle';
 
+  const [dashboardReady, setDashboardReady] = useState(false);
+
   const resetToForm = () => {
     act.reset();
     setSubmitted(null);
+    setDashboardReady(false);
   };
 
-  /* Toggle full-page mode: hide the app's sidebar + header only when investigation results are ready */
-  const showFullpage = act.status === 'success';
+  /* Toggle full-page mode: hide the app's sidebar + header only when the dashboard is fully ready */
   useEffect(() => {
-    if (showFullpage) document.body.classList.add('ph-fullpage');
+    if (dashboardReady) document.body.classList.add('ph-fullpage');
     else document.body.classList.remove('ph-fullpage');
     return () => document.body.classList.remove('ph-fullpage');
-  }, [showFullpage]);
+  }, [dashboardReady]);
 
   return (
-    <div className={`ph-page ${showFullpage ? 'ph-page--dashboard' : 'max-w-5xl'}`}>
+    <div className={`ph-page ${dashboardReady ? 'ph-page--dashboard' : 'max-w-5xl'}`}>
       {/* ── Input form: visible only before Analyse is pressed ── */}
       {!analysing && (
         <>
@@ -60,7 +62,7 @@ export default function PhishingPage() {
           {act.status === 'loading' && <div className="flex min-h-[60vh] items-center justify-center"><Spinner label="Parsing the message" /></div>}
           {act.status === 'error' && act.error && <div className="mx-auto max-w-xl py-12"><ErrorBox error={act.error} onRetry={submit} /></div>}
           {act.status === 'success' && act.data && submitted && (
-            <ResultsShell key={submitted.id} r={act.data} input={submitted.input} files={submitted.files} startedAt={submitted.at} historyEnabled={submitted.history} onHistorySaved={() => setHistoryVersion((v) => v + 1)} onNewAnalysis={resetToForm} />
+            <ResultsShell key={submitted.id} r={act.data} input={submitted.input} files={submitted.files} startedAt={submitted.at} historyEnabled={submitted.history} onHistorySaved={() => setHistoryVersion((v) => v + 1)} onNewAnalysis={resetToForm} onReady={() => setDashboardReady(true)} />
           )}
         </>
       )}
