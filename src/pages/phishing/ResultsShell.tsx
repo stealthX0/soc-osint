@@ -21,6 +21,8 @@ export interface ResultsShellProps {
   startedAt: number;
   historyEnabled?: boolean;
   onHistorySaved?: () => void;
+  /** Callback to reset to input form for a new analysis. */
+  onNewAnalysis?: () => void;
 }
 
 /**
@@ -28,13 +30,13 @@ export interface ResultsShellProps {
  * scored or shown until every one of them has finished: while lookups are outstanding only a progress list is rendered,
  * so no provisional verdict, score or confidence is ever displayed. The finished report is the six-tab view below.
  */
-export function ResultsShell({ r, input, files = [], startedAt, historyEnabled = false, onHistorySaved }: ResultsShellProps) {
+export function ResultsShell({ r, input, files = [], startedAt, historyEnabled = false, onHistorySaved, onNewAnalysis }: ResultsShellProps) {
   const sender = useSenderStage(r);
   const att = useAttachmentStage(r, files);
   const links = useLinkStage(r, input);
   const ready = sender.settled && links.settled && att.settled;
   return ready
-    ? <FinishedReport r={r} input={input} sender={sender} links={links} att={att} startedAt={startedAt} historyEnabled={historyEnabled} onHistorySaved={onHistorySaved} />
+    ? <FinishedReport r={r} input={input} sender={sender} links={links} att={att} startedAt={startedAt} historyEnabled={historyEnabled} onHistorySaved={onHistorySaved} onNewAnalysis={onNewAnalysis} />
     : <RunningChecks sender={sender} links={links} att={att} linkCount={r.links.length} fileCount={files.length} />;
 }
 
@@ -65,7 +67,7 @@ function RunningChecks({ sender, links, att, linkCount, fileCount }: { sender: S
 }
 
 /** The single-page investigation dashboard. Mounted only after every stage has settled, so the verdict is computed once from complete evidence. */
-export function FinishedReport({ r, input, sender, links, att, startedAt, historyEnabled, onHistorySaved }: { r: ParseStageResult; input: PhishingInput; sender: SenderStage; links: LinkStage; att: AttachmentStage; startedAt: number; historyEnabled: boolean; onHistorySaved?: () => void }) {
+export function FinishedReport({ r, input, sender, links, att, startedAt, historyEnabled, onHistorySaved, onNewAnalysis }: { r: ParseStageResult; input: PhishingInput; sender: SenderStage; links: LinkStage; att: AttachmentStage; startedAt: number; historyEnabled: boolean; onHistorySaved?: () => void; onNewAnalysis?: () => void }) {
   const findings = useMemo(() => sortFindings(dedupeFindings([...r.findings, ...sender.findings, ...(links.stage?.findings ?? []), ...att.findings])), [r.findings, sender.findings, links.stage, att.findings]);
   const rows = useMemo(() => allCheckRows({ parse: r.checks, skipped: sender.plan.skipped, slots: sender.slots, links: links.stage?.checks ?? [], attachments: att.checks }), [r.checks, sender.plan.skipped, sender.slots, links.stage, att.checks]);
   const verdict = useMemo(() => computeVerdict({ parse: r, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, status: c.status, result: c.result ?? null, detail: c.detail })) }), [r, findings, rows]);
@@ -102,6 +104,7 @@ export function FinishedReport({ r, input, sender, links, att, startedAt, histor
         r={r} input={input} verdict={verdict} findings={findings} rows={rows}
         pipeline={pipeline} report={report} timeline={timeline}
         sender={sender} links={links} att={att} startedAt={startedAt}
+        onNewAnalysis={onNewAnalysis}
       />
     </div>
   );

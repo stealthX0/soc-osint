@@ -1,8 +1,35 @@
-/* Phishing Investigation: dashboard layout, print layout, visible focus and reduced motion. Scoped to .ph-page so nothing else changes. */
+/* Phishing Investigation: dashboard layout, fullpage mode, print layout, visible focus and reduced motion. */
 
 .ph-page :focus-visible {
   outline: 2px solid #2dd4bf;
   outline-offset: 2px;
+}
+
+/* ── Fullpage mode: hide app chrome when dashboard is active ── */
+body.ph-fullpage #layout-header,
+body.ph-fullpage #layout-sidebar,
+body.ph-fullpage #layout-footer {
+  display: none !important;
+}
+body.ph-fullpage #layout-container {
+  max-width: none !important;
+}
+body.ph-fullpage #main {
+  padding: 0 !important;
+}
+/* Also hide the mobile sidebar overlay trigger */
+body.ph-fullpage .lg\:hidden[aria-label="Open navigation"] {
+  display: none !important;
+}
+/* The Omnibox row below header on mobile */
+body.ph-fullpage > div > .border-b.sm\:hidden {
+  display: none !important;
+}
+
+/* ── Dashboard page container resets in fullpage mode ── */
+.ph-page--dashboard {
+  max-width: none !important;
+  margin: 0 !important;
 }
 
 /* ── Dashboard grid layout ── */
@@ -14,13 +41,13 @@
 
 /* Detail tab content panels: constrain height so the dashboard stays in one viewport */
 .ph-db-detail-content {
-  max-height: 50vh;
+  max-height: 55vh;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #26375a transparent;
 }
 
-/* Findings list in left column: constrained scroll */
+/* Findings list: constrained scroll */
 .ph-db-findings {
   max-height: 40vh;
   overflow-y: auto;
@@ -28,10 +55,16 @@
   scrollbar-color: #26375a transparent;
 }
 
-/* Timeline in sidebar: constrained scroll */
+/* Timeline: constrained scroll */
 .ph-db-timeline {
   max-height: 28vh;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #26375a transparent;
+}
+
+/* Sidebar scroll in fullpage dashboard */
+.ph-db-sidebar-scroll {
   scrollbar-width: thin;
   scrollbar-color: #26375a transparent;
 }
@@ -53,7 +86,9 @@
     background: #fff !important;
     color: #000 !important;
   }
-  header.sticky,
+  #layout-header,
+  #layout-sidebar,
+  #layout-footer,
   aside,
   nav,
   .ph-noprint,
@@ -61,7 +96,8 @@
   .ph-db-detail-tabs {
     display: none !important;
   }
-  .ph-page {
+  .ph-page,
+  .ph-page--dashboard {
     max-width: none !important;
   }
   .ph-page *,

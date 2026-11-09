@@ -100,7 +100,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-teal focus:px-3 focus:py-1.5 focus:text-[#04202a]">Skip to content</a>
-      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-panel/90 px-3 py-2.5 backdrop-blur sm:px-4">
+      <header id="layout-header" className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-panel/90 px-3 py-2.5 backdrop-blur sm:px-4">
         <button onClick={() => setOpen(true)} aria-label="Open navigation" aria-expanded={open} className="grid size-9 place-items-center rounded-lg border border-line2 text-muted hover:text-fg lg:hidden">
           <Icon name="menu" size={18} />
         </button>
@@ -110,8 +110,8 @@ export function Layout({ children }: { children: ReactNode }) {
       </header>
       <div className="border-b border-line bg-panel/60 p-2 sm:hidden"><Omnibox /></div>
 
-      <div className="mx-auto flex max-w-[1500px]">
-        <aside className="sticky top-[57px] hidden h-[calc(100vh-57px)] w-60 shrink-0 overflow-y-auto border-r border-line lg:block"><NavLinks /></aside>
+      <div id="layout-container" className="mx-auto flex max-w-[1500px]">
+        <aside id="layout-sidebar" className="sticky top-[57px] hidden h-[calc(100vh-57px)] w-60 shrink-0 overflow-y-auto border-r border-line lg:block"><NavLinks /></aside>
 
         {open && (
           <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
@@ -125,7 +125,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8">
           {children}
-          <footer className="mt-12 border-t border-line pt-4 text-xs text-faint">
+          <footer id="layout-footer" className="mt-12 border-t border-line pt-4 text-xs text-faint">
             <p>
               Lookups use free public data sources and are rate limited. Passive lookups never contact your target; HTTP and latency checks are <b>active</b> and
               send requests to it. Only probe systems you are authorised to test. No account, no tracking; recent lookups are stored only in your browser.

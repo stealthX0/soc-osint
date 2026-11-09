@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge, Card, Copyable, DataTable, KV, type Tone } from '../../components/ui';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Badge, Copyable, type Tone } from '../../components/ui';
 import { Icon, type IconName } from '../../components/icons';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
-import type { PhishingInput, Finding, Severity, Dimension } from '../../../shared/phishing/types';
+import type { PhishingInput, Finding, Dimension } from '../../../shared/phishing/types';
 import type { Verdict, VerdictLabel } from '../../../shared/phishing/verdict';
 import { VERDICT_TEXT } from '../../../shared/phishing/verdict';
 import { dimensionLabel } from '../../../shared/phishing/findings';
 import type { Report } from '../../../shared/phishing/report';
 import type { TimelineEvent } from '../../../shared/phishing/timeline';
-import type { CheckRowX, PipelineChip, ChipStatus } from './model';
+import type { CheckRowX, PipelineChip } from './model';
 import { ExportBar } from './ExportBar';
 import { ContentPanel } from './ContentPanel';
 import { HeadersTab } from './HeadersTab';
@@ -16,35 +16,55 @@ import { SenderTab } from './SenderTab';
 import { UrlTab } from './UrlTab';
 import { AttachmentTab } from './AttachmentPanel';
 import { EvidenceTab } from './EvidenceTab';
-import { sevTone, trustTone, trustLabel, FindingDetails } from './common';
+import { sevTone } from './common';
 import type { SenderStage, LinkStage } from './hooks';
 import type { AttachmentStage } from './AttachmentPanel';
 
 /* ─── colour maps ─── */
 const verdictTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
-const verdictRingColor: Record<VerdictLabel, string> = {
-  malicious: 'stroke-rose', suspicious: 'stroke-amber', likely_legitimate: 'stroke-green',
-  inconclusive: 'stroke-sky', analysis_unavailable: 'stroke-muted',
+const verdictAccent: Record<VerdictLabel, string> = {
+  malicious: 'text-rose', suspicious: 'text-amber', likely_legitimate: 'text-green',
+  inconclusive: 'text-sky', analysis_unavailable: 'text-muted',
 };
-const verdictBg: Record<VerdictLabel, string> = {
-  malicious: 'border-rose/30 bg-rose/5', suspicious: 'border-amber/30 bg-amber/5',
-  likely_legitimate: 'border-green/30 bg-green/5', inconclusive: 'border-sky/20 bg-sky/5',
-  analysis_unavailable: 'border-line bg-bg2/60',
+const verdictBannerBg: Record<VerdictLabel, string> = {
+  malicious: 'from-rose/15 to-rose/5 border-rose/25',
+  suspicious: 'from-amber/15 to-amber/5 border-amber/25',
+  likely_legitimate: 'from-green/15 to-green/5 border-green/25',
+  inconclusive: 'from-sky/15 to-sky/5 border-sky/25',
+  analysis_unavailable: 'from-line/30 to-line/10 border-line',
 };
-const chipTone: Record<ChipStatus, Tone> = { complete: 'good', running: 'info', 'not run': 'neutral', failed: 'bad' };
-const chipIcon: Record<ChipStatus, IconName> = { complete: 'check', running: 'refresh', 'not run': 'info', failed: 'x' };
+const verdictGaugeHex: Record<VerdictLabel, string> = {
+  malicious: '#f87171', suspicious: '#fbbf24', likely_legitimate: '#34d399',
+  inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
+};
+const verdictIcon: Record<VerdictLabel, IconName> = {
+  malicious: 'warn', suspicious: 'warn', likely_legitimate: 'check',
+  inconclusive: 'info', analysis_unavailable: 'info',
+};
+const verdictCircleBg: Record<VerdictLabel, string> = {
+  malicious: 'bg-rose/20', suspicious: 'bg-amber/20', likely_legitimate: 'bg-green/20',
+  inconclusive: 'bg-sky/20', analysis_unavailable: 'bg-line/30',
+};
+const verdictPillBg: Record<VerdictLabel, string> = {
+  malicious: 'border-rose/30 bg-rose/10 text-rose',
+  suspicious: 'border-amber/30 bg-amber/10 text-amber',
+  likely_legitimate: 'border-green/30 bg-green/10 text-green',
+  inconclusive: 'border-sky/30 bg-sky/10 text-sky',
+  analysis_unavailable: 'border-line bg-bg2 text-muted',
+};
 
-/* ─── types ─── */
-export type DetailTab = 'headers' | 'sender' | 'urls' | 'attachments' | 'evidence' | 'content';
-const DETAIL_TABS: { id: DetailTab; label: string; icon: IconName }[] = [
-  { id: 'headers', label: 'Headers', icon: 'mail' },
-  { id: 'sender', label: 'Sender Intel', icon: 'globe' },
-  { id: 'urls', label: 'URLs', icon: 'shield' },
-  { id: 'attachments', label: 'Attachments', icon: 'file' },
-  { id: 'content', label: 'Content', icon: 'eye' },
-  { id: 'evidence', label: 'Evidence', icon: 'list' },
+/* ─── tab definitions ─── */
+type AnalysisTab = 'overview' | 'sender' | 'urls' | 'domain' | 'content' | 'evidence';
+const ANALYSIS_TABS: { id: AnalysisTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'sender', label: 'Sender Analysis' },
+  { id: 'urls', label: 'Link Analysis' },
+  { id: 'domain', label: 'Domain & IP Intelligence' },
+  { id: 'content', label: 'Content Analysis' },
+  { id: 'evidence', label: 'Evidence' },
 ];
 
+/* ─── props ─── */
 export interface DashboardProps {
   r: ParseStageResult;
   input: PhishingInput;
@@ -62,401 +82,483 @@ export interface DashboardProps {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Risk Score Gauge – SVG donut
+   Semicircle Risk Gauge
    ═══════════════════════════════════════════════════════════ */
-function RiskGauge({ score, label }: { score: number; label: VerdictLabel }) {
-  const r = 54, cx = 64, cy = 64, circ = 2 * Math.PI * r;
+function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
+  const r = 62, cx = 80, cy = 82;
+  const arc = Math.PI * r;
   const pct = Math.max(0, Math.min(100, score));
-  const offset = circ - (pct / 100) * circ;
+  const offset = arc * (1 - pct / 100);
+  const color = verdictGaugeHex[label];
+  const riskWord = score >= 75 ? 'Critical' : score >= 50 ? 'High' : score >= 25 ? 'Medium' : 'Low';
   return (
-    <div className="relative inline-flex flex-col items-center">
-      <svg width={128} height={128} viewBox="0 0 128 128" className="drop-shadow-lg">
-        <circle cx={cx} cy={cy} r={r} fill="none" strokeWidth={10} className="stroke-line/40" />
-        <circle cx={cx} cy={cy} r={r} fill="none" strokeWidth={10} strokeLinecap="round"
-          className={`${verdictRingColor[label]} transition-all duration-700`}
-          strokeDasharray={circ} strokeDashoffset={offset}
-          transform={`rotate(-90 ${cx} ${cy})`} />
+    <div className="flex flex-col items-center">
+      <svg viewBox="0 0 160 100" className="w-[170px]">
+        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+          fill="none" strokeWidth={13} stroke="#1c2a47" strokeLinecap="round" opacity={0.5} />
+        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+          fill="none" strokeWidth={13} stroke={color} strokeLinecap="round"
+          strokeDasharray={arc} strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 1s ease' }} />
+        <text x={cx} y={cy - 20} textAnchor="middle" fill="#d8e2f6" fontSize="26" fontWeight="700">{score}</text>
+        <text x={cx} y={cy - 4} textAnchor="middle" fill="#56688d" fontSize="11">/100</text>
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold tabular-nums leading-none">{score}</span>
-        <span className="text-[10px] uppercase tracking-wider text-muted">/100</span>
+      <div className="-mt-1 text-center">
+        <div className="text-[10px] uppercase tracking-[.12em] text-faint">Risk Level</div>
+        <div className={`text-sm font-semibold ${verdictAccent[label]}`}>{riskWord}</div>
       </div>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Summary Stat Card – the row of mini cards under the verdict
+   Reusable Panel
    ═══════════════════════════════════════════════════════════ */
-function StatCard({ icon, label, value, tone = 'neutral' }: { icon: IconName; label: string; value: string; tone?: Tone }) {
-  const border: Record<Tone, string> = { good: 'border-green/25', warn: 'border-amber/25', bad: 'border-rose/25', info: 'border-sky/25', accent: 'border-teal/25', neutral: 'border-line' };
-  const iconColor: Record<Tone, string> = { good: 'text-green', warn: 'text-amber', bad: 'text-rose', info: 'text-sky', accent: 'text-teal', neutral: 'text-muted' };
+function Panel({ title, icon, children, className = '' }: { title: string; icon?: IconName; children: ReactNode; className?: string }) {
   return (
-    <div className={`flex items-center gap-3 rounded-lg border ${border[tone]} bg-panel/80 px-3 py-2.5`}>
-      <Icon name={icon} size={18} className={iconColor[tone]} />
-      <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
-        <div className={`text-sm font-semibold ${iconColor[tone]}`}>{value}</div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Panel wrapper used throughout the dashboard grid
-   ═══════════════════════════════════════════════════════════ */
-function Panel({ title, icon, action, children, className = '' }: { title: string; icon?: IconName; action?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <section className={`rounded-xl border border-line bg-panel/80 ${className}`}>
-      <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">
-          {icon && <Icon name={icon} size={13} className="text-faint" />}
-          {title}
-        </h3>
-        {action}
+    <section className={`rounded-xl border border-line bg-panel/70 ${className}`}>
+      <header className="flex items-center gap-2 border-b border-line/60 px-4 py-2.5">
+        {icon && <Icon name={icon} size={13} className="text-faint" />}
+        <h3 className="text-[11px] font-semibold uppercase tracking-[.12em] text-muted">{title}</h3>
       </header>
-      <div className="p-3">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   THE DASHBOARD
+   Key Finding Card
+   ═══════════════════════════════════════════════════════════ */
+function FindingCard({ icon, title, desc, tone }: { icon: IconName; title: string; desc: string; tone: Tone }) {
+  const border: Record<Tone, string> = { bad: 'border-l-rose', warn: 'border-l-amber', good: 'border-l-green', info: 'border-l-sky', accent: 'border-l-teal', neutral: 'border-l-line2' };
+  const iconClr: Record<Tone, string> = { bad: 'text-rose', warn: 'text-amber', good: 'text-green', info: 'text-sky', accent: 'text-teal', neutral: 'text-muted' };
+  return (
+    <div className={`rounded-lg border border-line bg-panel/80 border-l-[3px] ${border[tone]} p-3.5`}>
+      <div className="mb-2 flex items-center gap-2.5">
+        <div className={`grid size-8 shrink-0 place-items-center rounded-lg bg-bg2/80 ${iconClr[tone]}`}>
+          <Icon name={icon} size={16} />
+        </div>
+        <span className="text-sm font-semibold text-fg leading-tight">{title}</span>
+      </div>
+      <p className="line-clamp-2 text-xs leading-relaxed text-muted">{desc}</p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   THE FULL-PAGE DASHBOARD
    ═══════════════════════════════════════════════════════════ */
 export function InvestigationDashboard({ r, input, verdict, findings, rows, pipeline, report, timeline, sender, links, att, startedAt, onNewAnalysis }: DashboardProps) {
-  const [detailTab, setDetailTab] = useState<DetailTab>('headers');
+  const [activeTab, setActiveTab] = useState<AnalysisTab>('overview');
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); }, []);
 
+  /* ── derived data ── */
   const fx = r.forensics;
   const meta = VERDICT_TEXT[verdict.label];
   const from = fx?.summary.from ?? r.indicators.emails.find((e) => e.roles.includes('from'))?.address ?? '—';
-  const subject = r.content.subject ?? fx?.summary.subject ?? '—';
-  const counts = findings.reduce<Record<string, number>>((a, f) => ({ ...a, [f.severity]: (a[f.severity] ?? 0) + 1 }), {});
+  const fromDomain = from.includes('@') ? from.split('@')[1] : '—';
+  const senderIp = fx?.trust.connectingIp ?? '—';
+  const linkCount = r.links.length;
   const attachmentCount = r.attachments.filter((a) => !a.inline).length;
   const analysisTime = ((Date.now() - startedAt) / 1000).toFixed(1);
+  const caseId = `PHI-${new Date(startedAt).toISOString().slice(2, 10).replace(/-/g, '')}-${String(startedAt).slice(-4)}`;
 
-  /* dimension summary for stat cards */
-  const dimSummary = (dim: Dimension): { tone: Tone; text: string } => {
+  /* dimension helpers */
+  const dimInfo = (dim: Dimension): { tone: Tone; top: Finding | null } => {
     const ds = verdict.dimensions.find((d) => d.dimension === dim);
-    if (!ds || !ds.active) return { tone: 'neutral', text: 'N/A' };
-    if (ds.score <= 0) return { tone: 'good', text: 'Clean' };
-    if (ds.score < 30) return { tone: 'info', text: 'Low risk' };
-    if (ds.score < 60) return { tone: 'warn', text: 'Suspicious' };
-    return { tone: 'bad', text: 'High risk' };
+    const df = findings.filter((f) => f.dimension === dim);
+    const top = df[0] ?? null;
+    if (!ds || !ds.active) return { tone: 'neutral', top };
+    if (ds.score <= 0) return { tone: 'good', top };
+    if (ds.score < 30) return { tone: 'info', top };
+    if (ds.score < 60) return { tone: 'warn', top };
+    return { tone: 'bad', top };
   };
+  const authDim = dimInfo('authentication');
+  const urlDim = dimInfo('url');
+  const infraDim = dimInfo('infrastructure');
+  const contentDim = dimInfo('content');
 
-  const authDim = dimSummary('authentication');
-  const urlDim = dimSummary('url');
-  const infraDim = dimSummary('infrastructure');
-  const contentDim = dimSummary('content');
-  const attachDim = dimSummary('attachment');
+  /* threat type from dominant dimension */
+  const threatType = (() => {
+    const d = verdict.dimensions.filter(x => x.active).sort((a, b) => b.score - a.score)[0];
+    if (!d) return 'Unknown';
+    const m: Record<string, string> = { url: 'Credential Harvesting', attachment: 'Malware Delivery', content: 'Social Engineering', authentication: 'Sender Spoofing', infrastructure: 'Suspicious Infrastructure' };
+    return m[d.dimension] ?? 'Phishing';
+  })();
 
-  /* auth check summary */
-  const spf = r.checks.find((c) => c.id === 'spf');
-  const dkim = r.checks.find((c) => c.id === 'dkim');
-  const dmarc = r.checks.find((c) => c.id === 'dmarc');
-  const authLabel = (c: typeof spf) => c ? (c.result === 'pass' ? 'Pass' : c.result === 'fail' || c.result === 'hardfail' ? 'Fail' : c.result ?? c.status) : '—';
-  const authTone = (c: typeof spf): Tone => c ? (c.result === 'pass' ? 'good' : c.result === 'fail' || c.result === 'hardfail' ? 'bad' : 'warn') : 'neutral';
+  /* reasoning text */
+  const reasoning = verdict.reasons.length > 0
+    ? verdict.reasons.map(x => x.title + (x.detail ? `. ${x.detail}` : '')).join(' ')
+    : verdict.headline;
+
+  /* auth results */
+  const authOf = (id: string) => {
+    const c = r.checks.find(x => x.id === id);
+    if (!c) return { label: '—', ok: false };
+    const ok = c.result === 'pass';
+    return { label: ok ? 'Pass' : c.result === 'fail' || c.result === 'hardfail' ? 'Fail' : c.result ?? c.status, ok };
+  };
+  const spf = authOf('spf'), dkim = authOf('dkim'), dmarc = authOf('dmarc');
+
+  /* checks for bottom panel */
+  const topChecks = rows.slice(0, 8);
 
   return (
-    <div className="ph-results ph-dashboard" role="region" aria-label="Investigation results">
-      {/* ── TOP BAR: Verdict + Risk Gauge + Meta ── */}
-      <div className={`ph-db-verdict rounded-xl border p-4 ${verdictBg[verdict.label]}`}>
-        <div className="flex items-center gap-6">
-          {/* Risk gauge */}
-          <RiskGauge score={verdict.risk} label={verdict.label} />
+    <div className="ph-results flex min-h-screen bg-bg" role="region" aria-label="Investigation results">
 
-          {/* Verdict text */}
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 ref={heading} tabIndex={-1} className="text-xl font-bold tracking-tight focus:outline-none">{meta.label}</h2>
-              <Badge tone={verdictTone[verdict.label]}>{verdict.label.replace(/_/g, ' ')}</Badge>
-              <Badge tone={verdict.confidence.level === 'high' ? 'good' : verdict.confidence.level === 'medium' ? 'warn' : 'neutral'}>
-                Confidence: {verdict.confidence.level}
-              </Badge>
-              <Badge>Coverage: {Math.round(verdict.coverage * 100)}%</Badge>
+      {/* ═══════════ LEFT SIDEBAR ═══════════ */}
+      <aside className="ph-db-sidebar-scroll sticky top-0 hidden h-screen w-[272px] shrink-0 overflow-y-auto border-r border-line bg-bg2/90 lg:block">
+        <div className="space-y-6 p-5">
+          {/* Investigation Summary */}
+          <div>
+            <SidebarHeading icon="file" text="Investigation Summary" />
+            <div className="mt-3 space-y-3">
+              <SField label="Case ID" value={caseId} mono />
+              <SField label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
+              <SField label="Analysis Time" value={`${analysisTime}s`} />
             </div>
-            <p className="mt-1.5 text-sm text-muted">{verdict.headline}</p>
-            {verdict.rule && <p className="mt-1 text-xs text-faint">Decided by a verdict rule on direct evidence, not by the score.</p>}
           </div>
 
-          {/* Investigation meta */}
-          <div className="hidden shrink-0 text-right text-xs text-muted lg:block">
-            <div><span className="text-faint">Analyzed:</span> {new Date(startedAt).toLocaleString()}</div>
-            <div><span className="text-faint">Duration:</span> {analysisTime}s</div>
-            <div><span className="text-faint">Findings:</span> {findings.length}</div>
-            <div><span className="text-faint">Checks:</span> {rows.length}</div>
+          <hr className="border-line" />
+
+          {/* Input Details */}
+          <div>
+            <SidebarHeading icon="list" text="Input Details" />
+            <div className="mt-3 space-y-3">
+              <SDetail icon="mail" label="From" value={from} />
+              <SDetail icon="globe" label="Domain" value={fromDomain} />
+              <SDetail icon="network" label="Sender IP" value={senderIp} />
+              <SDetail icon="shield" label="Links Found" value={String(linkCount)} />
+              <SDetail icon="file" label="Attachments" value={String(attachmentCount)} />
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* ── SUMMARY STAT CARDS ── */}
-      <div className="ph-db-stats grid grid-cols-2 gap-2 lg:grid-cols-5">
-        <StatCard icon="lock" label="Authentication" value={authDim.text} tone={authDim.tone} />
-        <StatCard icon="shield" label="URL Analysis" value={urlDim.text} tone={urlDim.tone} />
-        <StatCard icon="globe" label="Infrastructure" value={infraDim.text} tone={infraDim.tone} />
-        <StatCard icon="eye" label="Content" value={contentDim.text} tone={contentDim.tone} />
-        <StatCard icon="file" label="Attachments" value={attachDim.text} tone={attachDim.tone} />
-      </div>
-
-      {/* ── MAIN GRID: Left column + Right column ── */}
-      <div className="ph-db-main grid gap-3 lg:grid-cols-[1fr_320px]">
-        {/* ──────── LEFT COLUMN ──────── */}
-        <div className="space-y-3">
-          {/* Key findings */}
-          <Panel title="Key Findings" icon="warn" action={
-            <span className="flex gap-1.5">
-              {(['critical', 'high', 'medium', 'low', 'info'] as Severity[]).filter((s) => counts[s]).map((s) => (
-                <Badge key={s} tone={sevTone[s]}>{counts[s]} {s}</Badge>
-              ))}
-            </span>
-          }>
-            {findings.length > 0 ? (
-              <ul className="ph-db-findings space-y-1.5">
-                {findings.slice(0, 8).map((f, i) => <FindingDetails key={`${f.id}${i}`} f={f} />)}
-                {findings.length > 8 && (
-                  <li className="pt-1 text-center text-xs text-faint">
-                    + {findings.length - 8} more findings (see Evidence tab below)
-                  </li>
-                )}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted">No findings. The checks that completed found no issues. See pipeline and check status for coverage.</p>
-            )}
-          </Panel>
-
-          {/* Reasons, actions, conflicts, gaps — collapsed into a compact "Verdict detail" panel */}
-          <Panel title="Verdict Detail" icon="bolt">
-            <div className="space-y-3">
-              {/* Why */}
-              {verdict.reasons.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Reasons</div>
-                  <ul className="space-y-1">
-                    {verdict.reasons.map((rr) => (
-                      <li key={rr.title + rr.findingIds.join()} className="flex flex-wrap items-baseline gap-2 text-sm">
-                        <Badge tone={sevTone[rr.severity]}>{rr.severity}</Badge>
-                        <span className="font-medium">{rr.title}</span>
-                        <span className="text-[11px] text-faint">{dimensionLabel[rr.dimension]} · {rr.points} pts</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Mitigating */}
-              {verdict.mitigating.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Supporting Evidence</div>
-                  <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted">{verdict.mitigating.map((m) => <li key={m}>{m}</li>)}</ul>
-                </div>
-              )}
-
-              {/* Conflicts */}
-              {verdict.conflicts.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber">Conflicting Evidence</div>
-                  <ul className="list-disc space-y-0.5 pl-5 text-sm text-amber">{verdict.conflicts.map((c) => <li key={c}>{c}</li>)}</ul>
-                </div>
-              )}
-
-              {/* Actions */}
-              {verdict.actions.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Recommended Actions</div>
-                  <ul className="list-disc space-y-0.5 pl-5 text-sm">{verdict.actions.map((a) => <li key={a}>{a}</li>)}</ul>
-                </div>
-              )}
-
-              {/* Gaps */}
-              {verdict.gaps.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Gaps</div>
-                  <ul className="space-y-0.5 text-sm">
-                    {verdict.gaps.filter((g) => g.critical).map((g) => (
-                      <li key={g.text} className="flex gap-2 text-amber"><Icon name="warn" size={13} className="mt-0.5 shrink-0" />{g.text}</li>
-                    ))}
-                    {verdict.gaps.filter((g) => !g.critical).slice(0, 4).map((g) => (
-                      <li key={g.text} className="pl-5 text-muted">{g.text}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </Panel>
-
-          {/* Detail tabs section */}
-          <Panel title="Detailed Analysis" icon="list">
-            {/* Tab bar */}
-            <div className="ph-db-detail-tabs mb-3 flex gap-1 overflow-x-auto rounded-lg border border-line bg-bg2/80 p-0.5">
-              {DETAIL_TABS.map((t) => (
-                <button key={t.id} type="button" onClick={() => setDetailTab(t.id)}
-                  className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs transition-colors ${detailTab === t.id ? 'bg-sky/15 text-sky shadow-[0_0_0_1px_rgba(56,189,248,.3)]' : 'text-muted hover:text-fg'}`}>
-                  <Icon name={t.icon} size={12} />{t.label}
-                </button>
-              ))}
-            </div>
-            {/* Tab content */}
-            <div className="ph-db-detail-content">
-              {detailTab === 'headers' && <HeadersTab r={r} />}
-              {detailTab === 'sender' && <SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} />}
-              {detailTab === 'urls' && <UrlTab r={r} links={links} />}
-              {detailTab === 'attachments' && <AttachmentTab att={att} />}
-              {detailTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
-              {detailTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
-            </div>
-          </Panel>
-        </div>
-
-        {/* ──────── RIGHT COLUMN (sidebar) ──────── */}
-        <div className="space-y-3">
-          {/* Email overview */}
-          <Panel title="Email Overview" icon="mail">
-            <dl className="space-y-2 text-sm">
-              <SidebarRow label="From" value={<span className="font-mono text-xs break-all">{from}</span>} />
-              <SidebarRow label="Subject" value={subject} />
-              <SidebarRow label="Connecting IP" value={fx?.trust.connectingIp ? <Copyable value={fx.trust.connectingIp} ioc /> : '—'} />
-              <SidebarRow label="Links" value={String(r.links.length)} />
-              <SidebarRow label="Attachments" value={String(attachmentCount)} />
-              <SidebarRow label="Headers" value={fx ? 'Supplied' : 'Not supplied'} />
-            </dl>
-          </Panel>
-
-          {/* Authentication */}
-          <Panel title="Authentication" icon="lock">
-            <div className="space-y-1.5">
-              <AuthRow label="SPF" status={authLabel(spf)} tone={authTone(spf)} />
-              <AuthRow label="DKIM" status={authLabel(dkim)} tone={authTone(dkim)} />
-              <AuthRow label="DMARC" status={authLabel(dmarc)} tone={authTone(dmarc)} />
-            </div>
-          </Panel>
+          <hr className="border-line" />
 
           {/* Pipeline */}
-          <Panel title="Pipeline Status" icon="pulse">
-            <div className="space-y-1">
+          <div>
+            <SidebarHeading icon="pulse" text="Pipeline Status" />
+            <div className="mt-3 space-y-1.5">
               {pipeline.map((c) => (
                 <div key={c.id} className="flex items-center justify-between gap-2 text-xs">
                   <span className="flex items-center gap-1.5">
-                    <Icon name={chipIcon[c.status]} size={12} className={`${c.status === 'complete' ? 'text-green' : c.status === 'failed' ? 'text-rose' : c.status === 'running' ? 'text-sky' : 'text-faint'}`} />
-                    <span className="text-fg">{c.label}</span>
+                    <Icon name={c.status === 'complete' ? 'check' : c.status === 'failed' ? 'x' : 'info'} size={11}
+                      className={c.status === 'complete' ? 'text-green' : c.status === 'failed' ? 'text-rose' : 'text-faint'} />
+                    <span className="text-fg/80">{c.label}</span>
                   </span>
-                  <Badge tone={chipTone[c.status]}>{c.status}{c.failed > 0 ? ` · ${c.failed} err` : ''}</Badge>
+                  <span className={`text-[10px] ${c.status === 'complete' ? 'text-green' : c.status === 'failed' ? 'text-rose' : 'text-faint'}`}>
+                    {c.status}
+                  </span>
                 </div>
               ))}
             </div>
-          </Panel>
+          </div>
 
-          {/* Indicators */}
-          <Panel title="Indicators" icon="network">
-            <div className="space-y-2 text-xs">
-              {r.indicators.ips.length > 0 && (
-                <div>
-                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">IPs</div>
-                  <ul className="space-y-0.5">{r.indicators.ips.slice(0, 5).map((i) => <li key={i.ip} className="flex items-center gap-1.5"><Copyable value={i.ip} ioc /><Badge tone={trustTone(i.trust)}>{i.role.replace(/_/g, ' ')}</Badge></li>)}</ul>
-                  {r.indicators.ips.length > 5 && <div className="text-faint">+ {r.indicators.ips.length - 5} more</div>}
-                </div>
-              )}
-              {r.indicators.domains.length > 0 && (
-                <div>
-                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Domains</div>
-                  <ul className="space-y-0.5">{r.indicators.domains.slice(0, 5).map((d) => <li key={d.domain} className="flex items-center gap-1.5"><Copyable value={d.domain} ioc /></li>)}</ul>
-                  {r.indicators.domains.length > 5 && <div className="text-faint">+ {r.indicators.domains.length - 5} more</div>}
-                </div>
-              )}
-              {r.indicators.emails.length > 0 && (
-                <div>
-                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Emails</div>
-                  <ul className="space-y-0.5">{r.indicators.emails.slice(0, 3).map((e) => <li key={e.address} className="font-mono break-all">{e.address}</li>)}</ul>
-                </div>
-              )}
-              {verdict.indicators.length > 0 && (
-                <div>
-                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Block/Hunt</div>
-                  <ul className="space-y-0.5">{verdict.indicators.slice(0, 5).map((i) => <li key={`${i.type}:${i.value}`} className="flex items-center gap-1.5"><Badge>{i.type}</Badge><span className="font-mono break-all">{i.value}</span></li>)}</ul>
-                </div>
-              )}
-              {r.indicators.ips.length === 0 && r.indicators.domains.length === 0 && r.indicators.emails.length === 0 && (
-                <p className="text-muted">No indicators extracted.</p>
-              )}
-            </div>
-          </Panel>
+          <hr className="border-line" />
 
           {/* Timeline */}
-          <Panel title="Timeline" icon="clock">
+          <div>
+            <SidebarHeading icon="clock" text="Timeline" />
             {timeline.length > 0 ? (
-              <ol className="ph-db-timeline space-y-1 text-xs">
-                {timeline.slice(0, 10).map((ev, i) => (
+              <ol className="ph-db-timeline mt-3 space-y-1 text-xs">
+                {timeline.slice(0, 8).map((ev, i) => (
                   <li key={i} className="flex gap-2">
-                    <span className="shrink-0 tabular-nums text-faint">{formatTime(ev.at)}</span>
+                    <span className="shrink-0 tabular-nums text-faint">{fmtTime(ev.at)}</span>
                     <span className="text-muted">{ev.label}</span>
                   </li>
                 ))}
-                {timeline.length > 10 && <li className="text-faint">+ {timeline.length - 10} more events</li>}
+                {timeline.length > 8 && <li className="text-faint">+ {timeline.length - 8} more</li>}
               </ol>
-            ) : <p className="text-xs text-muted">No timeline events.</p>}
-          </Panel>
+            ) : <p className="mt-2 text-xs text-muted">No events.</p>}
+          </div>
+        </div>
+      </aside>
 
-          {/* Export */}
-          <Panel title="Export" icon="file">
-            <ExportBar report={report} />
-          </Panel>
+      {/* ═══════════ MAIN CONTENT ═══════════ */}
+      <div className="flex-1 overflow-y-auto">
 
-          {/* How decided */}
-          <details className="rounded-xl border border-line bg-panel/80">
-            <summary className="cursor-pointer px-4 py-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted hover:text-fg">
-              How was this decided?
-            </summary>
-            <div className="border-t border-line p-3 space-y-3">
-              <p className="text-xs text-muted">Findings earn base points scaled by exactness, reliability and trust. Same-fact findings are grouped to avoid double counting.</p>
-              <DataTable head={['Dimension', 'Wt', 'Pts', 'Score', 'Cov']} rows={verdict.dimensions.map((d) => [
-                dimensionLabel[d.dimension],
-                d.active ? `${Math.round(d.effectiveWeight * 100)}%` : <span key="n" className="text-faint">n/a</span>,
-                d.points, d.score, `${Math.round(d.coverage * 100)}%`,
-              ])} />
-              {verdict.unmapped.length > 0 && <p className="text-xs text-amber">Scored by severity only: {verdict.unmapped.join(', ')}</p>}
+        {/* ── Verdict Banner ── */}
+        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-6 py-4`}>
+          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`grid size-10 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
+                <Icon name={verdictIcon[verdict.label]} size={20} className={verdictAccent[verdict.label]} />
+              </div>
+              <div className="min-w-0">
+                <h2 ref={heading} tabIndex={-1} className={`text-lg font-bold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
+                  {meta.label}
+                </h2>
+                <p className="truncate text-sm text-muted">{verdict.headline}</p>
+              </div>
             </div>
-          </details>
+            <div className={`shrink-0 rounded-full border px-4 py-1.5 text-sm font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
+              Risk Score: {verdict.risk}/100
+            </div>
+          </div>
+        </div>
+
+        {/* ── Scrollable content ── */}
+        <div className="mx-auto max-w-[1200px] space-y-5 p-5">
+
+          {/* ── Mobile-only sidebar summary (hidden on lg) ── */}
+          <div className="rounded-xl border border-line bg-bg2/60 p-4 lg:hidden">
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+              <span><span className="text-faint">Case:</span> <span className="font-mono">{caseId}</span></span>
+              <span><span className="text-faint">From:</span> <span className="font-mono">{from}</span></span>
+              <span><span className="text-faint">IP:</span> {senderIp}</span>
+              <span><span className="text-faint">Links:</span> {linkCount}</span>
+              <span><span className="text-faint">Time:</span> {analysisTime}s</span>
+            </div>
+          </div>
+
+          {/* ── KEY FINDINGS ── */}
+          <div>
+            <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-muted">Key Findings</h3>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <FindingCard icon="lock" tone={authDim.tone}
+                title={authDim.top?.title ?? 'Authentication'}
+                desc={authDim.top?.detail ?? (authDim.tone === 'good' ? 'Email authentication checks passed.' : 'No authentication findings.')} />
+              <FindingCard icon="shield" tone={urlDim.tone}
+                title={urlDim.top?.title ?? 'URL Analysis'}
+                desc={urlDim.top?.detail ?? (urlDim.tone === 'good' ? 'All URLs appear legitimate.' : 'No URL findings.')} />
+              <FindingCard icon="globe" tone={infraDim.tone}
+                title={infraDim.top?.title ?? 'Infrastructure'}
+                desc={infraDim.top?.detail ?? (infraDim.tone === 'good' ? 'Sending infrastructure looks legitimate.' : 'No infrastructure findings.')} />
+              <FindingCard icon="eye" tone={contentDim.tone}
+                title={contentDim.top?.title ?? 'Content Analysis'}
+                desc={contentDim.top?.detail ?? (contentDim.tone === 'good' ? 'Email content appears normal.' : 'No content findings.')} />
+            </div>
+          </div>
+
+          {/* ── DETAILED ANALYSIS ── */}
+          <Panel title="Detailed Analysis" icon="list">
+            {/* Tab bar */}
+            <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg border border-line bg-bg2/80 p-0.5">
+              {ANALYSIS_TABS.map((t) => (
+                <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
+                  className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    activeTab === t.id ? 'bg-sky/15 text-sky shadow-[0_0_0_1px_rgba(56,189,248,.3)]' : 'text-muted hover:text-fg'
+                  }`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="ph-db-detail-content">
+              {activeTab === 'overview' && (
+                <div className="grid gap-6 lg:grid-cols-[190px_1fr_1fr]">
+                  {/* Semicircle gauge */}
+                  <div className="flex items-start justify-center pt-2">
+                    <SemiGauge score={verdict.risk} label={verdict.label} />
+                  </div>
+
+                  {/* Classification table */}
+                  <div>
+                    <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-faint">Classification</h4>
+                    <div className="space-y-2.5">
+                      <CRow label="Classification" value={<Badge tone={verdictTone[verdict.label]}>{verdict.label.replace(/_/g, ' ')}</Badge>} />
+                      <CRow label="Confidence" value={
+                        <span className="flex items-center gap-1.5">
+                          <Badge tone={verdict.confidence.level === 'high' ? 'good' : verdict.confidence.level === 'medium' ? 'warn' : 'neutral'}>{verdict.confidence.level}</Badge>
+                          <span className="text-xs text-muted">({Math.round(verdict.confidence.score * 100)}%)</span>
+                        </span>
+                      } />
+                      <CRow label="Threat Type" value={<span className="text-sm text-fg">{threatType}</span>} />
+                      <CRow label="Coverage" value={<span className="text-sm text-fg">{Math.round(verdict.coverage * 100)}%</span>} />
+                      {verdict.rule && <CRow label="Decided By" value={<span className="text-xs text-faint">Verdict rule on direct evidence</span>} />}
+                    </div>
+                  </div>
+
+                  {/* Reasoning */}
+                  <div>
+                    <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-faint">Reasoning</h4>
+                    <p className="mb-3 text-sm leading-relaxed text-muted">{reasoning || verdict.headline}</p>
+
+                    {verdict.conflicts.length > 0 && (
+                      <div className="mb-3">
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber">Conflicting Evidence</div>
+                        <ul className="space-y-0.5 text-xs text-amber">{verdict.conflicts.map((c) => <li key={c}>• {c}</li>)}</ul>
+                      </div>
+                    )}
+                    {verdict.mitigating.length > 0 && (
+                      <div className="mb-3">
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green">Supporting Evidence</div>
+                        <ul className="space-y-0.5 text-xs text-muted">{verdict.mitigating.map((m) => <li key={m}>• {m}</li>)}</ul>
+                      </div>
+                    )}
+                    {verdict.actions.length > 0 && (
+                      <div>
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">Recommended Actions</div>
+                        <ul className="space-y-0.5 text-xs text-muted">{verdict.actions.map((a) => <li key={a}>• {a}</li>)}</ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'sender' && <SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} />}
+              {activeTab === 'urls' && <UrlTab r={r} links={links} />}
+              {activeTab === 'domain' && <HeadersTab r={r} />}
+              {activeTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
+              {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
+            </div>
+          </Panel>
+
+          {/* ── BOTTOM ROW: 3 panels ── */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* Indicators Checked */}
+            <Panel title="Indicators Checked" icon="check">
+              <ul className="space-y-1.5">
+                {topChecks.map((c) => {
+                  const pass = c.status === 'complete' && (c.result === 'pass' || c.result === 'none');
+                  const fail = c.status === 'complete' && (c.result === 'fail' || c.result === 'hardfail' || c.result === 'permerror');
+                  return (
+                    <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className={pass ? 'text-green' : fail ? 'text-rose' : 'text-faint'}>{pass ? '✓' : fail ? '✗' : '–'}</span>
+                        <span className="truncate text-fg/80">{c.label}</span>
+                      </span>
+                      <Badge tone={pass ? 'good' : fail ? 'bad' : c.status === 'complete' ? 'warn' : 'neutral'}>
+                        {c.result ?? c.status}
+                      </Badge>
+                    </li>
+                  );
+                })}
+                {rows.length > 8 && <li className="pt-1 text-[11px] text-faint">+ {rows.length - 8} more checks</li>}
+              </ul>
+            </Panel>
+
+            {/* Link Details */}
+            <Panel title="Link Details" icon="shield">
+              {r.links.length > 0 ? (
+                <div className="space-y-2.5">
+                  {r.links.slice(0, 3).map((l, i) => (
+                    <div key={i} className="rounded-lg border border-line bg-bg2/40 p-2.5">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <code className="break-all font-mono text-[11px] text-fg/80 line-clamp-2">{l.url}</code>
+                        <Badge tone={urlDim.tone === 'bad' ? 'bad' : urlDim.tone === 'warn' ? 'warn' : 'neutral'}>
+                          {urlDim.tone === 'bad' ? 'Malicious' : urlDim.tone === 'warn' ? 'Suspicious' : 'Unknown'}
+                        </Badge>
+                      </div>
+                      {l.text && <div className="text-[10px] text-faint truncate">Text: {l.text}</div>}
+                    </div>
+                  ))}
+                  {r.links.length > 3 && <p className="text-[11px] text-faint">+ {r.links.length - 3} more links</p>}
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No links found in the email.</p>
+              )}
+            </Panel>
+
+            {/* IP Reputation */}
+            <Panel title="IP Reputation" icon="network">
+              {senderIp !== '—' ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Copyable value={senderIp} ioc />
+                    <Badge tone={infraDim.tone}>
+                      {infraDim.tone === 'bad' ? 'High Risk' : infraDim.tone === 'warn' ? 'Medium Risk' : infraDim.tone === 'good' ? 'Low Risk' : 'Unknown'}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <AuthLine label="SPF" result={spf.label} ok={spf.ok} />
+                    <AuthLine label="DKIM" result={dkim.label} ok={dkim.ok} />
+                    <AuthLine label="DMARC" result={dmarc.label} ok={dmarc.ok} />
+                  </div>
+                  {r.indicators.ips.length > 0 && (
+                    <div className="border-t border-line pt-2">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">Other IPs</div>
+                      <ul className="space-y-0.5 text-xs">
+                        {r.indicators.ips.slice(0, 4).map((ip) => (
+                          <li key={ip.ip} className="flex items-center gap-2 text-muted">
+                            <span className="font-mono text-fg/80">{ip.ip}</span>
+                            <span className="text-faint">{ip.role.replace(/_/g, ' ')}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No sender IP available.</p>
+              )}
+            </Panel>
+          </div>
+
+          {/* ── ACTION BAR ── */}
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel/60 px-5 py-3.5">
+            <ExportBar report={report} />
+            {onNewAnalysis && (
+              <button type="button" onClick={onNewAnalysis}
+                className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-line2 px-4 text-sm text-fg transition-colors hover:border-teal/50">
+                <Icon name="arrow" size={14} className="rotate-180" /> New Analysis
+              </button>
+            )}
+          </div>
+
+          {/* ── DISCLAIMER ── */}
+          <p className="pb-4 text-center text-[11px] text-faint">
+            {meta.short} Decision support for an analyst, not a guarantee.
+          </p>
         </div>
       </div>
-
-      {/* ── DISCLAIMER ── */}
-      <p className="ph-db-disclaimer text-center text-[11px] text-faint">
-        {meta.short} Decision support for an analyst, not a guarantee. Scoring weights are initial values still being calibrated.
-      </p>
     </div>
   );
 }
 
 /* ─── small helpers ─── */
-function SidebarRow({ label, value }: { label: string; value: ReactNode }) {
+function SidebarHeading({ icon, text }: { icon: IconName; text: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <dt className="shrink-0 text-faint">{label}</dt>
-      <dd className="min-w-0 text-right">{value}</dd>
+    <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[.14em] text-muted">
+      <Icon name={icon} size={13} className="text-faint" />{text}
+    </h3>
+  );
+}
+
+function SField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
+      <div className={`text-sm text-fg ${mono ? 'font-mono text-xs' : ''}`}>{value}</div>
     </div>
   );
 }
 
-function AuthRow({ label, status, tone }: { label: string; status: string; tone: Tone }) {
-  const iconName: IconName = tone === 'good' ? 'check' : tone === 'bad' ? 'x' : 'warn';
-  const iconColor = tone === 'good' ? 'text-green' : tone === 'bad' ? 'text-rose' : 'text-amber';
+function SDetail({ icon, label, value }: { icon: IconName; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <Icon name={icon} size={14} className="shrink-0 text-faint" />
+      <div className="min-w-0">
+        <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
+        <div className="truncate font-mono text-xs text-fg">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function CRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-xs text-faint">{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function AuthLine({ label, result, ok }: { label: string; result: string; ok: boolean }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-sm text-fg">{label}</span>
-      <span className={`flex items-center gap-1 text-sm font-medium ${iconColor}`}>
-        <Icon name={iconName} size={13} />{status}
-      </span>
+      <span className="text-faint">{label}</span>
+      <span className={`font-medium ${ok ? 'text-green' : result === 'Fail' ? 'text-rose' : 'text-amber'}`}>{result}</span>
     </div>
   );
 }
 
-function formatTime(iso: string | null | undefined): string {
+function fmtTime(iso: string | null | undefined): string {
   if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch {
-    return '—';
-  }
+  try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+  catch { return '—'; }
 }
