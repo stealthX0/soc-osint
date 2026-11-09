@@ -230,22 +230,26 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       {/* ═══════════ LEFT SIDEBAR ═══════════ */}
       <aside className="ph-db-sidebar-scroll hidden h-full w-[340px] shrink-0 overflow-y-auto border-r border-line/50 bg-[#060b18] lg:block">
 
-        <div className="space-y-6 px-7 py-7">
+        <div className="space-y-5 px-5 py-6">
 
-          {/* ── Investigation Summary ── */}
-          <div className="border-l-2 border-line/40 pl-5">
-            <h3 className="text-lg font-bold text-fg mb-4">Investigation Summary</h3>
-            <div className="space-y-3.5">
+          {/* ── Investigation Summary card ── */}
+          <div className="rounded-xl border border-line/50 bg-[#0c1529]">
+            <div className="px-5 pt-5 pb-3 border-b border-line/30">
+              <h3 className="text-lg font-bold text-fg">Investigation Summary</h3>
+            </div>
+            <div className="space-y-3.5 px-5 py-4">
               <SFieldRow label="Case ID" value={caseId} mono />
               <SFieldRow label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
               <SFieldRow label="Analysis Time" value={`${analysisTime} seconds`} />
             </div>
           </div>
 
-          {/* ── Input Details ── */}
-          <div className="border-l-2 border-line/40 pl-5">
-            <h3 className="text-lg font-bold text-fg mb-5">Input Details</h3>
-            <div className="space-y-5">
+          {/* ── Input Details card ── */}
+          <div className="rounded-xl border border-line/50 bg-[#0c1529]">
+            <div className="px-5 pt-5 pb-3">
+              <h3 className="text-lg font-bold text-fg">Input Details</h3>
+            </div>
+            <div className="space-y-5 px-5 pb-5">
               <InputRow icon="mail" iconBg="bg-sky/15 text-sky" label="From" value={from} />
               <InputRow icon="globe" iconBg="bg-teal/15 text-teal" label="Domain" value={fromDomain} />
               <InputRow icon="network" iconBg="bg-amber/15 text-amber" label="Sender IP" value={senderIp} />
@@ -261,20 +265,20 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       <div className="flex-1 overflow-y-auto">
 
         {/* ── Verdict Banner ── */}
-        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-10 py-9`}>
+        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-8 py-7`}>
           <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-8">
-            <div className="flex items-center gap-6 min-w-0">
-              <div className={`grid size-16 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
-                <Icon name={verdictIcon[verdict.label]} size={38} className={verdictAccent[verdict.label]} />
+            <div className="flex items-center gap-5 min-w-0">
+              <div className={`grid size-14 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
+                <Icon name={verdictIcon[verdict.label]} size={32} className={verdictAccent[verdict.label]} />
               </div>
               <div className="min-w-0">
-                <h2 ref={heading} tabIndex={-1} className={`text-[42px] leading-tight font-extrabold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
+                <h2 ref={heading} tabIndex={-1} className={`text-[36px] leading-tight font-extrabold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
                   {meta.label}
                 </h2>
-                <p className="text-lg text-muted mt-1.5">{verdict.headline}</p>
+                <p className="text-base text-muted mt-1">{verdict.headline}</p>
               </div>
             </div>
-            <div className={`shrink-0 rounded-full border-2 px-7 py-3 text-xl font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
+            <div className={`shrink-0 rounded-full border-2 px-6 py-2.5 text-lg font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
               Risk Score: {verdict.risk} / 100
             </div>
           </div>
