@@ -27,10 +27,10 @@ const verdictAccent: Record<VerdictLabel, string> = {
   inconclusive: 'text-sky', analysis_unavailable: 'text-muted',
 };
 const verdictBannerBg: Record<VerdictLabel, string> = {
-  malicious: 'from-rose/15 to-rose/5 border-rose/25',
-  suspicious: 'from-amber/15 to-amber/5 border-amber/25',
-  likely_legitimate: 'from-green/15 to-green/5 border-green/25',
-  inconclusive: 'from-sky/15 to-sky/5 border-sky/25',
+  malicious: 'from-rose/25 to-rose/8 border-rose/30',
+  suspicious: 'from-amber/25 to-amber/8 border-amber/30',
+  likely_legitimate: 'from-green/25 to-green/8 border-green/30',
+  inconclusive: 'from-sky/25 to-sky/8 border-sky/30',
   analysis_unavailable: 'from-line/30 to-line/10 border-line',
 };
 const verdictGaugeHex: Record<VerdictLabel, string> = {
@@ -116,12 +116,12 @@ function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
    ═══════════════════════════════════════════════════════════ */
 function Panel({ title, icon, children, className = '' }: { title: string; icon?: IconName; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-xl border border-line bg-panel/70 ${className}`}>
-      <header className="flex items-center gap-2 border-b border-line/60 px-4 py-2.5">
-        {icon && <Icon name={icon} size={13} className="text-faint" />}
-        <h3 className="text-[11px] font-semibold uppercase tracking-[.12em] text-muted">{title}</h3>
+    <section className={`rounded-xl border border-line/70 bg-[#0c1529] ${className}`}>
+      <header className="flex items-center gap-2 border-b border-line/50 px-5 py-3.5">
+        {icon && <Icon name={icon} size={16} className="text-muted" />}
+        <h3 className="text-base font-bold text-fg">{title}</h3>
       </header>
-      <div className="p-4">{children}</div>
+      <div className="p-5">{children}</div>
     </section>
   );
 }
@@ -130,17 +130,18 @@ function Panel({ title, icon, children, className = '' }: { title: string; icon?
    Key Finding Card
    ═══════════════════════════════════════════════════════════ */
 function FindingCard({ icon, title, desc, tone }: { icon: IconName; title: string; desc: string; tone: Tone }) {
-  const border: Record<Tone, string> = { bad: 'border-l-rose', warn: 'border-l-amber', good: 'border-l-green', info: 'border-l-sky', accent: 'border-l-teal', neutral: 'border-l-line2' };
-  const iconClr: Record<Tone, string> = { bad: 'text-rose', warn: 'text-amber', good: 'text-green', info: 'text-sky', accent: 'text-teal', neutral: 'text-muted' };
+  const iconBg: Record<Tone, string> = { bad: 'bg-rose/15 text-rose', warn: 'bg-amber/15 text-amber', good: 'bg-green/15 text-green', info: 'bg-sky/15 text-sky', accent: 'bg-teal/15 text-teal', neutral: 'bg-line/20 text-muted' };
   return (
-    <div className={`rounded-lg border border-line bg-panel/80 border-l-[3px] ${border[tone]} p-3.5`}>
-      <div className="mb-2 flex items-center gap-2.5">
-        <div className={`grid size-8 shrink-0 place-items-center rounded-lg bg-bg2/80 ${iconClr[tone]}`}>
-          <Icon name={icon} size={16} />
+    <div className="rounded-xl border border-line/70 bg-[#0c1529] p-4">
+      <div className="mb-3 flex items-start gap-3">
+        <div className={`grid size-10 shrink-0 place-items-center rounded-full ${iconBg[tone]}`}>
+          <Icon name={icon} size={20} />
         </div>
-        <span className="text-sm font-semibold text-fg leading-tight">{title}</span>
+        <div className="min-w-0 pt-0.5">
+          <div className="text-sm font-bold text-fg leading-tight">{title}</div>
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">{desc}</p>
+        </div>
       </div>
-      <p className="line-clamp-2 text-xs leading-relaxed text-muted">{desc}</p>
     </div>
   );
 }
@@ -222,26 +223,24 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           </div>
         </div>
 
-        <div className="space-y-4 p-4">
+        <div className="space-y-5 p-5">
 
-          {/* ── Investigation Summary card ── */}
-          <div className="rounded-xl border border-line/70 bg-[#0c1529] overflow-hidden">
-            <div className="border-b border-line/50 px-4 py-2.5">
-              <h3 className="text-[13px] font-bold text-fg">Investigation Summary</h3>
-            </div>
-            <div className="px-4 py-3 space-y-2.5">
+          {/* ── Investigation Summary ── */}
+          <div>
+            <h3 className="text-base font-bold text-fg mb-3">Investigation Summary</h3>
+            <div className="space-y-2.5">
               <SFieldRow label="Case ID" value={caseId} mono />
               <SFieldRow label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
               <SFieldRow label="Analysis Time" value={`${analysisTime} seconds`} />
             </div>
           </div>
 
-          {/* ── Input Details card ── */}
-          <div className="rounded-xl border border-line/70 bg-[#0c1529] overflow-hidden">
-            <div className="border-b border-line/50 px-4 py-2.5">
-              <h3 className="text-[13px] font-bold text-fg">Input Details</h3>
-            </div>
-            <div className="px-4 py-3 space-y-3">
+          <hr className="border-line/40" />
+
+          {/* ── Input Details ── */}
+          <div>
+            <h3 className="text-base font-bold text-fg mb-3">Input Details</h3>
+            <div className="space-y-3.5">
               <InputRow icon="mail" iconBg="bg-sky/15 text-sky" label="From" value={from} />
               <InputRow icon="globe" iconBg="bg-teal/15 text-teal" label="Domain" value={fromDomain} />
               <InputRow icon="network" iconBg="bg-amber/15 text-amber" label="Sender IP" value={senderIp} />
@@ -257,21 +256,19 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       <div className="flex-1 overflow-y-auto">
 
         {/* ── Verdict Banner ── */}
-        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-6 py-4`}>
-          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`grid size-10 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
-                <Icon name={verdictIcon[verdict.label]} size={20} className={verdictAccent[verdict.label]} />
-              </div>
+        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-8 py-6`}>
+          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-6">
+            <div className="flex items-center gap-4 min-w-0">
+              <Icon name={verdictIcon[verdict.label]} size={40} className={`shrink-0 ${verdictAccent[verdict.label]}`} />
               <div className="min-w-0">
-                <h2 ref={heading} tabIndex={-1} className={`text-lg font-bold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
+                <h2 ref={heading} tabIndex={-1} className={`text-2xl font-bold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
                   {meta.label}
                 </h2>
-                <p className="truncate text-sm text-muted">{verdict.headline}</p>
+                <p className="text-sm text-muted mt-0.5">{verdict.headline}</p>
               </div>
             </div>
-            <div className={`shrink-0 rounded-full border px-4 py-1.5 text-sm font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
-              Risk Score: {verdict.risk}/100
+            <div className={`shrink-0 rounded-full border px-5 py-2 text-base font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
+              Risk Score: {verdict.risk} / 100
             </div>
           </div>
         </div>
@@ -292,7 +289,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 
           {/* ── KEY FINDINGS ── */}
           <div>
-            <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[.14em] text-muted">Key Findings</h3>
+            <h3 className="mb-4 text-lg font-bold text-fg">Key Findings</h3>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <FindingCard icon="lock" tone={authDim.tone}
                 title={authDim.top?.title ?? 'Authentication'}
@@ -498,13 +495,13 @@ function SFieldRow({ label, value, mono }: { label: string; value: string; mono?
 
 function InputRow({ icon, iconBg, label, value }: { icon: IconName; iconBg: string; label: string; value: string }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${iconBg}`}>
-        <Icon name={icon} size={14} />
+    <div className="flex items-center gap-3">
+      <div className={`grid size-9 shrink-0 place-items-center rounded-full ${iconBg}`}>
+        <Icon name={icon} size={18} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] text-muted mb-0.5">{label}</div>
-        <div className="truncate text-xs font-medium text-fg">{value}</div>
+        <div className="text-[11px] text-muted mb-0.5">{label}</div>
+        <div className="truncate text-sm font-medium text-fg">{value}</div>
       </div>
     </div>
   );
