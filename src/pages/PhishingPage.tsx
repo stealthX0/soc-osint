@@ -34,15 +34,16 @@ export default function PhishingPage() {
     setSubmitted(null);
   };
 
-  /* Toggle full-page mode: hide the app's sidebar + header when showing investigation results */
+  /* Toggle full-page mode: hide the app's sidebar + header only when investigation results are ready */
+  const showFullpage = act.status === 'success';
   useEffect(() => {
-    if (analysing) document.body.classList.add('ph-fullpage');
+    if (showFullpage) document.body.classList.add('ph-fullpage');
     else document.body.classList.remove('ph-fullpage');
     return () => document.body.classList.remove('ph-fullpage');
-  }, [analysing]);
+  }, [showFullpage]);
 
   return (
-    <div className={`ph-page ${analysing ? 'ph-page--dashboard' : 'max-w-5xl'}`}>
+    <div className={`ph-page ${showFullpage ? 'ph-page--dashboard' : 'max-w-5xl'}`}>
       {/* ── Input form: visible only before Analyse is pressed ── */}
       {!analysing && (
         <>
