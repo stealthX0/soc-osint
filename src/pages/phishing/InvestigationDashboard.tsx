@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Copyable, type Tone } from '../../components/ui';
 import { Icon, type IconName } from '../../components/icons';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
@@ -161,7 +161,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
   const senderIp = fx?.trust.connectingIp ?? '—';
   const linkCount = r.links.length;
   const attachmentCount = r.attachments.filter((a) => !a.inline).length;
-  const analysisTime = ((Date.now() - startedAt) / 1000).toFixed(1);
+  const analysisTime = useMemo(() => ((Date.now() - startedAt) / 1000).toFixed(1), [startedAt]);
   const caseId = `PHI-${new Date(startedAt).toISOString().slice(2, 10).replace(/-/g, '')}-${String(startedAt).slice(-4)}`;
 
   /* dimension helpers */
@@ -209,70 +209,47 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
     <div className="ph-results flex min-h-screen bg-bg" role="region" aria-label="Investigation results">
 
       {/* ═══════════ LEFT SIDEBAR ═══════════ */}
-      <aside className="ph-db-sidebar-scroll sticky top-0 hidden h-screen w-[272px] shrink-0 overflow-y-auto border-r border-line bg-bg2/90 lg:block">
-        <div className="space-y-6 p-5">
-          {/* Investigation Summary */}
+      <aside className="ph-db-sidebar-scroll sticky top-0 hidden h-screen w-[300px] shrink-0 overflow-y-auto border-r border-line bg-[#070c19] lg:block">
+
+        {/* ── Header banner ── */}
+        <div className="flex items-center gap-3 border-b border-line px-5 py-4 bg-gradient-to-r from-sky/10 to-transparent">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky/15 ring-1 ring-sky/30">
+            <Icon name="shield" size={20} className="text-sky" />
+          </div>
           <div>
-            <SidebarHeading icon="file" text="Investigation Summary" />
-            <div className="mt-3 space-y-3">
-              <SField label="Case ID" value={caseId} mono />
-              <SField label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
-              <SField label="Analysis Time" value={`${analysisTime}s`} />
+            <div className="text-sm font-bold text-fg leading-tight">Email Investigation</div>
+            <div className="text-[11px] text-muted">Dashboard</div>
+          </div>
+        </div>
+
+        <div className="space-y-4 p-4">
+
+          {/* ── Investigation Summary card ── */}
+          <div className="rounded-xl border border-line/70 bg-[#0c1529] overflow-hidden">
+            <div className="border-b border-line/50 px-4 py-2.5">
+              <h3 className="text-[13px] font-bold text-fg">Investigation Summary</h3>
+            </div>
+            <div className="px-4 py-3 space-y-2.5">
+              <SFieldRow label="Case ID" value={caseId} mono />
+              <SFieldRow label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
+              <SFieldRow label="Analysis Time" value={`${analysisTime} seconds`} />
             </div>
           </div>
 
-          <hr className="border-line" />
-
-          {/* Input Details */}
-          <div>
-            <SidebarHeading icon="list" text="Input Details" />
-            <div className="mt-3 space-y-3">
-              <SDetail icon="mail" label="From" value={from} />
-              <SDetail icon="globe" label="Domain" value={fromDomain} />
-              <SDetail icon="network" label="Sender IP" value={senderIp} />
-              <SDetail icon="shield" label="Links Found" value={String(linkCount)} />
-              <SDetail icon="file" label="Attachments" value={String(attachmentCount)} />
+          {/* ── Input Details card ── */}
+          <div className="rounded-xl border border-line/70 bg-[#0c1529] overflow-hidden">
+            <div className="border-b border-line/50 px-4 py-2.5">
+              <h3 className="text-[13px] font-bold text-fg">Input Details</h3>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <InputRow icon="mail" iconBg="bg-sky/15 text-sky" label="From" value={from} />
+              <InputRow icon="globe" iconBg="bg-teal/15 text-teal" label="Domain" value={fromDomain} />
+              <InputRow icon="network" iconBg="bg-amber/15 text-amber" label="Sender IP" value={senderIp} />
+              <InputRow icon="shield" iconBg="bg-green/15 text-green" label="Links Found" value={String(linkCount)} />
+              <InputRow icon="file" iconBg="bg-rose/15 text-rose" label="Attachments" value={String(attachmentCount)} />
             </div>
           </div>
 
-          <hr className="border-line" />
-
-          {/* Pipeline */}
-          <div>
-            <SidebarHeading icon="pulse" text="Pipeline Status" />
-            <div className="mt-3 space-y-1.5">
-              {pipeline.map((c) => (
-                <div key={c.id} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <Icon name={c.status === 'complete' ? 'check' : c.status === 'failed' ? 'x' : 'info'} size={11}
-                      className={c.status === 'complete' ? 'text-green' : c.status === 'failed' ? 'text-rose' : 'text-faint'} />
-                    <span className="text-fg/80">{c.label}</span>
-                  </span>
-                  <span className={`text-[10px] ${c.status === 'complete' ? 'text-green' : c.status === 'failed' ? 'text-rose' : 'text-faint'}`}>
-                    {c.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <hr className="border-line" />
-
-          {/* Timeline */}
-          <div>
-            <SidebarHeading icon="clock" text="Timeline" />
-            {timeline.length > 0 ? (
-              <ol className="ph-db-timeline mt-3 space-y-1 text-xs">
-                {timeline.slice(0, 8).map((ev, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="shrink-0 tabular-nums text-faint">{fmtTime(ev.at)}</span>
-                    <span className="text-muted">{ev.label}</span>
-                  </li>
-                ))}
-                {timeline.length > 8 && <li className="text-faint">+ {timeline.length - 8} more</li>}
-              </ol>
-            ) : <p className="mt-2 text-xs text-muted">No events.</p>}
-          </div>
         </div>
       </aside>
 
@@ -510,30 +487,24 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 }
 
 /* ─── small helpers ─── */
-function SidebarHeading({ icon, text }: { icon: IconName; text: string }) {
+function SFieldRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[.14em] text-muted">
-      <Icon name={icon} size={13} className="text-faint" />{text}
-    </h3>
-  );
-}
-
-function SField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
-      <div className={`text-sm text-fg ${mono ? 'font-mono text-xs' : ''}`}>{value}</div>
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`text-xs text-fg text-right ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }
 
-function SDetail({ icon, label, value }: { icon: IconName; label: string; value: string }) {
+function InputRow({ icon, iconBg, label, value }: { icon: IconName; iconBg: string; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <Icon name={icon} size={14} className="shrink-0 text-faint" />
-      <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
-        <div className="truncate font-mono text-xs text-fg">{value}</div>
+    <div className="flex items-start gap-3">
+      <div className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${iconBg}`}>
+        <Icon name={icon} size={14} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] text-muted mb-0.5">{label}</div>
+        <div className="truncate text-xs font-medium text-fg">{value}</div>
       </div>
     </div>
   );
