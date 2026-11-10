@@ -5,6 +5,7 @@ import type { ParseStageResult } from '../../../shared/phishing/parse';
 import type { PhishingInput, Finding, Dimension } from '../../../shared/phishing/types';
 import type { Verdict, VerdictLabel } from '../../../shared/phishing/verdict';
 import { VERDICT_TEXT } from '../../../shared/phishing/verdict';
+import { summarizeReasoning } from '../../../shared/phishing/summary';
 import { dimensionLabel } from '../../../shared/phishing/findings';
 import type { Report } from '../../../shared/phishing/report';
 import type { TimelineEvent } from '../../../shared/phishing/timeline';
@@ -216,10 +217,9 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
     return m[d.dimension] ?? 'Phishing';
   })();
 
-  /* reasoning text */
-  const reasoning = verdict.reasons.length > 0
-    ? verdict.reasons.map(x => x.title + (x.detail ? `. ${x.detail}` : '')).join(' ')
-    : verdict.headline;
+  /* reasoning: one-sentence summary, the strongest findings as short points, one caveat */
+  const reasoning = useMemo(() => summarizeReasoning(verdict), [verdict]);
+  const sevDot: Record<string, string> = { critical: 'bg-rose', high: 'bg-rose', medium: 'bg-amber', low: 'bg-sky', info: 'bg-faint' };
 
 
   return (
@@ -366,21 +366,25 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                   {/* Reasoning card */}
                   <div className="rounded-xl border border-line/60 bg-[#0f1a31] p-4">
                     <h4 className="text-base font-bold text-fg">Reasoning</h4>
-                    <p className="mt-1.5 text-sm leading-relaxed text-fg/85">{reasoning || verdict.headline}</p>
-                    {(verdict.conflicts.length > 0 || verdict.mitigating.length > 0 || verdict.actions.length > 0) && (
-                      <div className="mt-3 space-y-2.5 border-t border-line/50 pt-3 text-xs">
-                        {verdict.conflicts.length > 0 && (
-                          <div><div className="mb-1 font-semibold uppercase tracking-wider text-amber">Conflicting Evidence</div>
-                            <ul className="space-y-0.5 text-amber">{verdict.conflicts.map((c) => <li key={c}>• {c}</li>)}</ul></div>
-                        )}
-                        {verdict.mitigating.length > 0 && (
-                          <div><div className="mb-1 font-semibold uppercase tracking-wider text-green">Supporting Evidence</div>
-                            <ul className="space-y-0.5 text-muted">{verdict.mitigating.map((m) => <li key={m}>• {m}</li>)}</ul></div>
-                        )}
-                        {verdict.actions.length > 0 && (
-                          <div><div className="mb-1 font-semibold uppercase tracking-wider text-faint">Recommended Actions</div>
-                            <ul className="space-y-0.5 text-muted">{verdict.actions.map((x) => <li key={x}>• {x}</li>)}</ul></div>
-                        )}
+                    <p className="mt-1.5 text-sm leading-relaxed text-fg/90">{reasoning.summary}</p>
+                    {reasoning.points.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-sm text-fg/85">
+                        {reasoning.points.map((pt) => (
+                          <li key={pt.text} className="flex items-start gap-2">
+                            <span className={`mt-[7px] size-1.5 shrink-0 rounded-full ${sevDot[pt.severity]}`} aria-hidden />
+                            <span>{pt.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {reasoning.caveat && <p className="mt-2 text-xs leading-relaxed text-muted">{reasoning.caveat}</p>}
+                    {verdict.conflicts.length > 0 && verdict.label !== 'malicious' && (
+                      <p className="mt-2 text-xs text-amber">Conflicting evidence: {verdict.conflicts[0]}</p>
+                    )}
+                    {verdict.actions.length > 0 && (
+                      <div className="mt-3 border-t border-line/50 pt-2.5 text-xs">
+                        <div className="mb-1 font-semibold uppercase tracking-wider text-faint">Recommended Actions</div>
+                        <ul className="space-y-0.5 text-muted">{verdict.actions.slice(0, 3).map((x) => <li key={x}>• {x}</li>)}</ul>
                       </div>
                     )}
                   </div>
