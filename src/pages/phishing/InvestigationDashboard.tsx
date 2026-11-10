@@ -52,11 +52,19 @@ const verdictGaugeHex: Record<VerdictLabel, string> = {
   inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictPillBg: Record<VerdictLabel, string> = {
-  malicious: 'bg-rose/35 text-white shadow-[0_0_14px_-2px_rgba(248,113,113,0.6)]',
-  suspicious: 'bg-amber/30 text-white shadow-[0_0_14px_-2px_rgba(251,191,36,0.55)]',
-  likely_legitimate: 'bg-green/30 text-white shadow-[0_0_14px_-2px_rgba(52,211,153,0.55)]',
-  inconclusive: 'bg-sky/30 text-white shadow-[0_0_14px_-2px_rgba(56,189,248,0.55)]',
+  malicious: 'bg-rose/35 text-white',
+  suspicious: 'bg-amber/30 text-white',
+  likely_legitimate: 'bg-green/30 text-white',
+  inconclusive: 'bg-sky/30 text-white',
   analysis_unavailable: 'bg-line/60 text-fg',
+};
+/** Solid classification pill in the Detailed Analysis overview. */
+const verdictSolidPill: Record<VerdictLabel, string> = {
+  malicious: 'bg-[#b91c1c] text-white', suspicious: 'bg-[#b45309] text-white', likely_legitimate: 'bg-[#15803d] text-white',
+  inconclusive: 'bg-[#0369a1] text-white', analysis_unavailable: 'bg-line text-fg',
+};
+const verdictWord: Record<VerdictLabel, string> = {
+  malicious: 'Malicious', suspicious: 'Suspicious', likely_legitimate: 'Likely Legitimate', inconclusive: 'Inconclusive', analysis_unavailable: 'Unavailable',
 };
 
 /* ─── tab definitions ─── */
@@ -91,29 +99,19 @@ export interface DashboardProps {
    Semicircle Risk Gauge
    ═══════════════════════════════════════════════════════════ */
 function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
-  const r = 52, cx = 65, cy = 65;
+  const r = 92, cx = 110, cy = 108;
   const arc = Math.PI * r;
   const pct = Math.max(0, Math.min(100, score));
   const offset = arc * (1 - pct / 100);
   const color = verdictGaugeHex[label];
-  const riskWord = score >= 75 ? 'Critical' : score >= 50 ? 'High' : score >= 25 ? 'Medium' : 'Low';
   return (
-    <div className="flex flex-col items-center">
-      <svg viewBox="0 0 130 80" className="w-[130px]">
-        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
-          fill="none" strokeWidth={10} stroke="#1c2a47" strokeLinecap="round" opacity={0.5} />
-        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
-          fill="none" strokeWidth={10} stroke={color} strokeLinecap="round"
-          strokeDasharray={arc} strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset 1s ease' }} />
-        <text x={cx} y={cy - 16} textAnchor="middle" fill="#d8e2f6" fontSize="22" fontWeight="700">{score}</text>
-        <text x={cx} y={cy - 3} textAnchor="middle" fill="#56688d" fontSize="9">/100</text>
-      </svg>
-      <div className="-mt-1 text-center">
-        <div className="text-[9px] uppercase tracking-[.12em] text-faint">Risk Level</div>
-        <div className={`text-xs font-semibold ${verdictAccent[label]}`}>{riskWord}</div>
-      </div>
-    </div>
+    <svg viewBox="0 0 220 124" className="w-[230px]" role="img" aria-label={`Risk score ${score} out of 100`}>
+      <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={22} stroke="#26365a" />
+      <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={22} stroke={color}
+        strokeDasharray={arc} strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 1s ease' }} />
+      <text x={cx} y={cy - 22} textAnchor="middle" fill="#ffffff" fontSize="34" fontWeight="700">{score}<tspan fill="#c7d2e8" fontWeight="500"> / 100</tspan></text>
+      <text x={cx} y={cy + 4} textAnchor="middle" fill="#c7d2e8" fontSize="14">Risk Score</text>
+    </svg>
   );
 }
 
@@ -124,7 +122,7 @@ function VerdictGlyph({ label }: { label: VerdictLabel }) {
   const fill = verdictFill[label];
   if (label === 'malicious' || label === 'suspicious') {
     return (
-      <svg viewBox="0 0 64 56" className="h-[52px] w-[60px] shrink-0" aria-hidden>
+      <svg viewBox="0 0 64 56" className="h-[40px] w-[46px] shrink-0" aria-hidden>
         <path d="M28.5 4.2a4 4 0 0 1 7 0l26.6 46a4 4 0 0 1-3.5 6H5.4a4 4 0 0 1-3.5-6z" fill={fill} />
         <rect x="29" y="18" width="6" height="21" rx="3" fill="#1a0b0b" />
         <circle cx="32" cy="46" r="3.6" fill="#1a0b0b" />
@@ -132,8 +130,8 @@ function VerdictGlyph({ label }: { label: VerdictLabel }) {
     );
   }
   return (
-    <div className="grid size-[52px] shrink-0 place-items-center rounded-full" style={{ background: fill }}>
-      <Icon name={label === 'likely_legitimate' ? 'check' : 'info'} size={30} className="text-[#0b1220]" strokeWidth={2.6} />
+    <div className="grid size-10 shrink-0 place-items-center rounded-full" style={{ background: fill }}>
+      <Icon name={label === 'likely_legitimate' ? 'check' : 'info'} size={24} className="text-[#0b1220]" strokeWidth={2.6} />
     </div>
   );
 }
@@ -283,17 +281,17 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
         <div className="space-y-5 p-5">
 
           {/* ── Verdict card: its own bordered box, separated from the top header ── */}
-          <div className={`flex items-center justify-between gap-6 rounded-xl border-2 px-6 py-5 ${verdictBannerBg[verdict.label]}`}>
-            <div className="flex min-w-0 items-center gap-5">
+          <div className={`flex items-center justify-between gap-5 rounded-xl border-2 px-5 py-3.5 ${verdictBannerBg[verdict.label]}`}>
+            <div className="flex min-w-0 items-center gap-4">
               <VerdictGlyph label={verdict.label} />
               <div className="min-w-0">
-                <h2 ref={heading} tabIndex={-1} className={`text-[28px] font-bold leading-tight tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
+                <h2 ref={heading} tabIndex={-1} className={`text-[22px] font-bold leading-tight tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
                   {verdictTitle[verdict.label]}
                 </h2>
-                <p className="mt-1 text-base text-fg/85">{verdict.headline}</p>
+                <p className="mt-0.5 text-sm text-fg/85">{verdict.headline}</p>
               </div>
             </div>
-            <div className={`shrink-0 rounded-full px-5 py-2 text-base font-semibold tabular-nums ${verdictPillBg[verdict.label]}`}>
+            <div className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold tabular-nums ${verdictPillBg[verdict.label]}`}>
               Risk Score: {verdict.risk} / 100
             </div>
           </div>
@@ -329,13 +327,14 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           </div>
 
           {/* ── DETAILED ANALYSIS ── */}
-          <Panel title="Detailed Analysis" icon="list">
+          <section className="rounded-xl border border-line/70 bg-[#0c1529] px-5 pb-5 pt-4">
+            <h3 className="text-lg font-bold text-fg">Detailed Analysis</h3>
             {/* Tab bar */}
-            <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line/40 pb-0">
+            <div className="mb-5 mt-2 flex gap-2 overflow-x-auto border-b border-line/50" role="tablist">
               {ANALYSIS_TABS.map((t) => (
-                <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
-                  className={`shrink-0 px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
-                    activeTab === t.id ? 'border-sky text-sky' : 'border-transparent text-muted hover:text-fg'
+                <button key={t.id} type="button" role="tab" aria-selected={activeTab === t.id} onClick={() => setActiveTab(t.id)}
+                  className={`-mb-px shrink-0 border-b-[3px] px-5 py-2.5 text-sm font-medium transition-colors ${
+                    activeTab === t.id ? 'border-sky text-sky' : 'border-transparent text-fg/75 hover:text-fg'
                   }`}>
                   {t.label}
                 </button>
@@ -345,50 +344,42 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             {/* Tab content */}
             <div className="ph-db-detail-content">
               {activeTab === 'overview' && (
-                <div className="grid gap-4 lg:grid-cols-[140px_1fr_1fr]">
-                  {/* Semicircle gauge */}
-                  <div className="flex items-start justify-center pt-2">
+                <div className="grid items-start gap-6 lg:grid-cols-[240px_minmax(0,300px)_minmax(0,1fr)]">
+                  {/* Risk gauge */}
+                  <div className="flex justify-center">
                     <SemiGauge score={verdict.risk} label={verdict.label} />
                   </div>
 
-                  {/* Classification table */}
-                  <div>
-                    <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-faint">Classification</h4>
-                    <div className="space-y-2.5">
-                      <CRow label="Classification" value={<Badge tone={verdictTone[verdict.label]}>{verdict.label.replace(/_/g, ' ')}</Badge>} />
-                      <CRow label="Confidence" value={
-                        <span className="flex items-center gap-1.5">
-                          <Badge tone={verdict.confidence.level === 'high' ? 'good' : verdict.confidence.level === 'medium' ? 'warn' : 'neutral'}>{verdict.confidence.level}</Badge>
-                          <span className="text-xs text-muted">({Math.round(verdict.confidence.score * 100)}%)</span>
-                        </span>
-                      } />
-                      <CRow label="Threat Type" value={<span className="text-sm text-fg">{threatType}</span>} />
-                      <CRow label="Coverage" value={<span className="text-sm text-fg">{Math.round(verdict.coverage * 100)}%</span>} />
-                      {verdict.rule && <CRow label="Decided By" value={<span className="text-xs text-faint">Verdict rule on direct evidence</span>} />}
-                    </div>
-                  </div>
+                  {/* Classification: label / value rows, values close to their labels */}
+                  <dl className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3.5 pt-2 text-[15px]">
+                    <dt className="text-fg/80">Classification</dt>
+                    <dd><span className={`inline-block rounded-full px-3.5 py-1 text-sm font-semibold ${verdictSolidPill[verdict.label]}`}>{verdictWord[verdict.label]}</span></dd>
+                    <dt className="text-fg/80">Confidence</dt>
+                    <dd className="font-bold text-fg" title={verdict.confidence.notes.join(' ') || undefined}>{verdict.confidence.score}% <span className="text-xs font-normal capitalize text-muted">({verdict.confidence.level})</span></dd>
+                    <dt className="text-fg/80">Threat Type</dt>
+                    <dd className="font-bold text-fg">{threatType}</dd>
+                    <dt className="text-fg/80">Coverage</dt>
+                    <dd className="font-bold text-fg">{Math.round(verdict.coverage * 100)}%</dd>
+                  </dl>
 
-                  {/* Reasoning */}
-                  <div>
-                    <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-faint">Reasoning</h4>
-                    <p className="mb-3 text-sm leading-relaxed text-muted">{reasoning || verdict.headline}</p>
-
-                    {verdict.conflicts.length > 0 && (
-                      <div className="mb-3">
-                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber">Conflicting Evidence</div>
-                        <ul className="space-y-0.5 text-xs text-amber">{verdict.conflicts.map((c) => <li key={c}>• {c}</li>)}</ul>
-                      </div>
-                    )}
-                    {verdict.mitigating.length > 0 && (
-                      <div className="mb-3">
-                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green">Supporting Evidence</div>
-                        <ul className="space-y-0.5 text-xs text-muted">{verdict.mitigating.map((m) => <li key={m}>• {m}</li>)}</ul>
-                      </div>
-                    )}
-                    {verdict.actions.length > 0 && (
-                      <div>
-                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">Recommended Actions</div>
-                        <ul className="space-y-0.5 text-xs text-muted">{verdict.actions.map((a) => <li key={a}>• {a}</li>)}</ul>
+                  {/* Reasoning card */}
+                  <div className="rounded-xl border border-line/60 bg-[#0f1a31] p-4">
+                    <h4 className="text-base font-bold text-fg">Reasoning</h4>
+                    <p className="mt-1.5 text-sm leading-relaxed text-fg/85">{reasoning || verdict.headline}</p>
+                    {(verdict.conflicts.length > 0 || verdict.mitigating.length > 0 || verdict.actions.length > 0) && (
+                      <div className="mt-3 space-y-2.5 border-t border-line/50 pt-3 text-xs">
+                        {verdict.conflicts.length > 0 && (
+                          <div><div className="mb-1 font-semibold uppercase tracking-wider text-amber">Conflicting Evidence</div>
+                            <ul className="space-y-0.5 text-amber">{verdict.conflicts.map((c) => <li key={c}>• {c}</li>)}</ul></div>
+                        )}
+                        {verdict.mitigating.length > 0 && (
+                          <div><div className="mb-1 font-semibold uppercase tracking-wider text-green">Supporting Evidence</div>
+                            <ul className="space-y-0.5 text-muted">{verdict.mitigating.map((m) => <li key={m}>• {m}</li>)}</ul></div>
+                        )}
+                        {verdict.actions.length > 0 && (
+                          <div><div className="mb-1 font-semibold uppercase tracking-wider text-faint">Recommended Actions</div>
+                            <ul className="space-y-0.5 text-muted">{verdict.actions.map((x) => <li key={x}>• {x}</li>)}</ul></div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -401,7 +392,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
               {activeTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
               {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
             </div>
-          </Panel>
+          </section>
 
           {/* ── BOTTOM ROW: 2 panels ── */}
           <div className="grid gap-4 lg:grid-cols-2">
