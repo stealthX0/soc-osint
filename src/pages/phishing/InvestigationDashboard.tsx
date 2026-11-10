@@ -329,7 +329,8 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           </div>
 
           {/* ── DETAILED ANALYSIS ── */}
-          <section className="rounded-xl border border-line/70 bg-[#0c1529] px-5 pb-5 pt-4">
+          {/* Capped just past its content (gauge + classification + 960px reasoning card) so it does not span very wide screens. */}
+          <section className="max-w-[1620px] rounded-xl border border-line/70 bg-[#0c1529] px-5 pb-5 pt-4">
             <h3 className="text-lg font-bold text-fg">Detailed Analysis</h3>
             {/* Tab bar */}
             <div className="mb-5 mt-2 flex gap-2 overflow-x-auto border-b border-line/50" role="tablist">
