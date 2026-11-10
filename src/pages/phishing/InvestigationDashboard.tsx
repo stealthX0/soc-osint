@@ -363,8 +363,8 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                     <dd className="font-bold text-fg">{Math.round(verdict.coverage * 100)}%</dd>
                   </dl>
 
-                  {/* Reasoning card */}
-                  <div className="rounded-xl border border-line/60 bg-[#0f1a31] p-4">
+                  {/* Reasoning card: capped width so it does not stretch across wide screens */}
+                  <div className="w-full max-w-[960px] rounded-xl border border-line/60 bg-[#0f1a31] p-4">
                     <h4 className="text-base font-bold text-fg">Reasoning</h4>
                     <p className="mt-1.5 text-sm leading-relaxed text-fg/90">{reasoning.summary}</p>
                     {reasoning.points.length > 0 && (
