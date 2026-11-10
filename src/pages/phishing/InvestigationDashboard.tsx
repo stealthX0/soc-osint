@@ -21,6 +21,7 @@ import { sevTone } from './common';
 import type { SenderStage, LinkStage } from './hooks';
 import type { AttachmentStage } from './AttachmentPanel';
 import type { IpLookup } from '../../../shared/types';
+import { assessIpRisk } from '../../../shared/phishing/ipRisk';
 
 /* ─── colour maps ─── */
 const verdictTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
@@ -393,7 +394,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 
               {activeTab === 'sender' && <SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} />}
               {activeTab === 'urls' && <UrlTab r={r} links={links} />}
-              {activeTab === 'domain' && <HeadersTab r={r} />}
+              {activeTab === 'domain' && <HeadersTab r={r} sender={sender} findings={findings} />}
               {activeTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
               {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
             </div>
@@ -489,10 +490,11 @@ function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderSta
   const vt = ipData.virustotal;
   const pd = ipData.pulsedive;
 
-  /* determine overall reputation label from intelligence sources */
+  /* overall reputation from every intelligence provider (same assessment as the Domain & IP Intelligence tab) */
   const abuseScore = rep?.abuseConfidence ?? 0;
-  const repLabel = abuseScore >= 75 ? 'High Risk' : abuseScore >= 25 ? 'Medium Risk' : 'Low Risk';
-  const repTone: Tone = abuseScore >= 75 ? 'bad' : abuseScore >= 25 ? 'warn' : 'good';
+  const risk = assessIpRisk(ipData);
+  const repLabel = { high: 'High Risk', medium: 'Medium Risk', low: 'Low Risk', unknown: 'Unknown' }[risk.level];
+  const repTone: Tone = { high: 'bad', medium: 'warn', low: 'good', unknown: 'neutral' }[risk.level] as Tone;
 
   const flags: string[] = [];
   if (nt?.isVpn) flags.push('VPN');
