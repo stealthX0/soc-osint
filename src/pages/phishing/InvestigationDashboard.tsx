@@ -99,18 +99,19 @@ export interface DashboardProps {
    Semicircle Risk Gauge
    ═══════════════════════════════════════════════════════════ */
 function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
-  const r = 92, cx = 110, cy = 108;
+  // Score sits low inside the arc, level with its ends; "Risk Score" sits just below the ends.
+  const r = 92, cx = 110, cy = 104;
   const arc = Math.PI * r;
   const pct = Math.max(0, Math.min(100, score));
   const offset = arc * (1 - pct / 100);
   const color = verdictGaugeHex[label];
   return (
-    <svg viewBox="0 0 220 124" className="w-[230px]" role="img" aria-label={`Risk score ${score} out of 100`}>
-      <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={22} stroke="#26365a" />
-      <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={22} stroke={color}
+    <svg viewBox="0 0 220 140" className="w-[240px]" role="img" aria-label={`Risk score ${score} out of 100`}>
+      <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={18} stroke="#2a3a5e" />
+      <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={18} stroke={color}
         strokeDasharray={arc} strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 1s ease' }} />
-      <text x={cx} y={cy - 22} textAnchor="middle" fill="#ffffff" fontSize="34" fontWeight="700">{score}<tspan fill="#c7d2e8" fontWeight="500"> / 100</tspan></text>
-      <text x={cx} y={cy + 4} textAnchor="middle" fill="#c7d2e8" fontSize="14">Risk Score</text>
+      <text x={cx} y={cy - 6} textAnchor="middle" fill="#f5f7fb" fontSize="25" fontWeight="600">{score} / 100</text>
+      <text x={cx} y={cy + 25} textAnchor="middle" fill="#c7d2e8" fontSize="12.5">Risk Score</text>
     </svg>
   );
 }
