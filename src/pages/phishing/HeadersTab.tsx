@@ -15,61 +15,66 @@ const factorTone = { high: 'bad', medium: 'warn', info: 'neutral' } as const;
 
 export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; sender?: SenderStage; findings?: Finding[] }) {
   const fx = r.forensics;
+  const auth = fx ? (
+    <Card title="Authentication">
+      <div className="mb-3 flex flex-wrap gap-2">
+        {fx.authentication.spf ? <Badge tone={resTone(fx.authentication.spf.result)}>SPF: {fx.authentication.spf.result}</Badge> : <Badge>SPF: n/a</Badge>}
+        {fx.authentication.dkim.length ? fx.authentication.dkim.map((d, i) => <Badge key={i} tone={resTone(d.result)}>DKIM: {d.result}{d.domain ? ` (${d.domain})` : ''}</Badge>) : <Badge>DKIM: n/a</Badge>}
+        {fx.authentication.dmarc ? <Badge tone={resTone(fx.authentication.dmarc.result)}>DMARC: {fx.authentication.dmarc.result}{fx.authentication.dmarc.policy ? ` p=${fx.authentication.dmarc.policy}` : ''}</Badge> : <Badge>DMARC: n/a</Badge>}
+        {fx.authentication.source !== 'none' && <Badge tone={fx.authentication.source === 'receiver_header' ? 'accent' : 'warn'}>{fx.authentication.source === 'receiver_header' ? 'from the receiving server' : 'not tied to the receiving server'}</Badge>}
+      </div>
+      <KV rows={[
+        ['From domain', fx.authentication.alignment.fromDomain],
+        ['SPF aligned with From', fx.authentication.alignment.spfAligned === null ? 'unknown' : fx.authentication.alignment.spfAligned ? 'yes' : 'no'],
+        ['DKIM aligned with From', fx.authentication.alignment.dkimAligned === null ? 'unknown' : fx.authentication.alignment.dkimAligned ? 'yes' : 'no'],
+        ['DKIM signatures', fx.authentication.dkimSignatures.map((s) => `${s.domain ?? '?'} (${s.selector ?? '?'})`).join(', ') || null],
+        ['ARC', fx.authentication.arc.present ? `${fx.authentication.arc.instances} hop(s), newest chain ${fx.authentication.arc.newestChainValidation ?? 'unknown'}` : null],
+      ]} mono />
+      {fx.authentication.conflicts.length > 0 && <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-amber">{fx.authentication.conflicts.map((c) => <li key={c}>{c}</li>)}</ul>}
+    </Card>
+  ) : <Empty>No headers were supplied, so there is no routing or authentication data. Paste the raw headers for the strongest analysis.</Empty>;
+
+  const ipCards = sender ? ipIntelligenceCards(sender, findings) : [];
   return (
-    <div className="space-y-4">
-      {sender && <IpIntelligence sender={sender} findings={findings} />}
-      {fx ? (
-        <Card title="Authentication">
-          <div className="mb-3 flex flex-wrap gap-2">
-            {fx.authentication.spf ? <Badge tone={resTone(fx.authentication.spf.result)}>SPF: {fx.authentication.spf.result}</Badge> : <Badge>SPF: n/a</Badge>}
-            {fx.authentication.dkim.length ? fx.authentication.dkim.map((d, i) => <Badge key={i} tone={resTone(d.result)}>DKIM: {d.result}{d.domain ? ` (${d.domain})` : ''}</Badge>) : <Badge>DKIM: n/a</Badge>}
-            {fx.authentication.dmarc ? <Badge tone={resTone(fx.authentication.dmarc.result)}>DMARC: {fx.authentication.dmarc.result}{fx.authentication.dmarc.policy ? ` p=${fx.authentication.dmarc.policy}` : ''}</Badge> : <Badge>DMARC: n/a</Badge>}
-            {fx.authentication.source !== 'none' && <Badge tone={fx.authentication.source === 'receiver_header' ? 'accent' : 'warn'}>{fx.authentication.source === 'receiver_header' ? 'from the receiving server' : 'not tied to the receiving server'}</Badge>}
-          </div>
-          <KV rows={[
-            ['From domain', fx.authentication.alignment.fromDomain],
-            ['SPF aligned with From', fx.authentication.alignment.spfAligned === null ? 'unknown' : fx.authentication.alignment.spfAligned ? 'yes' : 'no'],
-            ['DKIM aligned with From', fx.authentication.alignment.dkimAligned === null ? 'unknown' : fx.authentication.alignment.dkimAligned ? 'yes' : 'no'],
-            ['DKIM signatures', fx.authentication.dkimSignatures.map((s) => `${s.domain ?? '?'} (${s.selector ?? '?'})`).join(', ') || null],
-            ['ARC', fx.authentication.arc.present ? `${fx.authentication.arc.instances} hop(s), newest chain ${fx.authentication.arc.newestChainValidation ?? 'unknown'}` : null],
-          ]} mono />
-          {fx.authentication.conflicts.length > 0 && <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-amber">{fx.authentication.conflicts.map((c) => <li key={c}>{c}</li>)}</ul>}
-        </Card>
-      ) : <Empty>No headers were supplied, so there is no routing or authentication data. Paste the raw headers for the strongest analysis.</Empty>}
+    <div className="space-y-3">
+      {sender && (
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[.12em] text-muted">IP intelligence and authentication</h3>
+          <span className="text-xs text-faint">Reputation describes the IP, not this particular message.</span>
+        </div>
+      )}
+      {/* IP cards and the Authentication card share one grid, so Authentication takes the next free column. */}
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        {ipCards}
+        {auth}
+      </div>
     </div>
   );
 }
 
 /* ═════════════════════════════════════════════════ IP intelligence */
 
-function IpIntelligence({ sender, findings }: { sender: SenderStage; findings: Finding[] }) {
+/** One card per looked-up IP (or a note when there was nothing to look up). */
+function ipIntelligenceCards(sender: SenderStage, findings: Finding[]): ReactNode[] {
   const ipSlots = sender.slots.filter((s) => s.req.check === 'ip');
-  const skipped = sender.plan.skipped.find((c) => c.id === 'sender.ip');
-  return (
-    <section aria-labelledby="ph-ipintel" className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 id="ph-ipintel" className="text-[11px] font-semibold uppercase tracking-[.12em] text-muted">IP intelligence</h3>
-        <span className="text-xs text-faint">Reputation describes the IP, not this particular message.</span>
-      </div>
-      {!ipSlots.length && <Empty>{skipped?.detail ?? 'No IP address was found in the headers, so there was nothing to look up.'}</Empty>}
-      <div className="grid gap-4 xl:grid-cols-2">
-        {ipSlots.map((s) => {
-          const req = s.req as { ip: string; role: string; trust: string };
-          if (s.state === 'running') return <Card key={req.ip} title={`IP ${req.ip}`}><Spinner label="Looking up" /></Card>;
-          const d = s.res?.data;
-          if (!d || d.check !== 'ip') {
-            return (
-              <Card key={req.ip} title={`IP ${req.ip}`} action={<Badge tone="neutral">Unknown</Badge>}>
-                <p className="text-sm text-amber">The lookup did not complete: {s.error ?? s.res?.checks[0]?.detail ?? 'no result'}. An IP that could not be checked is not counted as clean.</p>
-              </Card>
-            );
-          }
-          const ipFindings = findings.filter((f) => f.indicator?.type === 'ip' && f.indicator.value === req.ip);
-          return <IpCard key={req.ip} v={d.value} role={req.role} trust={req.trust} findings={ipFindings} />;
-        })}
-      </div>
-    </section>
-  );
+  if (!ipSlots.length) {
+    const skipped = sender.plan.skipped.find((c) => c.id === 'sender.ip');
+    return [<Card key="no-ip" title="IP intelligence"><p className="text-sm text-muted">{skipped?.detail ?? 'No IP address was found in the headers, so there was nothing to look up.'}</p></Card>];
+  }
+  return ipSlots.map((s) => {
+    const req = s.req as { ip: string; role: string; trust: string };
+    if (s.state === 'running') return <Card key={req.ip} title={`IP ${req.ip}`}><Spinner label="Looking up" /></Card>;
+    const d = s.res?.data;
+    if (!d || d.check !== 'ip') {
+      return (
+        <Card key={req.ip} title={`IP ${req.ip}`} action={<Badge tone="neutral">Unknown</Badge>}>
+          <p className="text-sm text-amber">The lookup did not complete: {s.error ?? s.res?.checks[0]?.detail ?? 'no result'}. An IP that could not be checked is not counted as clean.</p>
+        </Card>
+      );
+    }
+    const ipFindings = findings.filter((f) => f.indicator?.type === 'ip' && f.indicator.value === req.ip);
+    return <IpCard key={req.ip} v={d.value} role={req.role} trust={req.trust} findings={ipFindings} />;
+  });
 }
 
 function Row({ k, children }: { k: string; children: ReactNode }) {
@@ -157,7 +162,7 @@ function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust
         <Row k="ASN / organisation">{[v.network?.asn, v.network?.org].filter(Boolean).join(' · ') || '—'}</Row>
         {v.network?.isp && v.network.isp !== v.network.org && <Row k="ISP">{v.network.isp}</Row>}
         {v.network?.prefix && <Row k="Prefix"><span className="font-mono text-xs">{v.network.prefix}</span></Row>}
-        <Row k="Reverse DNS"><span className="font-mono text-xs">{v.reverseDns[0] ?? v.ptrName ?? 'none'}</span></Row>
+        <Row k="Reverse DNS">{v.reverseDns.length ? <span className="font-mono text-xs">{v.reverseDns.slice(0, 2).join(', ')}</span> : <span className="text-amber">none (no PTR record)</span>}</Row>
         {nt?.companyName && <Row k="Hosting company">{nt.companyName}{nt.companyType ? ` (${nt.companyType})` : ''}</Row>}
         <Row k="Location">{[v.geo?.city, v.geo?.region, v.geo?.country ?? v.geo?.countryCode].filter(Boolean).join(', ') || '—'}</Row>
       </Group>
