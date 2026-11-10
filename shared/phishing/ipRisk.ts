@@ -29,9 +29,18 @@ export function assessIpRisk(v: IpLookup): IpRisk {
     else if (rep.totalReports >= 5) f.push({ level: 'info', source: 'AbuseIPDB', text: `${rep.totalReports} past abuse reports, but low current confidence (${rep.abuseConfidence}%)` });
     if (rep.isWhitelisted) f.push({ level: 'info', source: 'AbuseIPDB', text: 'Whitelisted by AbuseIPDB (a known, legitimate network)' });
   }
+  // A whitelisted or shared provider IP (Google, Microsoft, mailing services) flagged by one or two vendors is almost
+  // always a false positive; it is reported as a note so it cannot raise the rating on its own.
+  const vouched = !!rep?.isWhitelisted || !!sharedProviderOf(v);
   if (vt?.observed) {
+    const n = vt.malicious + vt.suspicious;
     if (vt.malicious >= 3) f.push({ level: 'high', source: 'VirusTotal', text: `${vt.malicious} security vendors flag this IP as malicious` });
-    else if (vt.malicious >= 1 || vt.suspicious >= 2) f.push({ level: 'medium', source: 'VirusTotal', text: `${vt.malicious} malicious / ${vt.suspicious} suspicious vendor verdict${vt.malicious + vt.suspicious === 1 ? '' : 's'}` });
+    else if (vt.malicious >= 1 || vt.suspicious >= 2) {
+      const text = `${vt.malicious} malicious / ${vt.suspicious} suspicious vendor verdict${n === 1 ? '' : 's'}`;
+      f.push(vouched
+        ? { level: 'info', source: 'VirusTotal', text: `${text}; likely a false positive on a ${rep?.isWhitelisted ? 'whitelisted' : 'shared provider'} network` }
+        : { level: 'medium', source: 'VirusTotal', text });
+    }
   }
   if (pd?.observed) {
     const r = pd.risk.toLowerCase();

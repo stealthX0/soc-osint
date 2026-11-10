@@ -400,11 +400,11 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             </div>
           </section>
 
-          {/* ── BOTTOM ROW: 2 panels ── */}
-          <div className="grid gap-4 lg:grid-cols-2">
+          {/* ── BOTTOM ROW: 2 panels, each sized to its content (not stretched to half the page or to each other's height) ── */}
+          <div className="flex flex-wrap items-start gap-4">
 
             {/* Link Details */}
-            <Panel title="Link Details" icon="shield">
+            <Panel title="Link Details" icon="shield" className="w-full lg:w-auto lg:min-w-[340px] lg:max-w-[600px]">
               {r.links.length > 0 ? (
                 <div className="space-y-2">
                   {r.links.slice(0, 3).map((l, i) => (
@@ -426,7 +426,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             </Panel>
 
             {/* IP Reputation — from actual IP intelligence API results */}
-            <Panel title="IP Reputation" icon="network">
+            <Panel title="IP Reputation" icon="network" className="w-full lg:w-auto lg:min-w-[340px] lg:max-w-[600px]">
               {senderIp !== '—' ? (
                 <IpReputationContent sender={sender} senderIp={senderIp} infraDim={infraDim} />
               ) : (
@@ -472,7 +472,7 @@ function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderSta
   if (!ipData) {
     return (
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <Copyable value={senderIp} ioc />
           <Badge tone={infraDim.tone}>
             {infraDim.tone === 'bad' ? 'High Risk' : infraDim.tone === 'warn' ? 'Medium Risk' : infraDim.tone === 'good' ? 'Low Risk' : 'Unknown'}
@@ -507,7 +507,7 @@ function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderSta
   return (
     <div className="space-y-2.5">
       {/* IP + reputation badge */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <Copyable value={senderIp} ioc />
         <Badge tone={repTone}>{repLabel}</Badge>
       </div>
@@ -516,7 +516,7 @@ function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderSta
       {rep && (
         <div className="space-y-1">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">AbuseIPDB</div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div className="grid grid-cols-[auto_auto] justify-start gap-x-8 gap-y-1 text-xs">
             <IpKV label="Confidence" value={<span className={abuseScore >= 50 ? 'text-rose font-semibold' : abuseScore >= 25 ? 'text-amber' : 'text-green'}>{abuseScore}%</span>} />
             <IpKV label="Reports" value={<span className="text-fg">{rep.totalReports}</span>} />
             <IpKV label="Reporters" value={<span className="text-fg">{rep.distinctReporters}</span>} />
@@ -530,7 +530,7 @@ function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderSta
       {net && (net.org || net.asn) && (
         <div className="space-y-1 border-t border-line/40 pt-2">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">Network</div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div className="grid grid-cols-[auto_auto] justify-start gap-x-8 gap-y-1 text-xs">
             {net.org && <IpKV label="Org" value={<span className="text-fg truncate" title={net.org}>{net.org}</span>} />}
             {net.asn && <IpKV label="ASN" value={<span className="font-mono text-fg">{net.asn}</span>} />}
             {net.isp && net.isp !== net.org && <IpKV label="ISP" value={<span className="text-fg truncate" title={net.isp}>{net.isp}</span>} />}

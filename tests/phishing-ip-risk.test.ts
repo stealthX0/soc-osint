@@ -24,6 +24,13 @@ describe('IP risk assessment', () => {
     assert.equal(r.factors[0].source, 'AbuseIPDB');
     assert.equal(r.factors[0].level, 'high');
   });
+  it('one or two vendor hits on a whitelisted or shared-provider IP do not raise the rating (e.g. 8.8.8.8)', () => {
+    const google = { network: { asn: 'AS15169', org: 'Google LLC', isp: 'Google LLC', domain: 'google.com', prefix: null } };
+    assert.equal(assessIpRisk(ipLookup({ ...google, virustotal: { ...ipLookup().virustotal!, malicious: 1 } })).level, 'low');
+    assert.equal(assessIpRisk(ipLookup({ reputation: { ...ipLookup().reputation!, isWhitelisted: true }, virustotal: { ...ipLookup().virustotal!, malicious: 1 } })).level, 'low');
+    assert.equal(assessIpRisk(ipLookup({ ...google, virustotal: { ...ipLookup().virustotal!, malicious: 4 } })).level, 'high', 'many vendors still count');
+    assert.equal(assessIpRisk(ipLookup({ virustotal: { ...ipLookup().virustotal!, malicious: 1 } })).level, 'medium', 'an unvouched IP is unchanged');
+  });
   it('no provider answering is unknown, never low', () => {
     assert.equal(assessIpRisk(ipLookup({ reputation: null, virustotal: null, pulsedive: null, netType: null })).level, 'unknown');
   });
