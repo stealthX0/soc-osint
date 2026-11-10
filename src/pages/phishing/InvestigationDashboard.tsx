@@ -19,6 +19,7 @@ import { EvidenceTab } from './EvidenceTab';
 import { sevTone } from './common';
 import type { SenderStage, LinkStage } from './hooks';
 import type { AttachmentStage } from './AttachmentPanel';
+import type { IpLookup } from '../../../shared/types';
 
 /* ─── colour maps ─── */
 const verdictTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
@@ -85,7 +86,7 @@ export interface DashboardProps {
    Semicircle Risk Gauge
    ═══════════════════════════════════════════════════════════ */
 function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
-  const r = 62, cx = 80, cy = 82;
+  const r = 52, cx = 65, cy = 65;
   const arc = Math.PI * r;
   const pct = Math.max(0, Math.min(100, score));
   const offset = arc * (1 - pct / 100);
@@ -93,19 +94,19 @@ function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
   const riskWord = score >= 75 ? 'Critical' : score >= 50 ? 'High' : score >= 25 ? 'Medium' : 'Low';
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 160 100" className="w-[170px]">
+      <svg viewBox="0 0 130 80" className="w-[130px]">
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
-          fill="none" strokeWidth={13} stroke="#1c2a47" strokeLinecap="round" opacity={0.5} />
+          fill="none" strokeWidth={10} stroke="#1c2a47" strokeLinecap="round" opacity={0.5} />
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
-          fill="none" strokeWidth={13} stroke={color} strokeLinecap="round"
+          fill="none" strokeWidth={10} stroke={color} strokeLinecap="round"
           strokeDasharray={arc} strokeDashoffset={offset}
           style={{ transition: 'stroke-dashoffset 1s ease' }} />
-        <text x={cx} y={cy - 20} textAnchor="middle" fill="#d8e2f6" fontSize="26" fontWeight="700">{score}</text>
-        <text x={cx} y={cy - 4} textAnchor="middle" fill="#56688d" fontSize="11">/100</text>
+        <text x={cx} y={cy - 16} textAnchor="middle" fill="#d8e2f6" fontSize="22" fontWeight="700">{score}</text>
+        <text x={cx} y={cy - 3} textAnchor="middle" fill="#56688d" fontSize="9">/100</text>
       </svg>
       <div className="-mt-1 text-center">
-        <div className="text-[10px] uppercase tracking-[.12em] text-faint">Risk Level</div>
-        <div className={`text-sm font-semibold ${verdictAccent[label]}`}>{riskWord}</div>
+        <div className="text-[9px] uppercase tracking-[.12em] text-faint">Risk Level</div>
+        <div className={`text-xs font-semibold ${verdictAccent[label]}`}>{riskWord}</div>
       </div>
     </div>
   );
@@ -117,11 +118,11 @@ function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
 function Panel({ title, icon, children, className = '' }: { title: string; icon?: IconName; children: ReactNode; className?: string }) {
   return (
     <section className={`rounded-xl border border-line/70 bg-[#0c1529] ${className}`}>
-      <header className="flex items-center gap-2.5 border-b border-line/50 px-6 py-4">
-        {icon && <Icon name={icon} size={20} className="text-muted" />}
-        <h3 className="text-xl font-bold text-fg">{title}</h3>
+      <header className="flex items-center gap-2 border-b border-line/50 px-4 py-2.5">
+        {icon && <Icon name={icon} size={16} className="text-muted" />}
+        <h3 className="text-base font-bold text-fg">{title}</h3>
       </header>
-      <div className="p-6">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }
@@ -132,14 +133,14 @@ function Panel({ title, icon, children, className = '' }: { title: string; icon?
 function FindingCard({ icon, title, desc, tone }: { icon: IconName; title: string; desc: string; tone: Tone }) {
   const iconBg: Record<Tone, string> = { bad: 'bg-rose/15 text-rose', warn: 'bg-amber/15 text-amber', good: 'bg-green/15 text-green', info: 'bg-sky/15 text-sky', accent: 'bg-teal/15 text-teal', neutral: 'bg-line/20 text-muted' };
   return (
-    <div className="rounded-xl border border-line/60 bg-[#0b1426] p-6">
-      <div className="flex items-start gap-4">
-        <div className={`grid size-14 shrink-0 place-items-center rounded-full ${iconBg[tone]}`}>
-          <Icon name={icon} size={28} />
+    <div className="rounded-xl border border-line/60 bg-[#0b1426] p-4">
+      <div className="flex items-start gap-3">
+        <div className={`grid size-10 shrink-0 place-items-center rounded-full ${iconBg[tone]}`}>
+          <Icon name={icon} size={20} />
         </div>
-        <div className="min-w-0 pt-1">
-          <div className="text-base font-bold text-fg leading-snug">{title}</div>
-          <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted">{desc}</p>
+        <div className="min-w-0 pt-0.5">
+          <div className="text-sm font-bold text-fg leading-snug">{title}</div>
+          <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted">{desc}</p>
         </div>
       </div>
     </div>
@@ -194,32 +195,19 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
     ? verdict.reasons.map(x => x.title + (x.detail ? `. ${x.detail}` : '')).join(' ')
     : verdict.headline;
 
-  /* auth results */
-  const authOf = (id: string) => {
-    const c = r.checks.find(x => x.id === id);
-    if (!c) return { label: '—', ok: false };
-    const ok = c.result === 'pass';
-    return { label: ok ? 'Pass' : c.result === 'fail' || c.result === 'hardfail' ? 'Fail' : c.result ?? c.status, ok };
-  };
-  const spf = authOf('spf'), dkim = authOf('dkim'), dmarc = authOf('dmarc');
-
-  /* checks for bottom panel */
-  const topChecks = rows.slice(0, 8);
 
   return (
     <div className="ph-results flex min-h-screen flex-col bg-bg" role="region" aria-label="Investigation results">
 
       {/* ═══════════ TOP HEADER BAR (full width) ═══════════ */}
-      <header className="flex shrink-0 items-center justify-between border-b border-line/50 bg-[#0a1128] px-8 py-5">
-        <div className="flex items-center gap-4">
-          <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-sky/10 ring-1 ring-sky/25">
-            <Icon name="shield" size={30} className="text-sky" />
+      <header className="flex shrink-0 items-center justify-between border-b border-line/50 bg-[#0a1128] px-6 py-3">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky/10 ring-1 ring-sky/25">
+            <Icon name="shield" size={22} className="text-sky" />
           </div>
-          <div>
-            <div className="text-xl font-bold text-fg leading-snug">Email Investigation Dashboard</div>
-          </div>
+          <div className="text-base font-bold text-fg leading-snug">Email Investigation Dashboard</div>
         </div>
-        <div className="flex items-center gap-5 text-sm text-muted">
+        <div className="flex items-center gap-4 text-xs text-muted">
           <span>{new Date(startedAt).toLocaleString()}</span>
         </div>
       </header>
@@ -228,16 +216,16 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       <div className="flex flex-1 overflow-hidden">
 
       {/* ═══════════ LEFT SIDEBAR ═══════════ */}
-      <aside className="ph-db-sidebar-scroll hidden h-full w-[340px] shrink-0 overflow-y-auto border-r border-line/50 bg-[#060b18] lg:block">
+      <aside className="ph-db-sidebar-scroll hidden h-full w-[280px] shrink-0 overflow-y-auto border-r border-line/50 bg-[#060b18] lg:block">
 
-        <div className="space-y-5 px-5 py-6">
+        <div className="space-y-3 px-3 py-4">
 
           {/* ── Investigation Summary card ── */}
           <div className="rounded-xl border border-line/50 bg-[#0c1529]">
-            <div className="px-5 pt-5 pb-3 border-b border-line/30">
-              <h3 className="text-lg font-bold text-fg">Investigation Summary</h3>
+            <div className="px-4 pt-3 pb-2 border-b border-line/30">
+              <h3 className="text-sm font-bold text-fg">Investigation Summary</h3>
             </div>
-            <div className="space-y-3.5 px-5 py-4">
+            <div className="space-y-2.5 px-4 py-3">
               <SFieldRow label="Case ID" value={caseId} mono />
               <SFieldRow label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
               <SFieldRow label="Analysis Time" value={`${analysisTime} seconds`} />
@@ -246,10 +234,10 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 
           {/* ── Input Details card ── */}
           <div className="rounded-xl border border-line/50 bg-[#0c1529]">
-            <div className="px-5 pt-5 pb-3">
-              <h3 className="text-lg font-bold text-fg">Input Details</h3>
+            <div className="px-4 pt-3 pb-2">
+              <h3 className="text-sm font-bold text-fg">Input Details</h3>
             </div>
-            <div className="space-y-5 px-5 pb-5">
+            <div className="space-y-3 px-4 pb-4">
               <InputRow icon="mail" iconBg="bg-sky/15 text-sky" label="From" value={from} />
               <InputRow icon="globe" iconBg="bg-teal/15 text-teal" label="Domain" value={fromDomain} />
               <InputRow icon="network" iconBg="bg-amber/15 text-amber" label="Sender IP" value={senderIp} />
@@ -265,27 +253,27 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       <div className="flex-1 overflow-y-auto">
 
         {/* ── Verdict Banner ── */}
-        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-8 py-7`}>
-          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-8">
-            <div className="flex items-center gap-5 min-w-0">
-              <div className={`grid size-14 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
-                <Icon name={verdictIcon[verdict.label]} size={32} className={verdictAccent[verdict.label]} />
+        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-6 py-4`}>
+          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-6">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className={`grid size-10 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
+                <Icon name={verdictIcon[verdict.label]} size={24} className={verdictAccent[verdict.label]} />
               </div>
               <div className="min-w-0">
-                <h2 ref={heading} tabIndex={-1} className={`text-[36px] leading-tight font-extrabold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
+                <h2 ref={heading} tabIndex={-1} className={`text-2xl leading-tight font-extrabold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
                   {meta.label}
                 </h2>
-                <p className="text-base text-muted mt-1">{verdict.headline}</p>
+                <p className="text-sm text-muted mt-0.5">{verdict.headline}</p>
               </div>
             </div>
-            <div className={`shrink-0 rounded-full border-2 px-6 py-2.5 text-lg font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
+            <div className={`shrink-0 rounded-full border-2 px-4 py-1.5 text-sm font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
               Risk Score: {verdict.risk} / 100
             </div>
           </div>
         </div>
 
         {/* ── Scrollable content ── */}
-        <div className="mx-auto max-w-[1200px] space-y-8 p-8">
+        <div className="mx-auto max-w-[1200px] space-y-5 p-5">
 
           {/* ── Mobile-only sidebar summary (hidden on lg) ── */}
           <div className="rounded-xl border border-line bg-bg2/60 p-4 lg:hidden">
@@ -300,7 +288,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 
           {/* ── KEY FINDINGS ── */}
           <div>
-            <h3 className="mb-5 text-2xl font-bold text-fg">Key Findings</h3>
+            <h3 className="mb-3 text-lg font-bold text-fg">Key Findings</h3>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <FindingCard icon="lock" tone={authDim.tone}
                 title={authDim.top?.title ?? 'Authentication'}
@@ -320,10 +308,10 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           {/* ── DETAILED ANALYSIS ── */}
           <Panel title="Detailed Analysis" icon="list">
             {/* Tab bar */}
-            <div className="mb-6 flex gap-1 overflow-x-auto border-b border-line/40 pb-0">
+            <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line/40 pb-0">
               {ANALYSIS_TABS.map((t) => (
                 <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
-                  className={`shrink-0 px-5 py-3 text-[15px] font-medium transition-colors border-b-2 -mb-px ${
+                  className={`shrink-0 px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
                     activeTab === t.id ? 'border-sky text-sky' : 'border-transparent text-muted hover:text-fg'
                   }`}>
                   {t.label}
@@ -334,7 +322,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             {/* Tab content */}
             <div className="ph-db-detail-content">
               {activeTab === 'overview' && (
-                <div className="grid gap-6 lg:grid-cols-[190px_1fr_1fr]">
+                <div className="grid gap-4 lg:grid-cols-[140px_1fr_1fr]">
                   {/* Semicircle gauge */}
                   <div className="flex items-start justify-center pt-2">
                     <SemiGauge score={verdict.risk} label={verdict.label} />
@@ -392,37 +380,16 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             </div>
           </Panel>
 
-          {/* ── BOTTOM ROW: 3 panels ── */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* Indicators Checked */}
-            <Panel title="Indicators Checked" icon="check">
-              <ul className="space-y-1.5">
-                {topChecks.map((c) => {
-                  const pass = c.status === 'complete' && (c.result === 'pass' || c.result === 'none');
-                  const fail = c.status === 'complete' && (c.result === 'fail' || c.result === 'hardfail' || c.result === 'permerror');
-                  return (
-                    <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="flex items-center gap-2 min-w-0">
-                        <span className={pass ? 'text-green' : fail ? 'text-rose' : 'text-faint'}>{pass ? '✓' : fail ? '✗' : '–'}</span>
-                        <span className="truncate text-fg/80">{c.label}</span>
-                      </span>
-                      <Badge tone={pass ? 'good' : fail ? 'bad' : c.status === 'complete' ? 'warn' : 'neutral'}>
-                        {c.result ?? c.status}
-                      </Badge>
-                    </li>
-                  );
-                })}
-                {rows.length > 8 && <li className="pt-1 text-[11px] text-faint">+ {rows.length - 8} more checks</li>}
-              </ul>
-            </Panel>
+          {/* ── BOTTOM ROW: 2 panels ── */}
+          <div className="grid gap-4 lg:grid-cols-2">
 
             {/* Link Details */}
             <Panel title="Link Details" icon="shield">
               {r.links.length > 0 ? (
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {r.links.slice(0, 3).map((l, i) => (
-                    <div key={i} className="rounded-lg border border-line bg-bg2/40 p-2.5">
-                      <div className="flex items-start justify-between gap-2 mb-1">
+                    <div key={i} className="rounded-lg border border-line bg-bg2/40 p-2">
+                      <div className="flex items-start justify-between gap-2 mb-0.5">
                         <code className="break-all font-mono text-[11px] text-fg/80 line-clamp-2">{l.url}</code>
                         <Badge tone={urlDim.tone === 'bad' ? 'bad' : urlDim.tone === 'warn' ? 'warn' : 'neutral'}>
                           {urlDim.tone === 'bad' ? 'Malicious' : urlDim.tone === 'warn' ? 'Suspicious' : 'Unknown'}
@@ -434,47 +401,22 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                   {r.links.length > 3 && <p className="text-[11px] text-faint">+ {r.links.length - 3} more links</p>}
                 </div>
               ) : (
-                <p className="text-sm text-muted">No links found in the email.</p>
+                <p className="text-xs text-muted">No links found in the email.</p>
               )}
             </Panel>
 
-            {/* IP Reputation */}
+            {/* IP Reputation — from actual IP intelligence API results */}
             <Panel title="IP Reputation" icon="network">
               {senderIp !== '—' ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <Copyable value={senderIp} ioc />
-                    <Badge tone={infraDim.tone}>
-                      {infraDim.tone === 'bad' ? 'High Risk' : infraDim.tone === 'warn' ? 'Medium Risk' : infraDim.tone === 'good' ? 'Low Risk' : 'Unknown'}
-                    </Badge>
-                  </div>
-                  <div className="space-y-1.5 text-xs">
-                    <AuthLine label="SPF" result={spf.label} ok={spf.ok} />
-                    <AuthLine label="DKIM" result={dkim.label} ok={dkim.ok} />
-                    <AuthLine label="DMARC" result={dmarc.label} ok={dmarc.ok} />
-                  </div>
-                  {r.indicators.ips.length > 0 && (
-                    <div className="border-t border-line pt-2">
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">Other IPs</div>
-                      <ul className="space-y-0.5 text-xs">
-                        {r.indicators.ips.slice(0, 4).map((ip) => (
-                          <li key={ip.ip} className="flex items-center gap-2 text-muted">
-                            <span className="font-mono text-fg/80">{ip.ip}</span>
-                            <span className="text-faint">{ip.role.replace(/_/g, ' ')}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+                <IpReputationContent sender={sender} senderIp={senderIp} infraDim={infraDim} />
               ) : (
-                <p className="text-sm text-muted">No sender IP available.</p>
+                <p className="text-xs text-muted">No sender IP available.</p>
               )}
             </Panel>
           </div>
 
           {/* ── ACTION BAR ── */}
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel/60 px-5 py-3.5">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel/60 px-4 py-2.5">
             <ExportBar report={report} />
             {onNewAnalysis && (
               <button type="button" onClick={onNewAnalysis}
@@ -495,25 +437,152 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   IP Reputation Panel (uses real IP intelligence data)
+   ═══════════════════════════════════════════════════════════ */
+function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderStage; senderIp: string; infraDim: { tone: Tone; top: Finding | null } }) {
+  /* find the IP lookup data from sender results */
+  const ipData: IpLookup | null = useMemo(() => {
+    for (const res of sender.results) {
+      if (res.data?.check === 'ip') return res.data.value;
+    }
+    return null;
+  }, [sender.results]);
+
+  if (!ipData) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Copyable value={senderIp} ioc />
+          <Badge tone={infraDim.tone}>
+            {infraDim.tone === 'bad' ? 'High Risk' : infraDim.tone === 'warn' ? 'Medium Risk' : infraDim.tone === 'good' ? 'Low Risk' : 'Unknown'}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted">{sender.running ? 'Looking up IP intelligence…' : 'No IP intelligence data available.'}</p>
+      </div>
+    );
+  }
+
+  const rep = ipData.reputation;
+  const net = ipData.network;
+  const geo = ipData.geo;
+  const nt = ipData.netType;
+  const vt = ipData.virustotal;
+  const pd = ipData.pulsedive;
+
+  /* determine overall reputation label from intelligence sources */
+  const abuseScore = rep?.abuseConfidence ?? 0;
+  const repLabel = abuseScore >= 75 ? 'High Risk' : abuseScore >= 25 ? 'Medium Risk' : 'Low Risk';
+  const repTone: Tone = abuseScore >= 75 ? 'bad' : abuseScore >= 25 ? 'warn' : 'good';
+
+  const flags: string[] = [];
+  if (nt?.isVpn) flags.push('VPN');
+  if (nt?.isProxy) flags.push('Proxy');
+  if (nt?.isTor) flags.push('Tor');
+  if (nt?.isDatacenter) flags.push('Datacenter');
+  if (nt?.isAbuser) flags.push('Known Abuser');
+  if (rep?.isTor) flags.push('Tor Exit');
+
+  return (
+    <div className="space-y-2.5">
+      {/* IP + reputation badge */}
+      <div className="flex items-center justify-between gap-2">
+        <Copyable value={senderIp} ioc />
+        <Badge tone={repTone}>{repLabel}</Badge>
+      </div>
+
+      {/* AbuseIPDB */}
+      {rep && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">AbuseIPDB</div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <IpKV label="Confidence" value={<span className={abuseScore >= 50 ? 'text-rose font-semibold' : abuseScore >= 25 ? 'text-amber' : 'text-green'}>{abuseScore}%</span>} />
+            <IpKV label="Reports" value={<span className="text-fg">{rep.totalReports}</span>} />
+            <IpKV label="Reporters" value={<span className="text-fg">{rep.distinctReporters}</span>} />
+            <IpKV label="Last Reported" value={<span className="text-fg">{rep.lastReportedAt ? new Date(rep.lastReportedAt).toLocaleDateString() : '—'}</span>} />
+            {rep.isWhitelisted && <IpKV label="Whitelisted" value={<span className="text-green">Yes</span>} />}
+          </div>
+        </div>
+      )}
+
+      {/* Network / ASN */}
+      {net && (net.org || net.asn) && (
+        <div className="space-y-1 border-t border-line/40 pt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">Network</div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            {net.org && <IpKV label="Org" value={<span className="text-fg truncate" title={net.org}>{net.org}</span>} />}
+            {net.asn && <IpKV label="ASN" value={<span className="font-mono text-fg">{net.asn}</span>} />}
+            {net.isp && net.isp !== net.org && <IpKV label="ISP" value={<span className="text-fg truncate" title={net.isp}>{net.isp}</span>} />}
+            {geo?.countryCode && <IpKV label="Country" value={<span className="text-fg">{geo.country ?? geo.countryCode}</span>} />}
+            {geo?.city && <IpKV label="City" value={<span className="text-fg">{geo.city}{geo.region ? `, ${geo.region}` : ''}</span>} />}
+          </div>
+        </div>
+      )}
+
+      {/* Network type flags */}
+      {flags.length > 0 && (
+        <div className="flex flex-wrap gap-1 border-t border-line/40 pt-2">
+          {flags.map((f) => <Badge key={f} tone={f === 'Known Abuser' || f === 'Tor Exit' ? 'bad' : 'warn'}>{f}</Badge>)}
+        </div>
+      )}
+
+      {/* VirusTotal */}
+      {vt && vt.observed && (
+        <div className="space-y-1 border-t border-line/40 pt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">VirusTotal</div>
+          <div className="flex items-center gap-3 text-xs">
+            <span className={vt.malicious > 0 ? 'text-rose font-semibold' : 'text-green'}>{vt.malicious} malicious</span>
+            <span className={vt.suspicious > 0 ? 'text-amber' : 'text-muted'}>{vt.suspicious} suspicious</span>
+            <span className="text-muted">{vt.harmless} clean</span>
+          </div>
+        </div>
+      )}
+
+      {/* Pulsedive */}
+      {pd && pd.observed && (
+        <div className="space-y-1 border-t border-line/40 pt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">Pulsedive</div>
+          <div className="text-xs">
+            <span className="text-muted">Risk: </span>
+            <span className={pd.risk === 'critical' || pd.risk === 'high' ? 'text-rose font-semibold' : pd.risk === 'medium' ? 'text-amber' : 'text-green'}>{pd.risk}</span>
+            {pd.threats.length > 0 && (
+              <span className="ml-2 text-muted">· {pd.threats.map(t => t.name).join(', ')}</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IpKV({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className="text-faint shrink-0">{label}:</span>
+      {value}
+    </div>
+  );
+}
+
 /* ─── small helpers ─── */
 function SFieldRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-[15px] text-muted">{label}</span>
-      <span className={`text-[15px] text-fg text-right ${mono ? 'font-mono' : ''}`}>{value}</span>
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`text-xs text-fg text-right ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }
 
 function InputRow({ icon, iconBg, label, value }: { icon: IconName; iconBg: string; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-4">
-      <div className={`grid size-12 shrink-0 place-items-center rounded-full ${iconBg}`}>
-        <Icon name={icon} size={22} />
+    <div className="flex items-center gap-3">
+      <div className={`grid size-8 shrink-0 place-items-center rounded-full ${iconBg}`}>
+        <Icon name={icon} size={16} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-xs text-muted mb-1">{label}</div>
-        <div className="truncate text-[15px] font-semibold text-fg">{value}</div>
+        <div className="text-[10px] text-muted">{label}</div>
+        <div className="truncate text-xs font-semibold text-fg">{value}</div>
       </div>
     </div>
   );
@@ -528,14 +597,6 @@ function CRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function AuthLine({ label, result, ok }: { label: string; result: string; ok: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-faint">{label}</span>
-      <span className={`font-medium ${ok ? 'text-green' : result === 'Fail' ? 'text-rose' : 'text-amber'}`}>{result}</span>
-    </div>
-  );
-}
 
 function fmtTime(iso: string | null | undefined): string {
   if (!iso) return '—';
