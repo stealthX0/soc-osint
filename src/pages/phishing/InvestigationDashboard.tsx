@@ -27,31 +27,36 @@ const verdictAccent: Record<VerdictLabel, string> = {
   malicious: 'text-rose', suspicious: 'text-amber', likely_legitimate: 'text-green',
   inconclusive: 'text-sky', analysis_unavailable: 'text-muted',
 };
+/** Verdict card: tinted gradient, coloured border and a soft glow in the verdict colour. */
 const verdictBannerBg: Record<VerdictLabel, string> = {
-  malicious: 'from-rose/25 to-rose/8 border-rose/30',
-  suspicious: 'from-amber/25 to-amber/8 border-amber/30',
-  likely_legitimate: 'from-green/25 to-green/8 border-green/30',
-  inconclusive: 'from-sky/25 to-sky/8 border-sky/30',
-  analysis_unavailable: 'from-line/30 to-line/10 border-line',
+  malicious: 'border-rose/70 bg-gradient-to-r from-rose/30 via-rose/15 to-rose/10 shadow-[0_0_24px_-6px_rgba(248,113,113,0.45)]',
+  suspicious: 'border-amber/70 bg-gradient-to-r from-amber/25 via-amber/12 to-amber/8 shadow-[0_0_24px_-6px_rgba(251,191,36,0.4)]',
+  likely_legitimate: 'border-green/70 bg-gradient-to-r from-green/25 via-green/12 to-green/8 shadow-[0_0_24px_-6px_rgba(52,211,153,0.4)]',
+  inconclusive: 'border-sky/70 bg-gradient-to-r from-sky/25 via-sky/12 to-sky/8 shadow-[0_0_24px_-6px_rgba(56,189,248,0.4)]',
+  analysis_unavailable: 'border-line bg-gradient-to-r from-line/40 to-line/15',
+};
+/** Card title shown on the dashboard (the report and exports keep the short VERDICT_TEXT labels). */
+const verdictTitle: Record<VerdictLabel, string> = {
+  malicious: 'Malicious Email Detected',
+  suspicious: 'Suspicious Email Detected',
+  likely_legitimate: 'Likely Legitimate Email',
+  inconclusive: 'Inconclusive Result',
+  analysis_unavailable: 'Analysis Unavailable',
+};
+/** Solid fill for the verdict icon. */
+const verdictFill: Record<VerdictLabel, string> = {
+  malicious: '#ef4444', suspicious: '#f59e0b', likely_legitimate: '#22c55e', inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictGaugeHex: Record<VerdictLabel, string> = {
   malicious: '#f87171', suspicious: '#fbbf24', likely_legitimate: '#34d399',
   inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
-const verdictIcon: Record<VerdictLabel, IconName> = {
-  malicious: 'warn', suspicious: 'warn', likely_legitimate: 'check',
-  inconclusive: 'info', analysis_unavailable: 'info',
-};
-const verdictCircleBg: Record<VerdictLabel, string> = {
-  malicious: 'bg-rose/20', suspicious: 'bg-amber/20', likely_legitimate: 'bg-green/20',
-  inconclusive: 'bg-sky/20', analysis_unavailable: 'bg-line/30',
-};
 const verdictPillBg: Record<VerdictLabel, string> = {
-  malicious: 'border-rose/30 bg-rose/10 text-rose',
-  suspicious: 'border-amber/30 bg-amber/10 text-amber',
-  likely_legitimate: 'border-green/30 bg-green/10 text-green',
-  inconclusive: 'border-sky/30 bg-sky/10 text-sky',
-  analysis_unavailable: 'border-line bg-bg2 text-muted',
+  malicious: 'bg-rose/35 text-white shadow-[0_0_14px_-2px_rgba(248,113,113,0.6)]',
+  suspicious: 'bg-amber/30 text-white shadow-[0_0_14px_-2px_rgba(251,191,36,0.55)]',
+  likely_legitimate: 'bg-green/30 text-white shadow-[0_0_14px_-2px_rgba(52,211,153,0.55)]',
+  inconclusive: 'bg-sky/30 text-white shadow-[0_0_14px_-2px_rgba(56,189,248,0.55)]',
+  analysis_unavailable: 'bg-line/60 text-fg',
 };
 
 /* ─── tab definitions ─── */
@@ -113,6 +118,27 @@ function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Verdict glyph: solid warning triangle / check / info, filled in the verdict colour
+   ═══════════════════════════════════════════════════════════ */
+function VerdictGlyph({ label }: { label: VerdictLabel }) {
+  const fill = verdictFill[label];
+  if (label === 'malicious' || label === 'suspicious') {
+    return (
+      <svg viewBox="0 0 64 56" className="h-[52px] w-[60px] shrink-0" aria-hidden>
+        <path d="M28.5 4.2a4 4 0 0 1 7 0l26.6 46a4 4 0 0 1-3.5 6H5.4a4 4 0 0 1-3.5-6z" fill={fill} />
+        <rect x="29" y="18" width="6" height="21" rx="3" fill="#1a0b0b" />
+        <circle cx="32" cy="46" r="3.6" fill="#1a0b0b" />
+      </svg>
+    );
+  }
+  return (
+    <div className="grid size-[52px] shrink-0 place-items-center rounded-full" style={{ background: fill }}>
+      <Icon name={label === 'likely_legitimate' ? 'check' : 'info'} size={30} className="text-[#0b1220]" strokeWidth={2.6} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
    Reusable Panel
    ═══════════════════════════════════════════════════════════ */
 function Panel({ title, icon, children, className = '' }: { title: string; icon?: IconName; children: ReactNode; className?: string }) {
@@ -159,7 +185,8 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
   const fx = r.forensics;
   const meta = VERDICT_TEXT[verdict.label];
   const from = fx?.summary.from ?? r.indicators.emails.find((e) => e.roles.includes('from'))?.address ?? '—';
-  const fromDomain = from.includes('@') ? from.split('@')[1] : '—';
+  // "Name <user@domain>" -> domain, without the closing bracket or trailing junk.
+  const fromDomain = /@([^\s<>"';,]+)/.exec(from)?.[1]?.toLowerCase() ?? '—';
   const senderIp = fx?.trust.connectingIp ?? '—';
   const linkCount = r.links.length;
   const attachmentCount = r.attachments.filter((a) => !a.inline).length;
@@ -252,28 +279,24 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       {/* ═══════════ MAIN CONTENT ═══════════ */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* ── Verdict Banner ── */}
-        <div className={`border-b border-line bg-gradient-to-r ${verdictBannerBg[verdict.label]} px-6 py-4`}>
-          <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-6">
-            <div className="flex items-center gap-4 min-w-0">
-              <div className={`grid size-10 shrink-0 place-items-center rounded-full ${verdictCircleBg[verdict.label]}`}>
-                <Icon name={verdictIcon[verdict.label]} size={24} className={verdictAccent[verdict.label]} />
-              </div>
+        {/* ── Scrollable content ── */}
+        <div className="space-y-5 p-5">
+
+          {/* ── Verdict card: its own bordered box, separated from the top header ── */}
+          <div className={`flex items-center justify-between gap-6 rounded-xl border-2 px-6 py-5 ${verdictBannerBg[verdict.label]}`}>
+            <div className="flex min-w-0 items-center gap-5">
+              <VerdictGlyph label={verdict.label} />
               <div className="min-w-0">
-                <h2 ref={heading} tabIndex={-1} className={`text-2xl leading-tight font-extrabold tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
-                  {meta.label}
+                <h2 ref={heading} tabIndex={-1} className={`text-[28px] font-bold leading-tight tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
+                  {verdictTitle[verdict.label]}
                 </h2>
-                <p className="text-sm text-muted mt-0.5">{verdict.headline}</p>
+                <p className="mt-1 text-base text-fg/85">{verdict.headline}</p>
               </div>
             </div>
-            <div className={`shrink-0 rounded-full border-2 px-4 py-1.5 text-sm font-bold tabular-nums ${verdictPillBg[verdict.label]}`}>
+            <div className={`shrink-0 rounded-full px-5 py-2 text-base font-semibold tabular-nums ${verdictPillBg[verdict.label]}`}>
               Risk Score: {verdict.risk} / 100
             </div>
           </div>
-        </div>
-
-        {/* ── Scrollable content ── */}
-        <div className="mx-auto max-w-[1200px] space-y-5 p-5">
 
           {/* ── Mobile-only sidebar summary (hidden on lg) ── */}
           <div className="rounded-xl border border-line bg-bg2/60 p-4 lg:hidden">
