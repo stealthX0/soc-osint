@@ -1,4 +1,5 @@
 import { LIMITS, type PhishingInput } from '../../../shared/phishing/types';
+import { EMAIL_FILE_MAX_BYTES, checkEmailFile } from '../../lib/emailFile';
 
 export interface FormFields { headers: string; subject: string; body: string; email: string; displayName: string; domain: string; ip: string; urls: string; attachments: string }
 export const EMPTY_FORM: FormFields = { headers: '', subject: '', body: '', email: '', displayName: '', domain: '', ip: '', urls: '', attachments: '' };
@@ -22,23 +23,23 @@ export function buildInput(f: FormFields): PhishingInput {
   };
 }
 
-/* ------------------------------------------------------------------- .eml files */
+/* ------------------------------------------------------------- email files */
 
-export const EML_MAX_BYTES = 3 * 1024 * 1024;
-const mb = (n: number) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+/** Largest email file (.eml, .msg, .mbox) the form loads. */
+export const EML_MAX_BYTES = EMAIL_FILE_MAX_BYTES;
 
-/** Size gate for a dropped or chosen .eml file (3 MB). */
-export function checkEmlFile(file: { name: string; size: number }): { ok: true } | { ok: false; message: string } {
-  if (file.size === 0) return { ok: false, message: `${file.name} is empty.` };
-  if (file.size > EML_MAX_BYTES) return { ok: false, message: `${file.name} is ${mb(file.size)}. Files larger than ${mb(EML_MAX_BYTES)} are not loaded: export the message without large attachments, or paste its headers and body.` };
-  return { ok: true };
+/** Size gate for a dropped or chosen email file (10 MB). */
+export const checkEmlFile = checkEmailFile;
+
+export function emlLoadedMessage(name: string, format: string, attachments: number): string {
+  const att = attachments ? ` ${attachments} attachment${attachments === 1 ? '' : 's'} added below for scanning.` : '';
+  return `Loaded ${name} (${format}): headers and body extracted.${att}`;
 }
-export const emlLoadedMessage = (name: string, bytes: number): string => `Loaded ${name}: ${bytes.toLocaleString('en-US')} bytes placed in the raw headers box.`;
 
 /* ------------------------------------------------------- files attached in the form */
 
-/** Most files that can be attached to one analysis (each is hashed in the browser and looked up by hash). */
-export const MAX_ATTACHED_FILES = 5;
+/** Most files that can be attached to one analysis (each is hashed in the browser, looked up by hash and uploaded for an active scan). */
+export const MAX_ATTACHED_FILES = 10;
 
 /** Adds chosen files to the attached list, skipping duplicates and anything over the per-file or count limit. Returns the new list and what was refused. */
 export function addAttachedFiles(current: File[], chosen: File[], maxBytes: number, fmt: (n: number) => string): { files: File[]; errors: string[] } {
@@ -117,10 +118,10 @@ export const EXAMPLE_FORM: FormFields = {
     '',
     'PayPal Security Team',
   ].join('\n'),
-  email: 'support@paypal-support.example',
-  displayName: 'PayPal Support',
-  domain: 'paypal.com',
-  ip: '203.0.113.45',
+  email: '',
+  displayName: '',
+  domain: '',
+  ip: '',
   urls: '',
   attachments: 'Invoice_4491.pdf.exe',
 };

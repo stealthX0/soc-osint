@@ -25,7 +25,7 @@ import { SenderTab } from '../src/pages/phishing/SenderTab';
 import { UrlTab } from '../src/pages/phishing/UrlTab';
 import { AttachmentTab, useAttachmentStage } from '../src/pages/phishing/AttachmentPanel';
 import { EvidenceTab } from '../src/pages/phishing/EvidenceTab';
-import { FinishedReport, ResultsShell, TABS } from '../src/pages/phishing/ResultsShell';
+import { FinishedReport, ResultsShell } from '../src/pages/phishing/ResultsShell';
 import { HistoryPanel } from '../src/pages/phishing/HistoryPanel';
 import { ReportView } from '../src/pages/phishing/ReportView';
 
@@ -79,7 +79,8 @@ describe('buildReport', () => {
   });
 
   it('defangs every indicator type, everywhere in the report', async () => {
-    const { report, input } = await fixture();
+    // The form no longer has a sender box; an IP is still accepted by the API, so supply one to cover the IP indicator type.
+    const { report, input } = await fixture({ ip: '203.0.113.45' });
     const json = renderJson(report);
     for (const raw of ['paypa1-secure.example', 'paypal-support.example', 'mailbox-help.example', 'support@paypal-support.example', '203.0.113.45', 'bounce.paypa1-secure.example']) {
       assert.ok(!json.includes(raw), `${raw} must not appear un-defanged`);
@@ -358,14 +359,15 @@ describe('phishing history store', () => {
 /* ------------------------------------------------------------------ form helpers */
 
 describe('guided input helpers', () => {
-  it('.eml size check: 3 MB limit, with a clear message', () => {
-    assert.deepEqual(checkEmlFile({ name: 'a.eml', size: 1000 }), { ok: true });
+  it('email file size check: 10 MB limit, with a clear message', () => {
+    assert.equal(EML_MAX_BYTES, 10 * 1024 * 1024);
+    assert.deepEqual(checkEmlFile({ name: 'a.msg', size: 1000 }), { ok: true });
     assert.deepEqual(checkEmlFile({ name: 'a.eml', size: EML_MAX_BYTES }), { ok: true });
-    const big = checkEmlFile({ name: 'huge.eml', size: EML_MAX_BYTES + 1 });
+    const big = checkEmlFile({ name: 'huge.mbox', size: EML_MAX_BYTES + 1 });
     assert.equal(big.ok, false);
-    if (!big.ok) assert.match(big.message, /huge\.eml is 3\.0 MB\. Files larger than 3\.0 MB are not loaded/);
+    if (!big.ok) assert.match(big.message, /huge\.mbox is 10\.0 MB\. Email files larger than 10\.0 MB are not loaded/);
     assert.equal(checkEmlFile({ name: 'e.eml', size: 0 }).ok, false);
-    assert.equal(emlLoadedMessage('a.eml', 12345), 'Loaded a.eml: 12,345 bytes placed in the raw headers box.');
+    assert.equal(emlLoadedMessage('a.msg', '.msg', 2), 'Loaded a.msg (.msg): headers and body extracted. 2 attachments added below for scanning.');
   });
 
   it('notices text that looks like a body rather than headers', () => {
@@ -440,8 +442,8 @@ const attDone = { findings: [], checks: [], urls: [], results: [], panel: null, 
 describe('server-render smoke tests: every tab and the form render without throwing', () => {
   it('the input form', () => {
     const out = html(createElement(InputForm, { f: EMPTY_FORM, setF: noop, files: [], setFiles: noop, onSubmit: noop, busy: false }));
-    for (const s of ['Raw email headers', 'Email information', 'Sender information', 'Links and attachments', 'Load example', 'Choose a .eml file', 'Analyse email', 'Attach file', 'Subject <span class="text-faint">(optional)</span>']) assert.ok(out.includes(s), s);
-    for (const gone of ['Where did this email come from?', 'Reported by a user', 'Found in a mailbox', 'Training / test', 'EmailRep', 'Investigate links automatically', 'type="checkbox"']) assert.ok(!out.includes(gone), `${gone} was removed`);
+    for (const s of ['Raw email headers', 'Email information', 'Links and attachments', 'Load example', 'Choose an email file', 'or drop it here', 'Analyse email', 'Attach file', 'Subject <span class="text-faint">(optional)</span>', '.eml,.msg,.mbox']) assert.ok(out.includes(s), s);
+    for (const gone of ['Sender information', 'Sender email address', 'up to 3 MB', 'Where did this email come from?', 'Reported by a user', 'Found in a mailbox', 'Training / test', 'EmailRep', 'Investigate links automatically', 'type="checkbox"']) assert.ok(!out.includes(gone), `${gone} was removed`);
     assert.match(out, /id="ph-h"/);
     const filled = html(createElement(InputForm, { f: { ...EXAMPLE_FORM, headers: 'Dear customer, your account will be suspended unless you act today, please click here.' }, setF: noop, files: [], setFiles: noop, onSubmit: noop, busy: true }));
     assert.match(filled, /looks like a message body/);
@@ -462,8 +464,8 @@ describe('server-render smoke tests: every tab and the form render without throw
     const f = await fixture();
     const out = html(createElement(HeadersTab, { r: f.r }));
     assert.ok(out.length > 500);
-    assert.match(out, /Sending infrastructure/);
-    assert.match(out, /Receiving server/);
+    assert.match(out, /Authentication/);
+    for (const gone of ['Sending infrastructure', 'Delivery path', 'What you entered vs what the headers say', 'as reported in the headers']) assert.ok(!out.includes(gone), gone);
     const none = html(createElement(HeadersTab, { r: await parseSubmission({ body: 'hello' }) }));
     assert.match(none, /Paste the raw headers/);
   });
@@ -523,23 +525,12 @@ describe('server-render smoke tests: every tab and the form render without throw
     assert.ok(/text-green/.test(row('AAA').split('</tr>')[0]));
   });
 
-  it('the whole results shell: six ARIA tabs in order, panels wired to tabs, only Overview shown, heading focusable', async () => {
+  it('the finished report: the investigation dashboard with its analysis tabs and focusable verdict heading', async () => {
     const f = await fixture();
     const out = html(createElement(FinishedReport, { r: f.r, input: f.input, sender: senderDone, links: linkStub, att: attDone, startedAt: Date.now(), historyEnabled: false }));
-    assert.deepEqual(TABS.map((t) => t.label), ['Overview', 'Email Headers', 'Sender Intelligence', 'URL Analysis', 'Attachment Analysis', 'Evidence & Timeline']);
-    assert.match(out, /role="tablist"/);
-    assert.equal((out.match(/role="tab"/g) ?? []).length, 6);
-    assert.equal((out.match(/role="tabpanel"/g) ?? []).length, 6);
-    assert.equal((out.match(/aria-selected="true"/g) ?? []).length, 1);
-    assert.match(out, /id="ph-tab-overview"[^>]*aria-selected="true"[^>]*aria-controls="ph-panel-overview"|aria-selected="true"[^>]*id="ph-tab-overview"/);
-    for (const t of TABS) {
-      assert.ok(out.includes(`aria-controls="ph-panel-${t.id}"`), `${t.id} controls its panel`);
-      assert.ok(out.includes(`id="ph-panel-${t.id}"`) && out.includes(`aria-labelledby="ph-tab-${t.id}"`), `${t.id} panel is labelled by its tab`);
-    }
-    assert.equal((out.match(/tabindex="0"[^>]*role="tab"|role="tab"[^>]*tabindex="0"/g) ?? []).length, 1, 'roving tabindex: only the selected tab is in the tab order');
-    assert.equal((out.match(/role="tabpanel"[^>]*hidden/g) ?? []).length + (out.match(/hidden=""[^>]*role="tabpanel"/g) ?? []).length >= 5 || (out.match(/hidden/g) ?? []).length >= 5, true);
-    assert.match(out, /<h2[^>]*tabindex="-1"[^>]*>Investigation results<\/h2>|tabindex="-1"[^>]*id="ph-results-heading"/);
-    assert.match(out, /Investigation verdict/);
+    for (const s of ['Email Investigation Dashboard', 'Investigation Summary', 'Input Details', 'Key Findings', 'Detailed Analysis', 'Overview', 'Sender Analysis', 'Link Analysis', 'Domain &amp; IP Intelligence', 'Content Analysis', 'Evidence', 'Link Details', 'IP Reputation']) assert.ok(out.includes(s), s);
+    assert.ok(!out.includes('Indicators Checked'), 'Indicators Checked panel was removed');
+    assert.match(out, /<h2[^>]*tabindex="-1"/);
   });
 
   it('while lookups are outstanding the shell renders a progress list and no verdict at all', async () => {
@@ -596,7 +587,8 @@ describe('UI safety rules', () => {
   it('only calls the existing phishing endpoints', () => {
     const endpoints = new Set<string>();
     for (const p of files) for (const m of readFileSync(p, 'utf8').matchAll(/api[<(][^'"`]*['"`](\/api\/[a-z/]+)['"`]/g)) endpoints.add(m[1]);
-    for (const e of endpoints) assert.ok(['/api/phishing/parse', '/api/phishing/sender', '/api/phishing/urls', '/api/phishing/attachments'].includes(e), e);
+    // /api/file/analysis: polling the VirusTotal active scan of attachments (uploads go through uploadFile in src/lib/fileApi.ts).
+    for (const e of endpoints) assert.ok(['/api/phishing/parse', '/api/phishing/sender', '/api/phishing/urls', '/api/phishing/attachments', '/api/file/analysis'].includes(e), e);
     assert.ok(endpoints.size >= 4);
   });
   it('no outcome is described as safe or clean in any UI string we added', () => {

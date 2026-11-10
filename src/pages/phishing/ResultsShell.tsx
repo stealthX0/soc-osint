@@ -54,7 +54,7 @@ function RunningChecks({ sender, links, att, linkCount, fileCount }: { sender: S
     { id: 'parse', label: 'Message parsed', state: 'done', note: 'headers, links, attachments and wording' },
     { id: 'sender', label: 'Sender intelligence', state: total === 0 ? 'none' : sender.settled ? 'done' : 'running', note: total === 0 ? 'nothing to look up' : `${done} of ${total} lookups finished` },
     { id: 'links', label: 'Links', state: linkCount === 0 ? 'none' : links.settled ? 'done' : 'running', note: linkCount === 0 ? 'no links found' : `${linkCount} link${linkCount === 1 ? '' : 's'} being checked` },
-    { id: 'attachments', label: 'Attachments', state: att.settled ? 'done' : 'running', note: fileCount > 0 ? `${fileCount} attached file${fileCount === 1 ? '' : 's'} and hash lookups` : 'hash lookups' },
+    { id: 'attachments', label: 'Attachments', state: att.settled ? 'done' : 'running', note: fileCount > 0 ? `${fileCount} file${fileCount === 1 ? '' : 's'}: hash lookups and VirusTotal active scan (can take a few minutes)` : 'hash lookups' },
   ];
   return (
     <div className="ph-results space-y-3 rounded-xl border border-line bg-bg2/60 p-4" role="status" aria-live="polite">

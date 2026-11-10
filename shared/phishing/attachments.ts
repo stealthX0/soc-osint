@@ -8,14 +8,15 @@
  *   static (bytes or filename):        attachment_dangerous_type | attachment_double_extension | attachment_type_mismatch | attachment_macro_present |
  *                                      attachment_html_credential_form | attachment_pdf_active_content | attachment_archive_dangerous_content |
  *                                      attachment_password_protected | attachment_embedded_urls | attachment_high_entropy | attachment_not_inspected
- * Check ids (stage "attachments"):     attach.<n>.static  and  attach.<n>.hash.<virustotal|malwarebazaar|circl|hybrid>
+ * Check ids (stage "attachments"):     attach.<n>.static,  attach.<n>.hash.<virustotal|malwarebazaar|circl|hybrid>  and  attach.<n>.scan.virustotal
+ *   active scan (file uploaded to VirusTotal): attachment_hash_malicious | attachment_hash_suspicious (same ids and thresholds)
  *
  * These findings describe a FILE. They never say whether the email is malicious, an unknown hash is never worded as
  * safe, and a provider that failed or was skipped is reported as such. Attachments are never executed or rendered.
  */
 import { eachTag } from './html';
 import { detectType, inspect } from '../fileAnalysis';
-import type { FileReputation } from '../types';
+import type { FileAnalysisReport, FileReputation } from '../types';
 import { check, makeFinding } from './findings';
 import type { CheckResult, Finding } from './types';
 
@@ -393,7 +394,7 @@ export function analyzeAttachmentSet(raw: RawPart[], metas: MetaLike[]): { findi
   return { findings, checks, summaries, limits };
 }
 
-/** Analyses a file dropped into the browser. Everything runs on the analyst's device; the file is never uploaded. */
+/** Static analysis of a file in the browser (in memory, on the analyst's device). Uploading for an active scan is a separate step. */
 export const analyzeDroppedFile = (bytes: Uint8Array, index: number, filename: string, sha256: string): StaticResult => analyzeAttachmentBytes(bytes, { index, filename, sha256 }, null);
 
 /* ------------------------------------------------------- reputation (hash) */
@@ -495,3 +496,52 @@ export function convertFileReputation(rep: FileReputation, ctx: ReputationContex
 /** All four provider rows marked failed, for when the lookup as a whole could not run. Never a clean result. */
 export const failedReputationChecks = (ctx: ReputationContext, message: string): CheckResult[] =>
   PROVIDERS.map((p) => check(`attach.${ctx.index}.hash.${p.id}`, 'attachments', `${p.label} hash lookup: ${ctx.filename ?? `attachment ${ctx.index + 1}`}`, 'failed', null, message.slice(0, 200)));
+
+/* ------------------------------------------------------- active scan (upload) */
+
+export interface ActiveScanContext { index: number; filename: string; sha256: string }
+export type ActiveScanOutcome =
+  | { status: 'completed'; report: FileAnalysisReport }
+  | { status: 'pending'; link: string | null }
+  | { status: 'skipped'; reason: string }
+  | { status: 'failed'; reason: string };
+
+/**
+ * Converts the outcome of uploading a file to VirusTotal and waiting for its scan into at most one finding (using the
+ * same ids and thresholds as the hash lookup, so the verdict engine scores it identically) and one check row.
+ * A scan that did not finish, or could not run, is never reported as clean.
+ */
+export function convertActiveScan(outcome: ActiveScanOutcome, ctx: ActiveScanContext): { findings: Finding[]; checks: CheckResult[] } {
+  const id = `attach.${ctx.index}.scan.virustotal`;
+  const label = `VirusTotal active scan: ${ctx.filename}`;
+  if (outcome.status === 'skipped') return { findings: [], checks: [check(id, 'attachments', label, 'skipped', null, outcome.reason.slice(0, 200))] };
+  if (outcome.status === 'failed') return { findings: [], checks: [check(id, 'attachments', label, 'failed', null, outcome.reason.slice(0, 200))] };
+  if (outcome.status === 'pending') {
+    return { findings: [], checks: [check(id, 'attachments', label, 'failed', 'scan not finished', `The file was uploaded but VirusTotal had not finished scanning it in time.${outcome.link ? ` Check the report later: ${outcome.link}` : ''}`)] };
+  }
+  const s = outcome.report.stats;
+  if (!s) return { findings: [], checks: [check(id, 'attachments', label, 'failed', null, 'VirusTotal returned no scan statistics.')] };
+  const total = s.total;
+  const result = `${s.malicious} of ${total} engines flag it${s.suspicious ? `, ${s.suspicious} suspicious` : ''}`;
+  const checks = [check(id, 'attachments', label, 'complete', result, outcome.report.link ?? undefined)];
+  const base = { dimension: 'attachment' as const, exactness: 'exact' as const, trust: 'independently_verified' as const, indicator: { type: 'hash' as const, value: ctx.sha256 }, source: 'VirusTotal', observedAt: new Date().toISOString() };
+  const names = [...new Set(outcome.report.detections.map((d) => d.result).filter(Boolean) as string[])].slice(0, 5);
+  const evidence = [`VirusTotal active scan: ${s.malicious} of ${total} engines flag it as malicious${s.suspicious ? `, ${s.suspicious} as suspicious` : ''}`, ...(names.length ? [`Detections: ${names.join(', ')}`] : [])];
+  const findings: Finding[] = [];
+  if (s.malicious >= 3) {
+    findings.push(makeFinding({
+      ...base, id: 'attachment_hash_malicious', severity: s.malicious >= 10 ? 'critical' : 'high', reliability: 'high',
+      title: `${s.malicious} of ${total} antivirus engines flag this exact file as malicious (fresh scan)`,
+      detail: `The attachment ${ctx.filename} was uploaded to VirusTotal and scanned. This describes the file; whether the email is malicious is decided separately.`,
+      evidence,
+    }));
+  } else if (s.malicious >= 1 || s.suspicious >= 3) {
+    findings.push(makeFinding({
+      ...base, id: 'attachment_hash_suspicious', severity: 'medium', reliability: 'medium',
+      title: s.malicious >= 1 ? `${s.malicious} of ${total} antivirus engine${s.malicious === 1 ? '' : 's'} flag this exact file (fresh scan)` : `${s.suspicious} of ${total} antivirus engines flag this exact file as suspicious (fresh scan)`,
+      detail: 'One or two detections can be generic heuristics or false positives; look at which engines flagged it before drawing conclusions.',
+      evidence,
+    }));
+  }
+  return { findings, checks };
+}

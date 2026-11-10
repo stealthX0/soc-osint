@@ -209,8 +209,8 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `content_delivery_scam` | 4 | lure wording | A parcel-delivery problem notice. |
 | `content_advance_fee` | 4 | lure wording | Prize, inheritance or windfall wording. |
 | `content_document_share_lure` | 4 | lure wording | A document, voicemail or fax "shared with you" lure. |
-| `content_attachment_lure` | 4 | none | Wording pushing you to open an attached invoice, receipt or voicemail. |
-| `content_qr_lure` | medium 12, low 5 | none | Tells you to scan a QR code. |
+| `content_attachment_lure` | 4 | lure wording | Wording pushing you to open an attached invoice, receipt or voicemail. |
+| `content_qr_lure` | medium 12, low 5 | lure wording | Tells you to scan a QR code. |
 | `content_image_only_body` | 4 | none | The message is mostly images, which evade text and link checks. |
 | `content_hidden_text` | 4 | none | A large amount of CSS-hidden text. |
 | `content_text_obfuscation` | medium 10, low 3 | none | Look-alike letters or invisible characters inside words. |

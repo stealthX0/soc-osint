@@ -1,19 +1,34 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import { Badge, Card, Copyable, DataTable, Empty, Spinner, type Tone } from '../../components/ui';
 import { Icon } from '../../components/icons';
-import { api } from '../../lib/api';
-import { fmtBytes, MAX_LOCAL_BYTES } from '../../lib/fileApi';
+import { api, ApiClientError } from '../../lib/api';
+import { fmtBytes, MAX_LOCAL_BYTES, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/fileApi';
 import { navigate } from '../../lib/router';
 import { hashBytes } from '../../../shared/fileAnalysis';
-import { analyzeDroppedFile, type AttachmentHashRequest, type AttachmentHashResponse, type StaticResult } from '../../../shared/phishing/attachments';
+import { analyzeDroppedFile, convertActiveScan, type ActiveScanOutcome, type AttachmentHashRequest, type AttachmentHashResponse, type StaticResult } from '../../../shared/phishing/attachments';
+import type { FileAnalysisReport } from '../../../shared/types';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
 import type { CheckResult, Finding, Severity } from '../../../shared/phishing/types';
 
 const sevTone: Record<Severity, Tone> = { critical: 'bad', high: 'bad', medium: 'warn', low: 'info', info: 'neutral' };
 const statusTone: Record<CheckResult['status'], Tone> = { complete: 'neutral', failed: 'bad', skipped: 'warn', not_applicable: 'neutral' };
 
-interface LocalFile { index: number; name: string; size: number; md5: string; sha1: string; sha256: string; result: StaticResult }
+interface LocalFile { index: number; name: string; size: number; md5: string; sha1: string; sha256: string; result: StaticResult; file: File }
 type RepState = { status: 'loading' } | { status: 'done'; res: AttachmentHashResponse } | { status: 'error'; message: string };
+type ScanState = { status: 'uploading' } | { status: 'scanning'; link: string | null } | { status: 'final'; outcome: ActiveScanOutcome };
+
+/** Waits between VirusTotal analysis polls. Every poll spends one request of the shared VirusTotal quota (4/min on the free tier). */
+const SCAN_POLL_DELAYS_S = [15, 20, 25, 30, 30, 40, 45];
+/** Longest the analysis waits for VirusTotal scans to finish before reporting them as still running. */
+const SCAN_DEADLINE_MS = 200_000;
+const QUOTA_WAIT_MS = 60_000;
+const sleep = (ms: number, alive: () => boolean) => new Promise<void>((res) => {
+  const end = Date.now() + ms;
+  const tick = () => (!alive() || Date.now() >= end ? res() : setTimeout(tick, Math.min(1000, end - Date.now())));
+  tick();
+});
+const isQuota = (e: unknown) => e instanceof ApiClientError && (e.status === 429 || e.code === 'PROVIDER_BUDGET' || e.code === 'RATE_LIMITED');
+const isNotConfigured = (e: unknown) => e instanceof ApiClientError && (e.code === 'NOT_CONFIGURED' || e.status === 503);
 
 interface Row {
   index: number;
@@ -56,13 +71,14 @@ function providerBadge(c: CheckResult): ReactNode {
 export function useAttachmentStage(r: ParseStageResult, files: File[] = []): AttachmentStage {
   const [locals, setLocals] = useState<LocalFile[]>([]);
   const [rep, setRep] = useState<Record<number, RepState>>({});
+  const [scans, setScans] = useState<Record<number, ScanState>>({});
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [settled, setSettled] = useState(false);
   // A new analysis starts clean: dropped files and lookups belong to the message they were added to.
   const [forResult, setForResult] = useState(r);
-  if (forResult !== r) { setForResult(r); setLocals([]); setRep({}); setErr(null); }
+  if (forResult !== r) { setForResult(r); setLocals([]); setRep({}); setScans({}); setErr(null); }
 
   const rows: Row[] = useMemo(() => {
     const forItem = (hash: string | null, name: string | null) =>
@@ -77,13 +93,21 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
     return [...embedded, ...dropped];
   }, [r, locals]);
 
-  const findings = useMemo<Finding[]>(
-    () => [...locals.flatMap((l) => l.result.findings), ...Object.values(rep).flatMap((s) => (s.status === 'done' ? s.res.findings : []))],
-    [locals, rep],
-  );
+  const scanResults = useMemo(() => locals.flatMap((l) => {
+    const st = scans[l.index];
+    return st?.status === 'final' ? [{ index: l.index, ...convertActiveScan(st.outcome, { index: l.index, filename: l.name, sha256: l.sha256 }) }] : [];
+  }), [locals, scans]);
+
+  const findings = useMemo<Finding[]>(() => {
+    const repFindings = Object.values(rep).flatMap((s) => (s.status === 'done' ? s.res.findings : []));
+    // A file the hash lookup already flags is not counted a second time from its fresh scan.
+    const flagged = new Set(repFindings.filter((f) => f.id === 'attachment_hash_malicious' || f.id === 'attachment_hash_suspicious').map((f) => f.indicator?.value));
+    const scanFindings = scanResults.flatMap((x) => x.findings).filter((f) => !flagged.has(f.indicator?.value));
+    return [...locals.flatMap((l) => l.result.findings), ...repFindings, ...scanFindings];
+  }, [locals, rep, scanResults]);
   const checks = useMemo<CheckResult[]>(
-    () => [...locals.map((l) => l.result.check), ...Object.values(rep).flatMap((s) => (s.status === 'done' ? s.res.checks : []))],
-    [locals, rep],
+    () => [...locals.map((l) => l.result.check), ...Object.values(rep).flatMap((s) => (s.status === 'done' ? s.res.checks : [])), ...scanResults.flatMap((x) => x.checks)],
+    [locals, rep, scanResults],
   );
   const urls = useMemo(() => [...new Set([...r.attachmentStatic.flatMap((s) => s.urls), ...locals.flatMap((l) => l.result.summary.urls)])], [r, locals]);
 
@@ -99,6 +123,56 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
     }
   };
 
+  /**
+   * Active scan: uploads each file to VirusTotal (the upload API the tool provides), then polls the analyses until they
+   * finish or the deadline passes. Uploads go one at a time and back off when the shared VirusTotal quota is used up.
+   */
+  const activeScan = async (list: LocalFile[], alive: () => boolean) => {
+    const final = (index: number, outcome: ActiveScanOutcome) => setScans((p) => ({ ...p, [index]: { status: 'final', outcome } }));
+    const started = Date.now();
+    const uploaded: { l: LocalFile; id: string; link: string | null }[] = [];
+    for (const l of list) {
+      if (!alive()) return;
+      if (l.file.size > MAX_UPLOAD_BYTES) { final(l.index, { status: 'skipped', reason: `${fmtBytes(l.file.size)} is over the ${fmtBytes(MAX_UPLOAD_BYTES)} VirusTotal upload limit; only the hash was looked up.` }); continue; }
+      setScans((p) => ({ ...p, [l.index]: { status: 'uploading' } }));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const up = await uploadFile(l.file);
+          uploaded.push({ l, id: up.analysisId, link: up.link });
+          setScans((p) => ({ ...p, [l.index]: { status: 'scanning', link: up.link } }));
+          break;
+        } catch (e) {
+          if (isNotConfigured(e)) { final(l.index, { status: 'skipped', reason: 'File upload is not enabled on this site (no VirusTotal key configured).' }); break; }
+          if (isQuota(e) && attempt < 3 && Date.now() - started + QUOTA_WAIT_MS < SCAN_DEADLINE_MS) { await sleep(QUOTA_WAIT_MS, alive); if (!alive()) return; continue; }
+          final(l.index, { status: 'failed', reason: `Upload failed: ${e instanceof Error ? e.message : 'unknown error'}` });
+          break;
+        }
+      }
+    }
+    let pending = uploaded;
+    const deadline = started + SCAN_DEADLINE_MS;
+    for (const delay of SCAN_POLL_DELAYS_S) {
+      if (!pending.length || !alive()) break;
+      if (Date.now() + delay * 1000 > deadline) break;
+      await sleep(delay * 1000, alive);
+      const still: typeof pending = [];
+      let quota = false;
+      for (const u of pending) {
+        if (quota || !alive()) { still.push(u); continue; }
+        try {
+          const { data } = await api<FileAnalysisReport>('/api/file/analysis', { params: { id: u.id } });
+          if (data.status === 'completed') final(u.l.index, { status: 'completed', report: data });
+          else still.push(u);
+        } catch (e) {
+          if (isQuota(e)) quota = true; // wait for the next round
+          still.push(u);
+        }
+      }
+      pending = still;
+    }
+    for (const u of pending) final(u.l.index, { status: 'pending', link: u.link });
+  };
+
   const checkAll = async () => {
     const todo = rows.filter((x) => x.hash);
     setBusy(true);
@@ -112,16 +186,18 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
     setErr(null);
     if (f.size > MAX_LOCAL_BYTES) { setErr(`${f.name} is ${fmtBytes(f.size)}. Files over ${fmtBytes(MAX_LOCAL_BYTES)} cannot be analysed in the browser. Compute its SHA-256 yourself and add it to the attachments box instead.`); return; }
     try {
-      // Analysed in memory on this device. The bytes are never sent anywhere; only the hash is, and only when you ask.
+      // Inspected in memory on this device, looked up by hash, then uploaded to VirusTotal for an active scan.
       const bytes = new Uint8Array(await f.arrayBuffer());
       const h = await hashBytes(bytes);
       const index = r.attachments.length + locals.length;
-      setLocals((p) => [...p, { index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256) }]);
+      const local: LocalFile = { index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256), file: f };
+      setLocals((p) => [...p, local]);
+      void lookup({ index, name: f.name, hash: h.sha256, hashType: 'sha256' }).then(() => activeScan([local], () => true));
     } catch { setErr(`Could not read ${f.name}.`); }
   };
 
-  // Runs once per analysis: inspect the files attached in the form, then look up every hash (embedded, typed or attached),
-  // two at a time. The report is held back until this has finished, so the verdict never rests on half the evidence.
+  // Runs once per analysis: inspect the files attached in the form, look up every hash (embedded, typed or attached),
+  // two at a time, then upload the attached files to VirusTotal for an active scan. The report is held back until this has finished, so the verdict never rests on half the evidence.
   useEffect(() => {
     let live = true;
     void (async () => {
@@ -132,7 +208,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
           const bytes = new Uint8Array(await f.arrayBuffer());
           const h = await hashBytes(bytes);
           const index = r.attachments.length + added.length;
-          added.push({ index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256) });
+          added.push({ index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256), file: f });
         } catch { errs.push(`Could not read ${f.name}.`); }
       }
       if (!live) return;
@@ -143,13 +219,15 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
         ...added.map((l) => ({ index: l.index, name: l.name, hash: l.sha256, hashType: 'sha256' as const })),
       ];
       for (let i = 0; i < todo.length && live; i += 2) await Promise.all(todo.slice(i, i + 2).map(lookup));
+      // Every attached / extracted file is also uploaded for a fresh multi-engine scan before the verdict is computed.
+      if (live && added.length) await activeScan(added, () => live);
       if (live) setSettled(true);
     })();
     return () => { live = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hashed = rows.filter((x) => x.hash).length;
-  const anyLoading = busy || Object.values(rep).some((s) => s.status === 'loading');
+  const anyLoading = busy || Object.values(rep).some((s) => s.status === 'loading') || Object.values(scans).some((s) => s.status !== 'final');
 
   const panel = (
     <div className="space-y-4">
@@ -160,7 +238,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
       >
         <Icon name="file" size={20} className="mx-auto mb-2 text-muted" />
         <p>Drop an attachment here to analyse it in your browser, or <label className="cursor-pointer text-teal hover:underline">choose a file<input type="file" className="sr-only" onChange={(e: ChangeEvent<HTMLInputElement>) => { void addFile(e.target.files?.[0]); e.target.value = ''; }} /></label>.</p>
-        <p className="mt-1 text-xs text-faint">The file is analysed in memory on your device (up to {fmtBytes(MAX_LOCAL_BYTES)}) and never uploaded. Never open it to check it.</p>
+        <p className="mt-1 text-xs text-faint">The file is inspected on your device (up to {fmtBytes(MAX_LOCAL_BYTES)}), looked up by hash and uploaded to VirusTotal for an active scan (up to {fmtBytes(MAX_UPLOAD_BYTES)}). Never open it to check it.</p>
       </div>
       {err && <p className="text-sm text-bad" role="alert">{err}</p>}
 
@@ -171,13 +249,14 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
             {anyLoading && <Spinner label="Looking up hashes" />}
             {!hashed && <span className="text-xs text-muted">No hashes yet: paste one in the attachments box or drop the file here.</span>}
           </div>
-          <p className="mt-2 text-xs text-muted">Only each file’s hash is sent, to VirusTotal, MalwareBazaar, CIRCL hashlookup and Hybrid Analysis. File names and contents are not. Uploading a file to VirusTotal is a separate action on the File page.</p>
+          <p className="mt-2 text-xs text-muted">Each file’s hash is looked up at VirusTotal, MalwareBazaar, CIRCL hashlookup and Hybrid Analysis. Files you attach (or that were extracted from an email file) are also uploaded to VirusTotal for a fresh multi-engine scan; uploaded files are shared with VirusTotal and its security partners.</p>
         </div>
       )}
 
       {rows.length ? (
-        <DataTable head={['File', 'Type', 'Hashes', 'Static findings', 'Reputation']} rows={rows.map((x) => {
+        <DataTable head={['File', 'Type', 'Hashes', 'Static findings', 'Reputation', 'Active scan']} rows={rows.map((x) => {
           const s = rep[x.index];
+          const sc = scans[x.index];
           const local = locals.find((l) => l.index === x.index);
           const repChecks = s?.status === 'done' ? s.res.checks : [];
           const repFindings = s?.status === 'done' ? s.res.findings : [];
@@ -198,6 +277,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
               {s?.status === 'done' && repFindings.some((f) => f.id === 'attachment_hash_unknown') && <p className="text-xs text-muted">Unknown is not the same as safe: no provider that responded has seen this file.</p>}
               {noDetections && !repFindings.some((f) => f.id === 'attachment_hash_unknown') && <p className="text-xs text-muted">No detections from the providers that responded. Not proof of safety.</p>}
             </div>,
+            <ScanCell key="a" state={sc} origin={x.origin} />,
           ];
         })} />
       ) : <Empty>No attachments were found or listed. Drop a file above to analyse it locally.</Empty>}
@@ -213,4 +293,26 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
   const results = useMemo(() => Object.values(rep).flatMap((x) => (x.status === 'done' ? [x.res] : [])), [rep]);
 
   return { findings, checks, urls, results, panel, settled };
+}
+
+/** The "Active scan" cell: upload / scan progress and the fresh VirusTotal result. */
+function ScanCell({ state, origin }: { state: ScanState | undefined; origin: 'embedded' | 'supplied' | 'dropped' }) {
+  if (!state) return <span className="text-xs text-faint">{origin === 'dropped' ? 'waiting' : 'no file to upload (hash only)'}</span>;
+  if (state.status === 'uploading') return <Spinner label="Uploading to VirusTotal" />;
+  if (state.status === 'scanning') return <Spinner label="VirusTotal scanning" />;
+  const o = state.outcome;
+  if (o.status === 'skipped') return <Badge tone="warn" title={o.reason}>skipped</Badge>;
+  if (o.status === 'failed') return <Badge tone="bad" title={o.reason}>scan failed</Badge>;
+  if (o.status === 'pending') return <div className="space-y-1 text-xs"><Badge tone="warn">still scanning</Badge>{o.link && <a className="block text-teal hover:underline" href={o.link} target="_blank" rel="noreferrer noopener">open report</a>}</div>;
+  const st = o.report.stats;
+  if (!st) return <Badge tone="neutral">no result</Badge>;
+  const tone: Tone = st.malicious >= 3 ? 'bad' : st.malicious + st.suspicious > 0 ? 'warn' : 'neutral';
+  return (
+    <div className="space-y-1 text-xs">
+      <Badge tone={tone}>{st.malicious} / {st.total} malicious</Badge>
+      {st.suspicious > 0 && <Badge tone="warn">{st.suspicious} suspicious</Badge>}
+      {o.report.detections.length > 0 && <p className="text-muted">{[...new Set(o.report.detections.map((d) => d.result).filter(Boolean))].slice(0, 3).join(', ')}</p>}
+      {o.report.link && <a className="block text-teal hover:underline" href={o.report.link} target="_blank" rel="noreferrer noopener">VirusTotal report</a>}
+    </div>
+  );
 }
