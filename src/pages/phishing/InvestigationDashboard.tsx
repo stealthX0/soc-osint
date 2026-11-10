@@ -392,11 +392,16 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                 </div>
               )}
 
-              {activeTab === 'sender' && <SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} />}
-              {activeTab === 'urls' && <UrlTab r={r} links={links} />}
-              {activeTab === 'domain' && <HeadersTab r={r} sender={sender} findings={findings} />}
-              {activeTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
-              {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
+              {/* Detail tabs keep a readable width instead of stretching rows and cards across very wide screens. */}
+              {activeTab !== 'overview' && (
+                <div className="max-w-[1180px]">
+                  {activeTab === 'sender' && <SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} />}
+                  {activeTab === 'urls' && <UrlTab r={r} links={links} />}
+                  {activeTab === 'domain' && <HeadersTab r={r} sender={sender} findings={findings} />}
+                  {activeTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
+                  {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
+                </div>
+              )}
             </div>
           </section>
 

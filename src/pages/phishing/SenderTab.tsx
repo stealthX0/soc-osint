@@ -16,7 +16,7 @@ export function SenderPanel({ slots, skipped, running }: { slots: Slot[]; skippe
     <div className="space-y-4">
       {running > 0 && <Spinner label={`Running ${running} lookup${running === 1 ? '' : 's'}`} />}
       <p className="text-xs text-muted">Reputation describes the IP, domain or address, not this particular message. Mail sent through large providers (Google, Microsoft, mailing services) says little either way.</p>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid items-start gap-4 sm:grid-cols-[repeat(auto-fill,minmax(320px,1fr))]">
         {done.map(({ res }) => {
           const d = res!.data!;
           if (d.check === 'ip') {
