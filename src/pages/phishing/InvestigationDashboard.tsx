@@ -2,11 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Copyable, type Tone } from '../../components/ui';
 import { Icon, type IconName } from '../../components/icons';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
-import type { PhishingInput, Finding, Dimension } from '../../../shared/phishing/types';
+import type { PhishingInput, Finding, Severity } from '../../../shared/phishing/types';
 import type { Verdict, VerdictLabel } from '../../../shared/phishing/verdict';
 import { VERDICT_TEXT } from '../../../shared/phishing/verdict';
-import { summarizeReasoning } from '../../../shared/phishing/summary';
-import { dimensionLabel } from '../../../shared/phishing/findings';
 import type { Report } from '../../../shared/phishing/report';
 import type { TimelineEvent } from '../../../shared/phishing/timeline';
 import type { CheckRowX, PipelineChip } from './model';
@@ -17,7 +15,9 @@ import { SenderTab } from './SenderTab';
 import { UrlTab } from './UrlTab';
 import { AttachmentTab } from './AttachmentPanel';
 import { EvidenceTab } from './EvidenceTab';
-import { sevTone } from './common';
+import { TabFindings, SEV_RANK } from './common';
+import { identityFindings } from './SenderTab';
+import { KeyFindings, RiskByArea, ReasoningCard, areaStates, type AnalysisTab } from './OverviewParts';
 import type { SenderStage, LinkStage } from './hooks';
 import type { AttachmentStage } from './AttachmentPanel';
 import type { IpLookup } from '../../../shared/types';
@@ -70,11 +70,11 @@ const verdictWord: Record<VerdictLabel, string> = {
 };
 
 /* ─── tab definitions ─── */
-type AnalysisTab = 'overview' | 'sender' | 'urls' | 'domain' | 'content' | 'evidence';
 const ANALYSIS_TABS: { id: AnalysisTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'sender', label: 'Sender Analysis' },
   { id: 'urls', label: 'Link Analysis' },
+  { id: 'attachments', label: 'Attachments' },
   { id: 'domain', label: 'Domain & IP Intelligence' },
   { id: 'content', label: 'Content Analysis' },
   { id: 'evidence', label: 'Evidence' },
@@ -95,6 +95,8 @@ export interface DashboardProps {
   att: AttachmentStage;
   startedAt: number;
   onNewAnalysis?: () => void;
+  /** Tab shown first (Overview unless set; used by previews and tests). */
+  initialTab?: AnalysisTab;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -154,32 +156,21 @@ function Panel({ title, icon, children, className = '' }: { title: string; icon?
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Key Finding Card
-   ═══════════════════════════════════════════════════════════ */
-function FindingCard({ icon, title, desc, tone }: { icon: IconName; title: string; desc: string; tone: Tone }) {
-  const iconBg: Record<Tone, string> = { bad: 'bg-rose/15 text-rose', warn: 'bg-amber/15 text-amber', good: 'bg-green/15 text-green', info: 'bg-sky/15 text-sky', accent: 'bg-teal/15 text-teal', neutral: 'bg-line/20 text-muted' };
-  return (
-    <div className="rounded-xl border border-line/60 bg-[#0b1426] p-4">
-      <div className="flex items-start gap-3">
-        <div className={`grid size-10 shrink-0 place-items-center rounded-full ${iconBg[tone]}`}>
-          <Icon name={icon} size={20} />
-        </div>
-        <div className="min-w-0 pt-0.5">
-          <div className="text-sm font-bold text-fg leading-snug">{title}</div>
-          <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted">{desc}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
+/** Tab-bar count chip, tinted by the worst severity among that tab's findings. */
+const countChip: Record<Severity, string> = {
+  critical: 'bg-rose/20 text-rose', high: 'bg-rose/20 text-rose', medium: 'bg-amber/20 text-amber', low: 'bg-sky/15 text-sky', info: 'bg-line/50 text-muted',
+};
+const worst = (fs: Finding[]): Severity | null => fs.reduce<Severity | null>((w, f) => (w === null || SEV_RANK[f.severity] < SEV_RANK[w] ? f.severity : w), null);
 
 /* ═══════════════════════════════════════════════════════════
    THE FULL-PAGE DASHBOARD
    ═══════════════════════════════════════════════════════════ */
-export function InvestigationDashboard({ r, input, verdict, findings, rows, pipeline, report, timeline, sender, links, att, startedAt, onNewAnalysis }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<AnalysisTab>('overview');
+export function InvestigationDashboard({ r, input, verdict, findings, rows, pipeline, report, timeline, sender, links, att, startedAt, onNewAnalysis, initialTab = 'overview' }: DashboardProps) {
+  const [activeTab, setActiveTab] = useState<AnalysisTab>(initialTab);
   const heading = useRef<HTMLHeadingElement>(null);
+  const detail = useRef<HTMLElement>(null);
+  /** Opens a tab and brings the Detailed Analysis section into view (used by the Key Findings cards and Risk by Area). */
+  const openTab = (tab: AnalysisTab) => { setActiveTab(tab); detail.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   useEffect(() => { heading.current?.focus(); }, []);
 
   /* ── derived data ── */
@@ -194,21 +185,25 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
   const analysisTime = useMemo(() => ((Date.now() - startedAt) / 1000).toFixed(1), [startedAt]);
   const caseId = `PHI-${new Date(startedAt).toISOString().slice(2, 10).replace(/-/g, '')}-${String(startedAt).slice(-4)}`;
 
-  /* dimension helpers */
-  const dimInfo = (dim: Dimension): { tone: Tone; top: Finding | null } => {
-    const ds = verdict.dimensions.find((d) => d.dimension === dim);
-    const df = findings.filter((f) => f.dimension === dim);
-    const top = df[0] ?? null;
-    if (!ds || !ds.active) return { tone: 'neutral', top };
-    if (ds.score <= 0) return { tone: 'good', top };
-    if (ds.score < 30) return { tone: 'info', top };
-    if (ds.score < 60) return { tone: 'warn', top };
-    return { tone: 'bad', top };
-  };
-  const authDim = dimInfo('authentication');
-  const urlDim = dimInfo('url');
-  const infraDim = dimInfo('infrastructure');
-  const contentDim = dimInfo('content');
+  /* per-area state (tone, score, findings) shared by Key Findings, Risk by Area and the bottom panels */
+  const areas = useMemo(() => areaStates(verdict, findings), [verdict, findings]);
+  const area = (d: Finding['dimension']) => areas.find((x) => x.dim === d)!;
+  const urlDim = { tone: area('url').tone };
+  const infraDim = { tone: area('infrastructure').tone, top: area('infrastructure').findings[0] ?? null };
+
+  /* findings shown in each tab, and the tab-bar counts */
+  const tabFindings = useMemo(() => {
+    const ident = identityFindings(findings);
+    const identIds = new Set(ident);
+    return {
+      sender: ident,
+      urls: findings.filter((f) => f.dimension === 'url'),
+      attachments: findings.filter((f) => f.dimension === 'attachment'),
+      domain: findings.filter((f) => f.dimension === 'authentication' || f.dimension === 'infrastructure'),
+      content: findings.filter((f) => f.dimension === 'content' && !identIds.has(f)),
+      evidence: findings,
+    } as Partial<Record<AnalysisTab, Finding[]>>;
+  }, [findings]);
 
   /* threat type from dominant dimension */
   const threatType = (() => {
@@ -218,9 +213,6 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
     return m[d.dimension] ?? 'Phishing';
   })();
 
-  /* reasoning: one-sentence summary, the strongest findings as short points, one caveat */
-  const reasoning = useMemo(() => summarizeReasoning(verdict), [verdict]);
-  const sevDot: Record<string, string> = { critical: 'bg-rose', high: 'bg-rose', medium: 'bg-amber', low: 'bg-sky', info: 'bg-faint' };
 
 
   return (
@@ -293,8 +285,13 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                 <p className="mt-0.5 text-sm text-fg/85">{verdict.headline}</p>
               </div>
             </div>
-            <div className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold tabular-nums ${verdictPillBg[verdict.label]}`}>
-              Risk Score: {verdict.risk} / 100
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <div className="rounded-full border border-white/10 bg-black/20 px-3.5 py-1.5 text-sm tabular-nums text-fg/90" title={verdict.confidence.notes.join(' ') || undefined}>
+                Confidence: <span className="font-semibold capitalize">{verdict.confidence.level}</span> <span className="text-fg/70">({verdict.confidence.score}%)</span>
+              </div>
+              <div className={`rounded-full px-4 py-1.5 text-sm font-semibold tabular-nums ${verdictPillBg[verdict.label]}`}>
+                Risk Score: {verdict.risk} / 100
+              </div>
             </div>
           </div>
 
@@ -312,25 +309,12 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           {/* ── KEY FINDINGS ── */}
           <div>
             <h3 className="mb-3 text-lg font-bold text-fg">Key Findings</h3>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <FindingCard icon="lock" tone={authDim.tone}
-                title={authDim.top?.title ?? 'Authentication'}
-                desc={authDim.top?.detail ?? (authDim.tone === 'good' ? 'Email authentication checks passed.' : 'No authentication findings.')} />
-              <FindingCard icon="shield" tone={urlDim.tone}
-                title={urlDim.top?.title ?? 'URL Analysis'}
-                desc={urlDim.top?.detail ?? (urlDim.tone === 'good' ? 'All URLs appear legitimate.' : 'No URL findings.')} />
-              <FindingCard icon="globe" tone={infraDim.tone}
-                title={infraDim.top?.title ?? 'Infrastructure'}
-                desc={infraDim.top?.detail ?? (infraDim.tone === 'good' ? 'Sending infrastructure looks legitimate.' : 'No infrastructure findings.')} />
-              <FindingCard icon="eye" tone={contentDim.tone}
-                title={contentDim.top?.title ?? 'Content Analysis'}
-                desc={contentDim.top?.detail ?? (contentDim.tone === 'good' ? 'Email content appears normal.' : 'No content findings.')} />
-            </div>
+            <KeyFindings areas={areas} onOpen={openTab} />
           </div>
 
           {/* ── DETAILED ANALYSIS ── */}
           {/* Capped just past its content (gauge + classification + 960px reasoning card) so it does not span very wide screens. */}
-          <section className="max-w-[1620px] rounded-xl border border-line/70 bg-[#0c1529] px-5 pb-5 pt-4">
+          <section ref={detail} className="max-w-[1620px] scroll-mt-4 rounded-xl border border-line/70 bg-[#0c1529] px-5 pb-5 pt-4">
             <h3 className="text-lg font-bold text-fg">Detailed Analysis</h3>
             {/* Tab bar */}
             <div className="mb-5 mt-2 flex gap-2 overflow-x-auto border-b border-line/50" role="tablist">
@@ -340,6 +324,11 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                     activeTab === t.id ? 'border-sky text-sky' : 'border-transparent text-fg/75 hover:text-fg'
                   }`}>
                   {t.label}
+                  {(() => {
+                    const fs = tabFindings[t.id];
+                    const w = fs ? worst(fs) : null;
+                    return fs && fs.length > 0 && w ? <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${t.id === 'evidence' ? countChip.info : countChip[w]}`} aria-label={`${fs.length} findings`}>{fs.length}</span> : null;
+                  })()}
                 </button>
               ))}
             </div>
@@ -347,49 +336,30 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             {/* Tab content */}
             <div className="ph-db-detail-content">
               {activeTab === 'overview' && (
-                <div className="grid items-start gap-6 lg:grid-cols-[240px_minmax(0,300px)_minmax(0,1fr)]">
-                  {/* Risk gauge */}
-                  <div className="flex justify-center">
-                    <SemiGauge score={verdict.risk} label={verdict.label} />
-                  </div>
-
-                  {/* Classification: label / value rows, values close to their labels */}
-                  <dl className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3.5 pt-2 text-[15px]">
-                    <dt className="text-fg/80">Classification</dt>
-                    <dd><span className={`inline-block rounded-full px-3.5 py-1 text-sm font-semibold ${verdictSolidPill[verdict.label]}`}>{verdictWord[verdict.label]}</span></dd>
-                    <dt className="text-fg/80">Confidence</dt>
-                    <dd className="font-bold text-fg" title={verdict.confidence.notes.join(' ') || undefined}>{verdict.confidence.score}% <span className="text-xs font-normal capitalize text-muted">({verdict.confidence.level})</span></dd>
-                    <dt className="text-fg/80">Threat Type</dt>
-                    <dd className="font-bold text-fg">{threatType}</dd>
-                    <dt className="text-fg/80">Coverage</dt>
-                    <dd className="font-bold text-fg">{Math.round(verdict.coverage * 100)}%</dd>
-                  </dl>
-
-                  {/* Reasoning card: capped width so it does not stretch across wide screens */}
-                  <div className="w-full max-w-[960px] rounded-xl border border-line/60 bg-[#0f1a31] p-4">
-                    <h4 className="text-base font-bold text-fg">Reasoning</h4>
-                    <p className="mt-1.5 text-sm leading-relaxed text-fg/90">{reasoning.summary}</p>
-                    {reasoning.points.length > 0 && (
-                      <ul className="mt-2 space-y-1 text-sm text-fg/85">
-                        {reasoning.points.map((pt) => (
-                          <li key={pt.text} className="flex items-start gap-2">
-                            <span className={`mt-[7px] size-1.5 shrink-0 rounded-full ${sevDot[pt.severity]}`} aria-hidden />
-                            <span>{pt.text}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {reasoning.caveat && <p className="mt-2 text-xs leading-relaxed text-muted">{reasoning.caveat}</p>}
-                    {verdict.conflicts.length > 0 && verdict.label !== 'malicious' && (
-                      <p className="mt-2 text-xs text-amber">Conflicting evidence: {verdict.conflicts[0]}</p>
-                    )}
-                    {verdict.actions.length > 0 && (
-                      <div className="mt-3 border-t border-line/50 pt-2.5 text-xs">
-                        <div className="mb-1 font-semibold uppercase tracking-wider text-faint">Recommended Actions</div>
-                        <ul className="space-y-0.5 text-muted">{verdict.actions.slice(0, 3).map((x) => <li key={x}>• {x}</li>)}</ul>
+                <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,600px)_minmax(0,960px)]">
+                  <div className="space-y-5">
+                    <div className="grid items-center gap-6 sm:grid-cols-[240px_minmax(0,1fr)]">
+                      {/* Risk gauge */}
+                      <div className="flex justify-center">
+                        <SemiGauge score={verdict.risk} label={verdict.label} />
                       </div>
-                    )}
+
+                      {/* Classification: label / value rows, values close to their labels */}
+                      <dl className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3.5 text-[15px]">
+                        <dt className="text-fg/80">Classification</dt>
+                        <dd><span className={`inline-block rounded-full px-3.5 py-1 text-sm font-semibold ${verdictSolidPill[verdict.label]}`}>{verdictWord[verdict.label]}</span></dd>
+                        <dt className="text-fg/80">Confidence</dt>
+                        <dd className="font-bold text-fg" title={verdict.confidence.notes.join(' ') || undefined}>{verdict.confidence.score}% <span className="text-xs font-normal capitalize text-muted">({verdict.confidence.level})</span></dd>
+                        <dt className="text-fg/80">Threat Type</dt>
+                        <dd className="font-bold text-fg">{threatType}</dd>
+                        <dt className="text-fg/80">Coverage</dt>
+                        <dd className="font-bold text-fg" title="Share of the planned checks that returned an answer">{Math.round(verdict.coverage * 100)}%</dd>
+                      </dl>
+                    </div>
+                    <RiskByArea areas={areas} onOpen={openTab} />
                   </div>
+
+                  <ReasoningCard verdict={verdict} />
                 </div>
               )}
 
@@ -397,9 +367,31 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
               {activeTab !== 'overview' && (
                 <div className="max-w-[1180px]">
                   {activeTab === 'sender' && <SenderTab slots={sender.slots} skipped={sender.plan.skipped} running={sender.running} findings={findings} />}
-                  {activeTab === 'urls' && <UrlTab r={r} links={links} />}
-                  {activeTab === 'domain' && <HeadersTab r={r} sender={sender} findings={findings} />}
-                  {activeTab === 'content' && <ContentPanel a={r.content.analysis} subject={r.content.subject} />}
+                  {activeTab === 'urls' && (
+                    <div className="space-y-6">
+                      <TabFindings id="ph-url-findings" title="Link findings" findings={tabFindings.urls ?? []} />
+                      <UrlTab r={r} links={links} />
+                    </div>
+                  )}
+                  {activeTab === 'attachments' && (
+                    <div className="space-y-6">
+                      <TabFindings id="ph-att-findings" title="Attachment findings" findings={tabFindings.attachments ?? []}
+                        empty={attachmentCount ? 'No attachment findings so far. Hash lookups and the VirusTotal scan are listed below.' : undefined} />
+                      {attachmentCount > 0 || att.results.length > 0 ? <AttachmentTab att={att} /> : <p className="text-sm text-muted">The message has no attachments.</p>}
+                    </div>
+                  )}
+                  {activeTab === 'domain' && (
+                    <div className="space-y-6">
+                      <TabFindings id="ph-domain-findings" title="Authentication and infrastructure findings" findings={tabFindings.domain ?? []} />
+                      <HeadersTab r={r} sender={sender} findings={findings} />
+                    </div>
+                  )}
+                  {activeTab === 'content' && (
+                    <div className="space-y-6">
+                      <ContentPanel a={r.content.analysis} subject={r.content.subject} />
+                      <TabFindings id="ph-content-findings" title="Scored content findings" findings={tabFindings.content ?? []} />
+                    </div>
+                  )}
                   {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
                 </div>
               )}

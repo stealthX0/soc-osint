@@ -9,7 +9,7 @@
 import type { Dimension, Severity } from './types';
 import type { Verdict } from './verdict';
 
-export interface ReasoningPoint { text: string; severity: Severity }
+export interface ReasoningPoint { text: string; severity: Severity; dimension: Dimension }
 export interface ReasoningSummary {
   /** One sentence: the outcome and the evidence behind it. */
   summary: string;
@@ -30,7 +30,7 @@ const AREA: Record<Dimension, string> = {
 const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** "Sender domain: Hostname uses …" -> "Hostname uses …"; trims a trailing full stop. */
-function tidy(title: string): string {
+export function tidy(title: string): string {
   const t = title.replace(/^(sender domain|reply-to|return-path|link|attachment|url|file):\s+/i, '').trim().replace(/\.$/, '');
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
@@ -39,7 +39,7 @@ export function summarizeReasoning(v: Verdict, maxPoints = 5): ReasoningSummary 
   const reasons = v.reasons;
   const areas = [...new Set(reasons.map((r) => r.dimension))].map((d) => AREA[d]);
   const strong = reasons.filter((r) => r.severity === 'critical' || r.severity === 'high').length;
-  const points = reasons.slice(0, maxPoints).map((r) => ({ text: tidy(r.title), severity: r.severity }));
+  const points = reasons.slice(0, maxPoints).map((r) => ({ text: tidy(r.title), severity: r.severity, dimension: r.dimension }));
   const n = reasons.length;
   const indicators = `${n} warning sign${n === 1 ? '' : 's'}`;
 

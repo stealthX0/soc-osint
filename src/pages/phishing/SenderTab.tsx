@@ -3,7 +3,7 @@ import { Card, Badge, Empty, Spinner } from '../../components/ui';
 import { navigate } from '../../lib/router';
 import { idOf, labelOf } from '../../../shared/phishing/sender';
 import type { CheckResult, Finding } from '../../../shared/phishing/types';
-import { FindingRow, resTone } from './common';
+import { TabFindings, resTone } from './common';
 import type { Slot } from './hooks';
 
 function Metric({ k, v }: { k: string; v: ReactNode }) {
@@ -96,13 +96,14 @@ const IDENTITY = /brand|lookalike|display_name|homograph|impersonat|spoof/i;
 export const identityFindings = (findings: Finding[]): Finding[] => findings.filter((f) => IDENTITY.test(f.id));
 
 export function SenderTab({ slots, skipped, running, findings }: { slots: Slot[]; skipped: CheckResult[]; running: number; findings: Finding[] }) {
-  const ident = identityFindings(findings);
+  // Identity findings first: they say who the sender pretends to be. The reputation lookups that follow describe the infrastructure.
   return (
-    <div className="space-y-4">
-      <SenderPanel slots={slots} skipped={skipped} running={running} />
-      <section aria-labelledby="ph-ident">
-        <h3 id="ph-ident" className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">Sender identity findings</h3>
-        {ident.length ? <ul className="space-y-2">{ident.map((f, i) => <FindingRow key={`${f.id}${i}`} f={f} />)}</ul> : <p className="text-sm text-muted">No brand, look-alike or display-name findings so far. That depends on the checks that completed; see the check status table.</p>}
+    <div className="space-y-6">
+      <TabFindings id="ph-ident" title="Sender identity findings" findings={identityFindings(findings)}
+        empty="No brand, look-alike or display-name findings so far. That depends on the checks that completed; see the check status table." />
+      <section aria-labelledby="ph-sender-lookups">
+        <h3 id="ph-sender-lookups" className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">Sender reputation lookups</h3>
+        <SenderPanel slots={slots} skipped={skipped} running={running} />
       </section>
     </div>
   );

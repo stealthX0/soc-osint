@@ -41,10 +41,8 @@ body.ph-fullpage > div > .border-b.sm\:hidden {
 
 /* Detail tab content panels: constrain height so the dashboard stays in one viewport */
 .ph-db-detail-content {
-  max-height: 55vh;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #26375a transparent;
+  /* Grows with its tab: the page already scrolls, so a second scroll box inside it only hid content. */
+  min-height: 0;
 }
 
 /* Findings list: constrained scroll */

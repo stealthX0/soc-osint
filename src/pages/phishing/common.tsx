@@ -27,9 +27,15 @@ export function Section({ n, title, hint, children }: { n: number; title: string
   );
 }
 
+/** Most severe first. */
+export const SEV_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+export const bySeverity = (a: Finding, b: Finding) => SEV_RANK[a.severity] - SEV_RANK[b.severity];
+/** Left accent in the severity colour (the badge carries the word, so colour is never the only signal). */
+export const sevEdge: Record<Severity, string> = { critical: 'border-l-rose', high: 'border-l-rose', medium: 'border-l-amber', low: 'border-l-sky', info: 'border-l-line2' };
+
 export function FindingRow({ f }: { f: Finding }) {
   return (
-    <li className="rounded-lg border border-line bg-bg2/60 p-3">
+    <li className={`rounded-lg border border-l-[3px] border-line bg-bg2/60 p-3 ${sevEdge[f.severity]}`}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={sevTone[f.severity]}>{f.severity}</Badge>
         <span className="font-medium">{f.title}</span>
@@ -52,7 +58,7 @@ export function FindingRow({ f }: { f: Finding }) {
 export function FindingDetails({ f }: { f: Finding }) {
   const ev = (f.evidence ?? []).filter(Boolean);
   return (
-    <li className="rounded-lg border border-line bg-bg2/60">
+    <li className={`rounded-lg border border-l-[3px] border-line bg-bg2/60 ${sevEdge[f.severity]}`}>
       <details className="group">
         <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 p-3 text-sm">
           <Badge tone={sevTone[f.severity]}>{f.severity}</Badge>
@@ -75,3 +81,20 @@ export function FindingDetails({ f }: { f: Finding }) {
   );
 }
 
+
+/**
+ * The findings that belong to one analysis tab, most severe first, in a two-column grid on wide screens.
+ * Renders `empty` (or nothing) when there are none.
+ */
+export function TabFindings({ id, title, findings, empty }: { id: string; title: string; findings: Finding[]; empty?: ReactNode }) {
+  if (!findings.length && !empty) return null;
+  const sorted = [...findings].sort(bySeverity);
+  return (
+    <section aria-labelledby={id}>
+      <h3 id={id} className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">
+        {title}{findings.length > 0 && <span className="ml-1.5 font-normal normal-case tracking-normal text-faint">({findings.length})</span>}
+      </h3>
+      {sorted.length ? <ul className="grid items-start gap-2 lg:grid-cols-2">{sorted.map((f, i) => <FindingRow key={`${f.id}${f.indicator?.value ?? ''}${i}`} f={f} />)}</ul> : <p className="text-sm text-muted">{empty}</p>}
+    </section>
+  );
+}
