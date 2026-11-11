@@ -123,6 +123,11 @@ export const FINDING_DESCRIPTIONS: Record<string, string> = {
   sender_address_no_mx: 'The sender address domain has no mail servers, so it cannot receive replies.',
   sender_address_misspelt_domain: 'The sender address domain looks like a misspelling of a well-known domain.',
   sender_address_free_subdomain: 'The sender address is on a free or dynamic-DNS subdomain.',
+  sender_address_recent_abuse: 'IPQualityScore saw verified abuse from the sender address in the past few days.',
+  sender_address_fraud_score: 'The sender address has an IPQualityScore fraud score of 75 or more (medium at 90+).',
+  sender_address_domain_untrusted: 'IPQualityScore rates the sender address domain as suspicious or malicious.',
+  sender_address_mailbox_missing: 'The sender mailbox does not exist according to its mail server (IPQualityScore).',
+  sender_address_risky_tld: 'The sender address uses a top-level domain often tied to abuse (IPQualityScore).',
 
   /* wording */
   content_urgency: 'Urgent wording, strongest when it threatens consequences.',

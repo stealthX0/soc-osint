@@ -11,7 +11,7 @@ The page runs small stages and merges what each returns. Every stage returns the
 | Stage | Endpoint | Outbound requests | Rate-limit cost | What it does |
 |---|---|---|---|---|
 | Parse | `POST /api/phishing/parse` | none | 2 | Header forensics (trusted receiver boundary, labelled SPF/DKIM/DMARC), MIME body, links with gateway unwrapping, attachment hashes and static analysis, local link screening, sender identity (brand / look-alike), wording analysis |
-| Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address check (UserCheck). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
+| Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address check (UserCheck), sender mailbox reputation (IPQualityScore). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
 | Links | `POST /api/phishing/urls` | OpenPhish feed + at most 3 full lookups | 8 | Ranks links from offline evidence, checks all against the OpenPhish feed, runs the existing URL intelligence on the top few. Runs automatically after Analyse (full lookup on the top 3 links) |
 | Attachments | `POST /api/phishing/attachments` | one hash per call | 2 | Hash reputation through `/api/file/hash` |
 | Verdict | none (in the browser, `shared/phishing/verdict.ts`) | none | | Rules, scoring, coverage, confidence |
@@ -28,6 +28,7 @@ Why small stages: a Worker has a limited number of outbound requests per invocat
 | Public sender IPs | the IP intelligence providers (ipapi.is, RIPE, Shodan InternetDB, AbuseIPDB, VirusTotal, Pulsedive, as configured) | when the sender stage runs. Private and reserved addresses are never sent |
 | Sender and related domains | RDAP / WHOIS, DNS-over-HTTPS resolvers | when the sender stage runs. Consumer mailboxes and large mail platforms are skipped |
 | Sender e-mail address | UserCheck.com | always, when `USERCHECK_API_KEY` is configured (the address is sent to that service) |
+| Sender mailbox reputation | IPQualityScore Email Validation | always, when `IPQS_API_KEY` is configured (the address is sent to IPQS, which also probes the address's mail server). Fraud score, recent abuse, mailbox existence, domain trust, risky TLD; breach exposure is shown but never scored |
 | Link URLs | the URL intelligence providers (VirusTotal, URLhaus, Google Safe Browsing, Pulsedive, urlscan.io), DNS resolvers, and **the link destination itself (Cloudflare fetches it, with SSRF protection)** | automatically after Analyse (the top 3 links get a full lookup) |
 | File hashes | the hash intelligence providers (VirusTotal, MalwareBazaar, CIRCL, Hybrid Analysis, as configured) | automatically after Analyse. Files are never uploaded; a file attached in the form is analysed in the browser and only its hash is sent |
 
@@ -193,6 +194,11 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `sender_address_no_mx` | 3 | address reputation | The sender address domain has no mail servers, so it cannot receive replies. |
 | `sender_address_misspelt_domain` | 6 | address reputation | The sender address domain looks like a misspelling of a well-known domain. |
 | `sender_address_free_subdomain` | 2 | address reputation | The sender address is on a free or dynamic-DNS subdomain. |
+| `sender_address_recent_abuse` | 8 | address reputation | IPQualityScore saw verified abuse from the sender address in the past few days. |
+| `sender_address_fraud_score` | medium 6, low 3 | address reputation | The sender address has an IPQualityScore fraud score of 75 or more (medium at 90+). |
+| `sender_address_domain_untrusted` | high 10, medium 5 | address reputation | IPQualityScore rates the sender address domain as suspicious or malicious. |
+| `sender_address_mailbox_missing` | 4 | address reputation | The sender mailbox does not exist according to its mail server (IPQualityScore). |
+| `sender_address_risky_tld` | 2 | address reputation | The sender address uses a top-level domain often tied to abuse (IPQualityScore). |
 
 #### Message wording
 
@@ -226,6 +232,7 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 |---|---|
 | `VIRUSTOTAL_API_KEY`, `ABUSEIPDB_API_KEY`, `PULSEDIVE_API_KEY`, `GOOGLE_SAFE_BROWSING_API_KEY`, `URLSCAN_API_KEY`, `HYBRID_ANALYSIS_API_KEY`, `ABUSECH_AUTH_KEY`, `IPAPI_IS_API_KEY`, `APILAYER_API_KEY` | Optional provider keys already used by the other tools (see the README). A missing key shows that provider as skipped, never clean |
 | `USERCHECK_API_KEY`, `USERCHECK_DAILY` | UserCheck.com key for the sender address check (skipped when absent); optional daily cap |
+| `IPQS_API_KEY`, `IPQS_DAILY` | IPQualityScore key for the sender mailbox reputation check (skipped when absent); daily cap, default 30 to fit the free 1,000/month plan |
 | `OPENPHISH_FEED_URL`, `OPENPHISH_DAILY` | Optional https-only override of the OpenPhish community feed, and its daily download budget (default 300) |
 | `RATE_LIMIT` (KV) and `RATE_LIMIT_PER_MIN` | Shared per-client rate limit (default 60 cost units a minute). Without KV the counters are per isolate |
 

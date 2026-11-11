@@ -225,6 +225,57 @@ export interface UrlLookup {
   providers: ProviderStatus[];
 }
 
+/* -------------------------------------------------- Email address reputation (IPQualityScore) */
+/** One IPQualityScore Email Validation result: facts about the MAILBOX itself (exists, abuse history, fraud score). */
+export interface EmailReputation {
+  email: string;
+  domain: string;
+  /** Whether the mailbox appears to exist. null when IPQS could not tell (timeout or temporary mail-server error). */
+  valid: boolean | null;
+  /** The mail server did not answer in time, so `valid` is unreliable. */
+  timedOut: boolean;
+  /** Temporary error, broken SMTP handshake or catch-all server: `valid` may be unreliable. */
+  suspect: boolean;
+  /** 0–100; IPQS treats 75+ as suspicious and 90+ as risky. null when not returned. */
+  fraudScore: number | null;
+  /** Verified abuse (chargebacks, fake sign-ups, ...) seen for this address in the past few days. */
+  recentAbuse: boolean;
+  /** Appeared in a recent third-party data breach. Context only: very many genuine addresses have. */
+  leaked: boolean;
+  disposable: boolean;
+  /** Believed to be a spam trap. */
+  honeypot: boolean;
+  /** high / medium / low / none */
+  spamTrapScore: string | null;
+  frequentComplainer: boolean;
+  catchAll: boolean;
+  /** Role address such as admin@ or sales@. */
+  generic: boolean;
+  /** Major free provider such as Gmail or Outlook. */
+  freeProvider: boolean;
+  /** The domain has valid DNS / MX records. null when unknown. */
+  dnsValid: boolean | null;
+  /** high / medium / low */
+  deliverability: string | null;
+  /** -1 invalid · 0 rejects all mail · 1 temporary error · 2 accepts all mail · 3 verified */
+  smtpScore: number | null;
+  /** 0 invalid · 1 DNS ok, no mail server · 2 temporary rejection · 3 accepts all · 4 verified */
+  overallScore: number | null;
+  /** trusted / positive / neutral / suspicious / malicious / not rated */
+  domainTrust: string | null;
+  /** The top-level domain is often tied to abuse. */
+  riskyTld: boolean;
+  /** Likely intended domain when this one looks like a typo. */
+  suggestedDomain: string | null;
+  /** When IPQS first saw the address (ISO 8601) and the same as an age in words. */
+  firstSeen: string | null;
+  firstSeenHuman: string | null;
+  /** Domain registration date (ISO 8601) and age in words. */
+  domainRegistered: string | null;
+  domainAgeHuman: string | null;
+  providers: ProviderStatus[];
+}
+
 /* -------------------------------------------------- Email address check (UserCheck) */
 /** Result of one UserCheck.com address check. Mostly DOMAIN-level facts about where the address lives. */
 export interface EmailCheck {

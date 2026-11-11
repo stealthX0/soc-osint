@@ -123,7 +123,7 @@ function assessCoverage(parse: ParseStageResult, checks: CheckRow[]): Coverage {
   if (hasHeaders) for (const id of ['auth.spf', 'auth.dkim', 'auth.dmarc']) if (!done(id)) gaps.push({ critical: false, text: `${byId.get(id)?.label ?? id}: no result in the supplied headers.` });
 
   /* infrastructure: sender lookups (IP, domain, DNS, SPF re-check, address reputation) */
-  const sender = checks.filter((c) => c.id.startsWith('sender.') && c.id !== 'sender.identity' && c.status !== 'not_applicable' && !(c.id.startsWith('sender.usercheck') && c.status === 'skipped' && /not configured/i.test(c.detail ?? '')));
+  const sender = checks.filter((c) => c.id.startsWith('sender.') && c.id !== 'sender.identity' && c.status !== 'not_applicable' && !((c.id.startsWith('sender.usercheck') || c.id.startsWith('sender.ipqs')) && c.status === 'skipped' && /not configured/i.test(c.detail ?? '')));
   const senderDone = sender.filter((c) => c.status === 'complete').length;
   cov.infrastructure.coverage = sender.length ? senderDone / sender.length : 0;
   for (const c of sender.filter((x) => x.status === 'failed')) gaps.push({ critical: false, text: `${c.label} failed${c.detail ? `: ${c.detail}` : ''}.` });

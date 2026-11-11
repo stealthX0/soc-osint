@@ -10,7 +10,7 @@
  *    a clean or dirty shared IP says little about whether THIS message is phishing.
  *  - A lookup that fails or is skipped is reported as such and never counted as clean.
  */
-import type { EmailCheck, IpLookup, WhoisResult, EmailAuth } from '../types';
+import type { EmailCheck, EmailReputation, IpLookup, WhoisResult, EmailAuth } from '../types';
 import type { ParseStageResult } from './parse';
 import { check, makeFinding } from './findings';
 import { FREE_MAIL, isFreeMail, registrableOf } from './domains';
@@ -29,14 +29,16 @@ export type SenderCheckRequest =
   | { check: 'domain'; domain: string; roles: DomainRole[] }
   | { check: 'auth'; domain: string; role: 'from' | 'return_path'; reportedDmarc: string | null }
   | { check: 'spf'; domain: string; ip: string; reported: string | null; trust: TrustLevel }
-  | { check: 'usercheck'; email: string; roles: EmailRole[] };
+  | { check: 'usercheck'; email: string; roles: EmailRole[] }
+  | { check: 'ipqs'; email: string; roles: EmailRole[] };
 
 export type SenderCheckData =
   | { check: 'ip'; value: IpLookup }
   | { check: 'domain'; value: WhoisResult }
   | { check: 'auth'; value: EmailAuth }
   | { check: 'spf'; value: SpfEvaluationView }
-  | { check: 'usercheck'; value: EmailCheck };
+  | { check: 'usercheck'; value: EmailCheck }
+  | { check: 'ipqs'; value: EmailReputation };
 
 export interface SenderCheckResponse {
   request: SenderCheckRequest;
@@ -115,6 +117,10 @@ export function planSenderChecks(r: ParseStageResult): SenderPlan {
   if (!addrs.length) skipped.push(check('sender.usercheck', 'sender', 'Sender address check (UserCheck)', 'not_applicable', null, 'No sender address available.'));
   else for (const a of addrs) requests.push({ check: 'usercheck', email: a.email, roles: a.roles });
 
+  // Mailbox reputation with IPQualityScore (same addresses; the address is sent to that service, which probes its mail server)
+  if (!addrs.length) skipped.push(check('sender.ipqs', 'sender', 'Sender mailbox reputation (IPQualityScore)', 'not_applicable', null, 'No sender address available.'));
+  else for (const a of addrs) requests.push({ check: 'ipqs', email: a.email, roles: a.roles });
+
   return { requests, skipped };
 }
 
@@ -127,9 +133,10 @@ export const labelOf = (req: SenderCheckRequest): string =>
   : req.check === 'domain' ? `Domain registration: ${req.domain}`
   : req.check === 'auth' ? `Mail security DNS: ${req.domain}`
   : req.check === 'spf' ? `Independent SPF re-check: ${req.ip} vs ${req.domain}`
+  : req.check === 'ipqs' ? `Mailbox reputation (IPQS): ${req.email}`
   : `Address check: ${req.email}`;
 
-export const idOf = (req: SenderCheckRequest): string => `sender.${req.check}.${req.check === 'ip' ? req.ip : req.check === 'usercheck' ? req.email : req.domain}`;
+export const idOf = (req: SenderCheckRequest): string => `sender.${req.check}.${req.check === 'ip' ? req.ip : req.check === 'usercheck' || req.check === 'ipqs' ? req.email : req.domain}`;
 
 export function convertIp(req: Extract<SenderCheckRequest, { check: 'ip' }>, d: IpLookup): { findings: Finding[]; check: CheckResult } {
   const exact = req.role === 'connecting';
@@ -235,3 +242,37 @@ export function convertUserCheck(req: Extract<SenderCheckRequest, { check: 'user
   return { findings: f, check: check(idOf(req), 'sender', labelOf(req), 'complete', summary) };
 }
 
+
+/** IPQS fraud score at or above which an address counts as suspicious / risky (IPQS's own guidance: 75+ suspicious, 90+ risky). */
+export const IPQS_SUSPICIOUS = 75;
+export const IPQS_RISKY = 90;
+
+/**
+ * IPQualityScore mailbox reputation → findings. Reputation describes the ADDRESS, and a phishing message can spoof a
+ * clean one, so nothing here is strong on its own. Breach exposure (`leaked`) is shown but never scored: a large share of
+ * genuine addresses have been in a breach.
+ */
+export function convertIpqs(req: Extract<SenderCheckRequest, { check: 'ipqs' }>, r: EmailReputation): { findings: Finding[]; check: CheckResult } {
+  const exact = req.roles.includes('from') || req.roles.includes('supplied');
+  const base = { dimension: 'infrastructure' as const, exactness: exact ? ('exact' as const) : ('related' as const), indicator: { type: 'email' as const, value: r.email }, source: 'IPQualityScore', reliability: 'medium' as const };
+  const f: Finding[] = [];
+  if (r.recentAbuse) f.push(F({ ...base, id: 'sender_address_recent_abuse', severity: 'medium', title: 'The sender address was involved in verified abuse in the past few days', detail: `IPQualityScore has seen confirmed abuse (such as fake sign-ups or chargebacks) from ${r.email} recently. It describes the address, which a phishing message may be spoofing.` }));
+  if (r.fraudScore !== null && r.fraudScore >= IPQS_SUSPICIOUS) {
+    const risky = r.fraudScore >= IPQS_RISKY;
+    f.push(F({ ...base, id: 'sender_address_fraud_score', severity: risky ? 'medium' : 'low', title: `The sender address has a ${risky ? 'high' : 'elevated'} fraud score (${r.fraudScore}/100)`, detail: `IPQualityScore rates addresses from 0 to 100 on reputation and recent behaviour; it treats 75 and above as suspicious and 90 and above as risky.` }));
+  }
+  if (r.domainTrust === 'malicious' || r.domainTrust === 'suspicious') {
+    const bad = r.domainTrust === 'malicious';
+    f.push(F({ ...base, id: 'sender_address_domain_untrusted', severity: bad ? 'high' : 'medium', title: `IPQualityScore rates the sender's domain as ${r.domainTrust}`, detail: `${r.domain} is classed as ${r.domainTrust} by IPQualityScore's domain reputation. This is evidence about the domain, which a legitimate sender could share.` }));
+  }
+  if (r.valid === false && r.dnsValid !== false) f.push(F({ ...base, id: 'sender_address_mailbox_missing', severity: 'low', title: 'The sender mailbox does not exist', detail: `The mail server for ${r.domain} reports that ${r.email} is not a real mailbox, so replies would bounce. Phishing often uses invented or spoofed addresses that cannot receive mail.` }));
+  if (r.disposable) f.push(F({ ...base, id: 'sender_address_disposable', severity: 'low', title: 'Sender uses a disposable address', detail: 'Throwaway mailboxes are used to avoid accountability.' }));
+  if (r.dnsValid === false) f.push(F({ ...base, id: 'sender_address_no_mx', severity: 'low', title: 'The sender address domain cannot receive mail', detail: `${r.domain} has no valid mail DNS records, so replies to this address cannot be delivered. Real senders almost always can receive mail.` }));
+  if (r.suggestedDomain && r.suggestedDomain.toLowerCase() !== r.domain) f.push(F({ ...base, id: 'sender_address_misspelt_domain', severity: 'medium', title: `The sender address domain looks like a misspelling of ${r.suggestedDomain}`, detail: 'IPQualityScore flags the domain as a likely typo of a well-known domain, a common lookalike trick.' }));
+  if (r.riskyTld) f.push(F({ ...base, id: 'sender_address_risky_tld', severity: 'low', title: 'The sender address uses a top-level domain often tied to abuse', detail: `IPQualityScore marks the TLD of ${r.domain} as frequently used for scams, malware or phishing. Many genuine sites use it too.` }));
+
+  const validity = r.valid === true ? 'mailbox exists' : r.valid === false ? 'mailbox not found' : r.timedOut ? 'mail server timed out' : 'mailbox unconfirmed';
+  const bits = [r.recentAbuse ? 'recent abuse' : null, r.disposable ? 'disposable' : null, r.honeypot ? 'spam trap' : null, r.leaked ? 'in a breach' : null, r.domainTrust && r.domainTrust !== 'not rated' ? `domain ${r.domainTrust}` : null].filter(Boolean);
+  const summary = `${r.fraudScore !== null ? `fraud score ${r.fraudScore}` : 'no fraud score'} · ${validity}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+  return { findings: f, check: check(idOf(req), 'sender', labelOf(req), 'complete', summary) };
+}

@@ -59,6 +59,7 @@ export function costFor(pathname: string): number {
   if (pathname.startsWith('/api/url/lookup')) return 3;
   if (pathname.startsWith('/api/email/auth')) return 2;
   if (pathname.startsWith('/api/email/usercheck')) return 2;
+  if (pathname.startsWith('/api/email/ipqs')) return 2;
   if (pathname.startsWith('/api/phishing/sender')) return 2; // one upstream lookup per call
   if (pathname.startsWith('/api/phishing/parse')) return 2; // CPU-heavy parsing, no outbound requests
   if (pathname.startsWith('/api/phishing/urls')) return 8; // OpenPhish feed + up to 3 full URL lookups (each fans out to many providers)
@@ -87,6 +88,7 @@ const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
   safebrowsing: { daily: 9000 }, // Lookup API: 10,000 requests/day
   urlscan: { rpm: 20 }, // anonymous search is limited to ~30/min per source address
   usercheck: {}, // plan quotas differ; set USERCHECK_DAILY to add a cap
+  ipqs: { daily: 30 }, // free plan: 1,000 lookups/month (~33/day); raise with IPQS_DAILY on a paid plan
   openphish: { daily: 300 }, // feed downloads only (the parsed feed is reused for ~30 minutes), never per-URL
 };
 

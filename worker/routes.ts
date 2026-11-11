@@ -9,6 +9,7 @@ import * as http from './api/domain/http';
 import * as emailAuth from './api/email/auth';
 import * as emailHeaders from './api/email/headers';
 import * as emailUsercheck from './api/email/usercheck';
+import * as emailIpqs from './api/email/ipqs';
 import * as urlLookup from './api/url/lookup';
 import * as latency from './api/network/latency';
 import * as subnet from './api/network/subnet';
@@ -36,6 +37,7 @@ export const ROUTES: Record<string, Methods> = {
   '/api/email/auth': emailAuth,
   '/api/email/headers': emailHeaders,
   '/api/email/usercheck': emailUsercheck,
+  '/api/email/ipqs': emailIpqs,
   '/api/url/lookup': urlLookup,
   '/api/network/latency': latency,
   '/api/network/subnet': subnet,

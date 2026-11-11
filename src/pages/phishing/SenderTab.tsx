@@ -1,13 +1,56 @@
 import type { ReactNode } from 'react';
 import { Card, Badge, Empty, Spinner } from '../../components/ui';
 import { navigate } from '../../lib/router';
-import { idOf, labelOf } from '../../../shared/phishing/sender';
+import { IPQS_RISKY, IPQS_SUSPICIOUS, idOf, labelOf } from '../../../shared/phishing/sender';
+import type { EmailReputation } from '../../../shared/types';
+import type { Tone } from '../../components/ui';
 import type { CheckResult, Finding } from '../../../shared/phishing/types';
 import { TabFindings, resTone } from './common';
 import type { Slot } from './hooks';
 
 function Metric({ k, v }: { k: string; v: ReactNode }) {
   return <div className="flex justify-between gap-3 border-b border-line/60 py-1 text-sm last:border-0"><span className="text-muted">{k}</span><span className="text-right font-mono text-xs">{v}</span></div>;
+}
+
+const yesNo = (b: boolean | null) => (b === null ? 'unknown' : b ? 'yes' : 'no');
+const SMTP: Record<number, string> = { [-1]: 'invalid address', 0: 'server rejects all mail', 1: 'temporary error', 2: 'server accepts all mail', 3: 'address verified' };
+const TRUST_TONE: Record<string, Tone> = { trusted: 'good', positive: 'good', neutral: 'neutral', suspicious: 'warn', malicious: 'bad' };
+
+/** IPQualityScore mailbox reputation: fraud score first, then whether the mailbox exists, then abuse and domain facts. */
+function IpqsCard({ v }: { v: EmailReputation }) {
+  const score = v.fraudScore;
+  const tone: Tone = score === null ? 'neutral' : score >= IPQS_RISKY ? 'bad' : score >= IPQS_SUSPICIOUS ? 'warn' : 'good';
+  const bar = { bad: 'bg-rose', warn: 'bg-amber', good: 'bg-green', neutral: 'bg-line2', info: 'bg-sky', accent: 'bg-teal' }[tone];
+  const exists = v.valid === true ? <Badge tone="good">exists</Badge> : v.valid === false ? <Badge tone="warn">not found</Badge> : <Badge>{v.timedOut ? 'server timed out' : 'unconfirmed'}</Badge>;
+  const flags: [boolean, string, Tone][] = [
+    [v.recentAbuse, 'recent abuse', 'bad'], [v.honeypot, 'spam trap', 'warn'], [v.disposable, 'disposable', 'warn'], [v.frequentComplainer, 'frequent complainer', 'neutral'],
+    [v.riskyTld, 'risky TLD', 'warn'], [v.catchAll, 'catch-all server', 'neutral'], [v.generic, 'role address', 'neutral'], [v.freeProvider, 'free mail provider', 'neutral'],
+  ];
+  return (
+    <Card title={`Mailbox ${v.email}`} action={<Badge tone="info" title="Checked by IPQualityScore Email Validation">IPQS</Badge>}>
+      <div className="mb-2">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="text-muted">Fraud score</span>
+          <span className="font-semibold tabular-nums text-fg">{score === null ? 'n/a' : <>{score}<span className="text-xs font-normal text-faint"> / 100</span></>}</span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#1b2844]" aria-hidden><div className={`h-full rounded-full ${bar}`} style={{ width: `${score ?? 0}%` }} /></div>
+        <p className="mt-1 text-[11px] text-faint">75+ suspicious · 90+ risky (IPQS guidance)</p>
+      </div>
+      <Metric k="Mailbox" v={exists} />
+      <Metric k="Mail server check" v={v.smtpScore !== null ? SMTP[v.smtpScore] ?? String(v.smtpScore) : 'unknown'} />
+      <Metric k="Recent abuse" v={v.recentAbuse ? <Badge tone="bad">yes</Badge> : 'no'} />
+      <Metric k="In a data breach" v={v.leaked ? <span title="Context only: many genuine addresses have been in a breach">yes</span> : 'no'} />
+      <Metric k="Spam-trap risk" v={v.honeypot ? 'likely spam trap' : v.spamTrapScore ?? 'unknown'} />
+      <Metric k="Domain trust" v={v.domainTrust ? <Badge tone={TRUST_TONE[v.domainTrust] ?? 'neutral'}>{v.domainTrust}</Badge> : 'unknown'} />
+      <Metric k="Domain age" v={v.domainAgeHuman ?? (v.domainRegistered ? v.domainRegistered.slice(0, 10) : 'unknown')} />
+      <Metric k="First seen by IPQS" v={v.firstSeenHuman ?? 'unknown'} />
+      <Metric k="Mail DNS valid" v={yesNo(v.dnsValid)} />
+      <Metric k="Deliverability" v={v.deliverability ?? 'unknown'} />
+      {v.suggestedDomain && v.suggestedDomain.toLowerCase() !== v.domain && <Metric k="Looks like a typo of" v={v.suggestedDomain} />}
+      {flags.some(([on]) => on) && <div className="mt-2 flex flex-wrap gap-1">{flags.filter(([on]) => on).map(([, label, t]) => <Badge key={label} tone={t}>{label}</Badge>)}</div>}
+      {(v.timedOut || v.suspect) && <p className="mt-2 text-xs text-amber">The mail server {v.timedOut ? 'did not answer in time' : 'gave a temporary or catch-all response'}, so whether the mailbox exists is not reliable.</p>}
+    </Card>
+  );
 }
 
 export function SenderPanel({ slots, skipped, running }: { slots: Slot[]; skipped: CheckResult[]; running: number }) {
@@ -70,6 +113,7 @@ export function SenderPanel({ slots, skipped, running }: { slots: Slot[]; skippe
               </Card>
             );
           }
+          if (d.check === 'ipqs') return <IpqsCard key={idOf(res!.request)} v={d.value} />;
           const v = d.value;
           return (
             <Card key={idOf(res!.request)} title={`Address ${v.email}`} action={<Badge tone="info" title="Checked by UserCheck.com">UserCheck</Badge>}>
