@@ -2,7 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index';
-import { cleanKey, mapIpqs } from '../worker/api/email/ipqs';
+import { cleanKey, keyHint, mapIpqs } from '../worker/api/email/ipqs';
 import { convertIpqs, labelOf, idOf } from '../shared/phishing/sender';
 import { computeVerdict } from '../shared/phishing/verdict';
 import { groupOf, POINTS } from '../shared/phishing/verdictRules';
@@ -53,6 +53,21 @@ describe('IPQS response mapping', () => {
     assert.equal(mapIpqs('a@x.example', 'x.example', { ...RAW, valid: false, timed_out: true }, 1).valid, null);
     assert.equal(mapIpqs('a@x.example', 'x.example', { ...RAW, valid: false, suspect: true }, 1).valid, null);
     assert.equal(mapIpqs('a@x.example', 'x.example', { ...RAW, valid: false }, 1).valid, false);
+  });
+  it('ignores plan-restricted text in rating fields (e.g. "Upgraded plan required.")', () => {
+    const r = mapIpqs('a@x.example', 'x.example', { ...RAW, domain_trust: 'Upgraded plan required.', deliverability: 'Enterprise required', spam_trap_score: 'High' }, 1);
+    assert.equal(r.domainTrust, null); assert.equal(r.deliverability, null); assert.equal(r.spamTrapScore, 'high');
+  });
+  it('a rejected key is reported with a safe fingerprint (length and last 4), never the key', async () => {
+    const key = 'abcdefghijklmnopqrstuvwxyz12WXYZ';
+    assert.equal(keyHint(key), '32 characters, ending "…WXYZ"');
+    assert.equal(keyHint('k123'), '4 characters', 'a short key is never shown');
+    const m = mockFetch([(u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ success: false, message: 'Invalid or unauthorized key. Please check the API key and try again. (EID: 61771)' }) : undefined)]);
+    try {
+      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: key });
+      assert.match(json.data.checks[0].detail, /32 characters, ending "…WXYZ"/);
+      assert.ok(!JSON.stringify(json).includes(key.slice(0, 20)));
+    } finally { m.restore(); resetRateLimitMemory(); }
   });
   it('treats epoch dates as unknown', () => {
     const r = mapIpqs('a@x.example', 'x.example', { ...RAW, first_seen: { human: 'just now', timestamp: 0, iso: '1970-01-01' } }, 1);

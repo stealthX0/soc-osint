@@ -43,6 +43,7 @@ interface IpqsRaw {
 const bool = (v: unknown) => v === true;
 const tri = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() && !/^n\/?a$/i.test(v.trim()) ? v.trim() : null);
+const oneOf = (v: unknown, allowed: string[]): string | null => { const s = str(v)?.toLowerCase() ?? null; return s && allowed.includes(s) ? s : null; };
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 /** IPQS uses timestamp 0 / the Unix epoch for "unknown". */
 const iso = (d: IpqsDate | undefined): string | null => (d && typeof d.timestamp === 'number' && d.timestamp > 0 ? str(d.iso) : null);
@@ -50,6 +51,9 @@ const human = (d: IpqsDate | undefined): string | null => (d && typeof d.timesta
 
 /** Strips whitespace, line breaks and wrapping quotes that often come along when a key is pasted into a secret. Exported for tests. */
 export const cleanKey = (k: string | undefined): string => (k ?? '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+
+/** A safe fingerprint of a key for error messages: its length, plus the last 4 characters only for keys of 16+ characters. Exported for tests. */
+export const keyHint = (k: string): string => (k.length >= 16 ? `${k.length} characters, ending "…${k.slice(-4)}"` : `${k.length} characters`);
 
 /** Maps the IPQS response to Spectrix's shape. Exported for tests. */
 export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): EmailReputation {
@@ -62,12 +66,13 @@ export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): 
     timedOut, suspect,
     fraudScore: num(r.fraud_score),
     recentAbuse: bool(r.recent_abuse), leaked: bool(r.leaked), disposable: bool(r.disposable),
-    honeypot: bool(r.honeypot), spamTrapScore: str(r.spam_trap_score)?.toLowerCase() ?? null, frequentComplainer: bool(r.frequent_complainer),
+    honeypot: bool(r.honeypot), spamTrapScore: oneOf(r.spam_trap_score, ['high', 'medium', 'low', 'none']), frequentComplainer: bool(r.frequent_complainer),
     catchAll: bool(r.catch_all), generic: bool(r.generic), freeProvider: bool(r.common),
     dnsValid: tri(r.dns_valid),
-    deliverability: str(r.deliverability)?.toLowerCase() ?? null,
+    deliverability: oneOf(r.deliverability, ['high', 'medium', 'low']),
     smtpScore: num(r.smtp_score), overallScore: num(r.overall_score),
-    domainTrust: str(r.domain_trust)?.toLowerCase() ?? null,
+    // Plan-restricted fields come back as text such as "Upgraded plan required.": keep only the documented ratings.
+    domainTrust: oneOf(r.domain_trust, ['trusted', 'positive', 'neutral', 'suspicious', 'malicious', 'not rated']),
     riskyTld: bool(r.risky_tld),
     suggestedDomain: str(r.suggested_domain),
     firstSeen: iso(r.first_seen), firstSeenHuman: human(r.first_seen),
@@ -105,7 +110,9 @@ export const onRequestGet = route(async (ctx) => {
       // e.g. invalid key or quota exhausted. Never echo anything that could contain the key.
       const msg = (typeof r.message === 'string' ? r.message : 'request was not successful').split(key).join('[key]').slice(0, 200);
       const quota = /credit|quota|exceeded|limit/i.test(msg);
-      throw new ApiError(502, quota ? 'PROVIDER_BUDGET' : 'UPSTREAM_ERROR', `IPQualityScore: ${msg}`);
+      // For a rejected key, say which key the Worker holds without revealing it: length and last 4 characters only.
+      const hint = /invalid|unauthori[sz]ed/i.test(msg) && /key/i.test(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}]` : '';
+      throw new ApiError(502, quota ? 'PROVIDER_BUDGET' : 'UPSTREAM_ERROR', `IPQualityScore: ${msg}${hint}`);
     }
     return { value: mapIpqs(email, domain, r, Date.now() - t0), ttl: 6 * 3600 };
   });
