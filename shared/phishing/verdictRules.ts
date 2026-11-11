@@ -176,6 +176,9 @@ export const POINTS: Record<string, Spec> = {
   content_text_obfuscation: by({ medium: 10, low: 3 }),
   content_brand_impersonation: 10,
   content_multiple_lure_signals: 14,
+  content_payment_demand: by({ medium: 10, low: 4 }),
+  content_forwarded_thread: 3,
+  bec_payment_reply_redirect: 20,
   content_language_not_analysed: 0,
 };
 

@@ -147,5 +147,8 @@ export const FINDING_DESCRIPTIONS: Record<string, string> = {
   content_text_obfuscation: 'Look-alike letters or invisible characters inside words.',
   content_brand_impersonation: 'The message speaks as a brand the sender does not own.',
   content_multiple_lure_signals: 'Several different lure types appear together.',
+  content_payment_demand: 'Instructs you to pay, strongest when it demands payment now by a named method ("pay via ACH today").',
+  content_forwarded_thread: 'Forwards a thread from an unrelated organisation with only a short note (a common way to fake prior approval).',
+  bec_payment_reply_redirect: 'Asks for payment while Reply-To routes answers to a different organisation (invoice fraud / BEC pattern).',
   content_language_not_analysed: 'The wording is not in a language the rules can read (information; widens the evidence gap).',
 };

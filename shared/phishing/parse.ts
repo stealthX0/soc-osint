@@ -7,7 +7,7 @@
 import { extractMessage } from './mime';
 import { analyzeIdentity } from './brand';
 import { offlineLinkFindings } from './urlTriage';
-import { analyzeContent, type ContentAnalysis } from './content';
+import { analyzeContent, stripReceiverBanners, RECEIVER_BANNER_LINK, type ContentAnalysis } from './content';
 import { isFreeMail } from './domains';
 import { analyzeEmailHeaders, type HeaderForensics } from './forensics';
 import { extractLinks, type ExtractedLink, type SkippedLink } from './links';
@@ -143,9 +143,19 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
     : check('parse.body', 'parse', 'Message body', 'complete', `${msg.bodyKind}, ${msg.text.length.toLocaleString('en-US')} characters${msg.partCount > 1 ? `, ${msg.partCount} MIME parts` : ''}`, msg.warnings.join(' ') || undefined));
   if (msg.truncated) limits.push(`The message text was truncated to ${LIMITS.textChars.toLocaleString('en-US')} characters.`);
 
+  /* banners the RECEIVING system added (Microsoft first-contact tip, "external sender" cautions) are not the sender's
+     words or links: remove them before reading the content */
+  const banner = stripReceiverBanners(msg.text);
+  const htmlBanner = msg.html ? stripReceiverBanners(msg.html) : { text: msg.html, removed: 0 };
+  const senderText = banner.text;
+  const senderHtml = htmlBanner.text;
+
   /* links */
-  const ext = extractLinks({ text: msg.text, html: msg.html, manual: input.urls });
-  checks.push(check('parse.links', 'parse', 'Link extraction', 'complete', `${ext.links.length} unique link(s)${ext.skipped.length ? `, ${ext.skipped.length} skipped` : ''}`, ext.truncated ? `Only the first ${LIMITS.links} links were kept.` : undefined));
+  const ext = extractLinks({ text: senderText, html: senderHtml, manual: input.urls });
+  const bannerLinks = ext.links.filter((l) => RECEIVER_BANNER_LINK.test(l.normalized) && !l.sources.includes('manual' as never));
+  if (bannerLinks.length) ext.links = ext.links.filter((l) => !bannerLinks.includes(l));
+  const bannerNote = banner.removed || htmlBanner.removed || bannerLinks.length ? `Ignored a notice added by the receiving mail system (such as "You don't often get email from…" or an external-sender caution)${bannerLinks.length ? ` and its ${bannerLinks.length} link(s)` : ''}.` : '';
+  checks.push(check('parse.links', 'parse', 'Link extraction', 'complete', `${ext.links.length} unique link(s)${ext.skipped.length ? `, ${ext.skipped.length} skipped` : ''}`, [ext.truncated ? `Only the first ${LIMITS.links} links were kept.` : '', bannerNote].filter(Boolean).join(' ') || undefined));
   if (ext.truncated) limits.push(`The message has more links than could be analysed (at most ${LIMITS.links} unique links are kept). Review the rest manually: a bad link can hide among many harmless ones.`);
   if (ext.links.length) {
     const roles = ['from', 'return_path', 'dkim', 'sender_header'];
@@ -157,7 +167,7 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
         claimedDomains: sender.domain ? [sender.domain] : [],
         displayName: sender.displayName || forensics?.addresses.from[0]?.display || undefined,
         subject: subject ?? undefined,
-        text: msg.text.slice(0, 20_000),
+        text: senderText.slice(0, 20_000),
       },
     );
     findings.push(...off.findings);
@@ -169,12 +179,24 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
 
   /* wording: urgency, credential / payment requests, extortion, QR and other lures (local, deterministic) */
   const wording = analyzeContent({
-    subject, text: msg.text, html: msg.html, linkCount: ext.links.length,
+    subject, text: senderText, html: senderHtml, linkCount: ext.links.length,
     attachments: msg.attachments.map((a) => ({ filename: a.filename, inline: a.inline, declaredType: a.declaredType })),
     displayName: forensics?.addresses.from[0]?.display ?? sender.displayName ?? null,
     fromDomain: identityFrom, fromIsFreeMail: isFreeMail(identityFrom),
   });
   findings.push(...wording.findings);
+  /* the classic invoice-fraud pairing: replies go to a different organisation AND the message asks for money */
+  const replyRedirect = findings.find((f) => f.id === 'reply_to_mismatch' && f.severity === 'medium');
+  const moneyAsk = wording.findings.filter((f) => ['content_payment_demand', 'content_payment_redirection', 'content_financial_request', 'content_payroll_diversion', 'content_gift_card_request'].includes(f.id));
+  if (replyRedirect && moneyAsk.length) {
+    findings.push(makeFinding({
+      id: 'bec_payment_reply_redirect', dimension: 'content', severity: 'high',
+      title: 'Asks for payment while routing replies to a different organisation',
+      detail: 'The message requests money and its Reply-To sends your answer to a mailbox the sender does not control. This is the typical shape of invoice fraud and business-email compromise: any query about the payment reaches the fraudster, not the real company. Confirm through a contact you already hold before paying.',
+      exactness: 'exact', source: 'content-analysis',
+      evidence: [...(replyRedirect.evidence ?? []).slice(0, 2), ...moneyAsk.map((f) => f.title)].slice(0, 4),
+    }));
+  }
   checks.push(!wording.analysis.analysed
     ? check('content.rules', 'content', 'Message wording analysis', 'skipped', null, 'No message text to read.')
     : check('content.rules', 'content', 'Message wording analysis', 'complete', wording.analysis.languageSupported ? `${wording.analysis.categories.length} lure type(s) recognised` : 'language not supported', wording.analysis.notes.join(' ') || 'Pattern rules for urgency, credential and payment requests, extortion, QR and delivery lures. Indicators for review, not a verdict.'));

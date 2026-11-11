@@ -156,6 +156,7 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `received_timestamps_inconsistent` | 3 | none | Received timestamps go backwards. |
 | `untrusted_received_hops` | 0 | none | Received headers precede the trusted boundary and could be forged (information). |
 | `x_originating_ip_present` | 0 | none | An X-Originating-IP header is present (unverified clue). |
+| `bec_payment_reply_redirect` | 20 | none | Asks for payment while Reply-To routes answers to a different organisation (invoice fraud / BEC pattern). |
 
 #### Sender identity and infrastructure
 
@@ -220,6 +221,8 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `content_text_obfuscation` | medium 10, low 3 | none | Look-alike letters or invisible characters inside words. |
 | `content_brand_impersonation` | 10 | sender impersonation | The message speaks as a brand the sender does not own. |
 | `content_multiple_lure_signals` | 14 | none | Several different lure types appear together. |
+| `content_payment_demand` | medium 10, low 4 | none | Instructs you to pay, strongest when it demands payment now by a named method ("pay via ACH today"). |
+| `content_forwarded_thread` | 3 | none | Forwards a thread from an unrelated organisation with only a short note (a common way to fake prior approval). |
 | `content_language_not_analysed` | 0 | none | The wording is not in a language the rules can read (information; widens the evidence gap). |
 
 <!-- finding-catalogue:end -->

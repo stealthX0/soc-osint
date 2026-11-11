@@ -22,7 +22,8 @@ import type { Finding, Severity } from './types';
 
 export type ContentCategoryId =
   | 'urgency' | 'credential' | 'financial' | 'gift_card' | 'payment_redirection' | 'payroll' | 'bec' | 'extortion'
-  | 'delivery' | 'advance_fee' | 'document_share' | 'attachment_lure' | 'qr' | 'image_only' | 'hidden_text' | 'obfuscation' | 'brand';
+  | 'delivery' | 'advance_fee' | 'document_share' | 'attachment_lure' | 'qr' | 'image_only' | 'hidden_text' | 'obfuscation' | 'brand'
+  | 'payment_demand' | 'forwarded_thread';
 
 export interface ContentMatch { rule: string; excerpt: string }
 export interface ContentCategory { id: ContentCategoryId; label: string; strong: boolean; matches: ContentMatch[] }
@@ -53,6 +54,27 @@ export interface ContentInput {
   fromIsFreeMail: boolean;
 }
 
+/* ------------------------------------------------- receiver-added banners */
+
+/**
+ * Text the RECEIVING mail system adds above the message (Microsoft's "You don't often get email from…" first-contact
+ * tip with its aka.ms link, "Caution: this email came from outside the organisation" notices, "[EXTERNAL]" tags). The
+ * sender did not write it, so it must not count as the sender's wording or links. Exported for parse.ts and tests.
+ */
+const BANNERS: RegExp[] = [
+  /\[?[ \t]*You don'?t often get e-?mail from [^\]\n]{1,250}(?:\n[^\]\n]{0,250}?Learn why this is important[^\]\n]*)?\]?/gi,
+  /^[ \t]*\[?(?:caution|warning|notice|attention|external(?: e-?mail| sender)?)\]?\s*[:!-]?\s*this (?:e-?mail|message) (?:came|originated|was sent|is) from (?:outside|an external)[^\n]*(?:\n(?!\s*\n)[^\n]*){0,3}/gim,
+  /^[ \t]*\[external\][ \t]*/gim,
+];
+/** Links that only receiving systems insert (never the sender's): ignored by link analysis. */
+export const RECEIVER_BANNER_LINK = /^https?:\/\/aka\.ms\/(?:LearnAboutSenderIdentification|LearnAboutSpoofing|AboutExternalSenders)\b/i;
+export function stripReceiverBanners(text: string): { text: string; removed: number } {
+  let removed = 0;
+  let out = text;
+  for (const re of BANNERS) out = out.replace(re, () => { removed++; return ''; });
+  return { text: removed ? out.replace(/^\s+/, '') : text, removed };
+}
+
 /* ------------------------------------------------------------------ rules */
 
 interface Rule { id: string; category: ContentCategoryId; strong?: boolean; re: RegExp }
@@ -76,7 +98,11 @@ const RULES: Rule[] = [
   { id: 'update_payment_details', category: 'financial', strong: true, re: rx(String.raw`\b(update|confirm|verify|provide|change|re-?enter)\b${W}{0,40}\b(bank(ing)? (details|account|information)|billing (details|information|address)|payment (details|method|information)|card (number|details|information)|credit card|direct deposit)\b`) },
   { id: 'overdue_payment', category: 'financial', re: rx(String.raw`\b(overdue|outstanding|unpaid|past due)\b${W}{0,30}\b(invoice|payment|balance|bill|amount)\b`) },
   { id: 'refund_lure', category: 'financial', re: rx(String.raw`\b(refund|tax refund|rebate|reimbursement)\b${W}{0,40}\b(claim|pending|eligible|available|waiting|issued|approved)\b`) },
-  { id: 'transfer_rails', category: 'financial', re: rx(String.raw`\b(wire transfer|bank transfer|swift code|iban|routing number|western union|moneygram)\b`) },
+  { id: 'transfer_rails', category: 'financial', re: rx(String.raw`\b(wire transfer|bank transfer|ach (transfer|payment|credit|debit)|via ach|by ach|swift code|iban|routing number|western union|moneygram)\b`) },
+
+  // a direct instruction to pay: by a named payment rail, and/or right now (genuine reminders usually give a due date)
+  { id: 'pay_by_rail', category: 'payment_demand', re: rx(String.raw`\b(pay|remit|settle|process|release|send|wire|transfer|make)\b${W}{0,40}\b(via|by|through|using|with) (ach|wire( transfer)?|bank transfer|zelle|swift|bacs|sepa|faster payments?|electronic (funds )?transfer|eft)\b`) },
+  { id: 'pay_urgently', category: 'payment_demand', re: rx(String.raw`\b(pay|remit|settle|process|release|wire|transfer)\b${W}{0,40}\b(today|tonight|immediately|asap|right away|right now|now|urgently|by (eod|end of (the )?day|close of business|cob|noon)|this (morning|afternoon|evening)|within the hour)\b`) },
 
   // gift cards (a BEC / scam staple: legitimate organisations do not ask for them)
   { id: 'gift_card_request', category: 'gift_card', strong: true, re: rx(String.raw`\b(buy|purchase|get|send|need|pick up|grab)\b${W}{0,50}\b(gift ?cards?|itunes cards?|google play cards?|steam cards?|amazon cards?|prepaid cards?)\b|\b(gift ?cards?)\b${W}{0,40}\b(codes?|numbers?|scratch|photo|picture|back of)\b`) },
@@ -117,6 +143,7 @@ const LABELS: Record<ContentCategoryId, string> = {
   urgency: 'Urgency and threats', credential: 'Credential harvesting', financial: 'Financial request', gift_card: 'Gift-card request', payment_redirection: 'Payment redirection',
   payroll: 'Payroll diversion', bec: 'Business-email-compromise style ask', extortion: 'Extortion', delivery: 'Delivery notification lure', advance_fee: 'Prize / advance-fee lure',
   document_share: 'Document-share lure', attachment_lure: 'Attachment lure', qr: 'QR-code lure', image_only: 'Image-only body', hidden_text: 'Hidden text', obfuscation: 'Text obfuscation', brand: 'Brand impersonation',
+  payment_demand: 'Payment instruction', forwarded_thread: 'Forwarded third-party thread',
 };
 
 /* ----------------------------------------------------------------- helpers */
@@ -145,6 +172,49 @@ function mixedScriptWords(text: string): string[] {
     if (out.length >= 5) break;
   }
   return out;
+}
+
+/**
+ * Look-alike spellings inside the Latin alphabet: "lnvoice" (lowercase L for capital I), "paypa1", "rnicrosoft". Used to
+ * slip finance and brand words past keyword filters. Only words that become a known sensitive word after ONE swap are
+ * reported, so ordinary text does not trigger it. Returns [as written, intended] pairs.
+ */
+const SENSITIVE = new Set(['invoice', 'invoices', 'payment', 'payments', 'account', 'accounts', 'verify', 'password', 'remittance', 'statement', 'transfer', 'banking', 'billing', 'urgent', 'overdue', 'microsoft', 'office', 'outlook', 'paypal', 'docusign', 'amazon', 'apple', 'netflix', 'login', 'signin', 'wallet', 'refund', 'receipt', 'payroll', 'mailbox']);
+const SWAPS: [string, string][] = [['l', 'i'], ['I', 'l'], ['1', 'l'], ['1', 'i'], ['0', 'o'], ['rn', 'm'], ['vv', 'w'], ['5', 's'], ['3', 'e']];
+export function latinLookalikes(text: string): [string, string][] {
+  const out: [string, string][] = [];
+  const seen = new Set<string>();
+  const tokens = text.match(/[A-Za-z0-9]{4,24}/g) ?? [];
+  for (const t of tokens.slice(0, 6000)) {
+    if (out.length >= 5) break;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    const lower = t.toLowerCase();
+    if (SENSITIVE.has(lower)) continue;
+    // reference numbers written with a lowercase L where "INV" belongs: "lNVP917891", "lnv-4411"
+    if (/^l(?:NV|nv)[A-Za-z]?[-_]?\d{3,}/.test(t)) { out.push([t, `I${t.slice(1)}`]); continue; }
+    let hit: string | null = null;
+    for (const [from, to] of SWAPS) {
+      for (let i = t.indexOf(from); i >= 0 && !hit; i = t.indexOf(from, i + 1)) {
+        const cand = (t.slice(0, i) + to + t.slice(i + from.length)).toLowerCase();
+        if (SENSITIVE.has(cand)) hit = cand;
+      }
+      if (hit) break;
+    }
+    if (hit) out.push([t, hit]);
+  }
+  return out;
+}
+
+/**
+ * A forwarded or quoted e-mail header block inside the body ("From: … Sent: … To: … Subject: …"). Returns the quoted
+ * sender's address and how much text sits above it (the forwarder's own note).
+ */
+export function quotedThread(body: string): { address: string; domain: string; noteChars: number } | null {
+  const m = /(^|\n)[ \t>]*(?:-{2,}\s*(?:original|forwarded) message\s*-{2,}\s*\n[ \t>]*)?(?:from|de|von)\s*:[^\n]*?([\w.+-]+@((?:[\w-]+\.)+[a-z]{2,}))[^\n]*\n(?:[^\n]*\n){0,2}?[ \t>]*(?:sent|date|envoy[ée]|gesendet)\s*:/i.exec(body);
+  if (!m) return null;
+  const note = body.slice(0, m.index).replace(/\s+/g, ' ').trim();
+  return { address: m[2].toLowerCase(), domain: m[3].toLowerCase(), noteChars: note.length };
 }
 
 /** Amount of text hidden with CSS. Linear: only the first 500 KB is scanned and only 40 hidden blocks are measured. */
@@ -196,10 +266,26 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
     cats.set(id, c);
   };
 
+  /* look-alike spellings ("lnvoice"): note them, then read the text as intended so the other rules are not evaded */
+  const filenames = input.attachments.filter((a) => !a.inline && a.filename).map((a) => a.filename as string).join(' ');
+  const lookalikes = latinLookalikes(`${hay}\n${filenames}`);
+  let read = hay;
+  for (const [as, meant] of lookalikes) read = read.split(as).join(meant);
+
   for (const r of RULES) {
     // wire-style rules run on the whole text; the first hit per rule is enough to quote
-    const m = r.re.exec(hay);
-    if (m) addMatch(r.category, r.id, hay, m.index, m[0].length, !!r.strong);
+    const m = r.re.exec(read);
+    if (m) addMatch(r.category, r.id, read, m.index, m[0].length, !!r.strong);
+  }
+  /* a payment instruction that names a rail AND demands it now is the strong form ("Please pay via ACH today") */
+  const pd = cats.get('payment_demand');
+  if (pd && pd.matches.some((x) => x.rule === 'pay_by_rail') && pd.matches.some((x) => x.rule === 'pay_urgently')) pd.strong = true;
+
+  /* forwarded third-party thread: a short note above a quoted e-mail from an unrelated organisation */
+  const thread = quotedThread(body);
+  const fromReg = registrableOf(input.fromDomain);
+  if (thread && fromReg && registrableOf(thread.domain) !== fromReg && thread.noteChars <= 400) {
+    addMatch('forwarded_thread', 'forwarded_external_thread', body, Math.max(0, body.toLowerCase().indexOf(thread.address)), thread.address.length);
   }
 
   /* BEC: a short, link-free request is the signal; long newsletters that say "quick task" are not */
@@ -229,6 +315,7 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   const mixed = mixedScriptWords(hay);
   const zw = ((input.text ?? '') + (input.subject ?? '')).match(ZERO_WIDTH)?.length ?? 0;
   if (mixed.length) cats.set('obfuscation', { id: 'obfuscation', label: LABELS.obfuscation, strong: true, matches: [{ rule: 'mixed_script', excerpt: `Words mixing Latin with Cyrillic / Greek letters: ${mixed.join(', ')}` }] });
+  else if (lookalikes.length) cats.set('obfuscation', { id: 'obfuscation', label: LABELS.obfuscation, strong: true, matches: [{ rule: 'latin_lookalike', excerpt: `Look-alike spellings: ${lookalikes.map(([a, b]) => `"${a}" (${b})`).join(', ')}` }] });
   else if (zw >= 6) cats.set('obfuscation', { id: 'obfuscation', label: LABELS.obfuscation, strong: false, matches: [{ rule: 'zero_width', excerpt: `${zw} invisible characters inside the text` }] });
 
   /* brand impersonation in the wording (the display-name case is covered by the identity analysis) */
@@ -258,7 +345,7 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   /* ------------------------------------------------------------ findings */
   const ev = (c: ContentCategory) => c.matches.map((m) => m.excerpt);
   // specific, high-precision patterns (a request for gift cards, a change of bank details, a crypto threat) are more reliable than general lure wording
-  const SPECIFIC = new Set(['content_gift_card_request', 'content_payment_redirection', 'content_payroll_diversion', 'content_extortion', 'content_brand_impersonation']);
+  const SPECIFIC = new Set(['content_gift_card_request', 'content_payment_redirection', 'content_payroll_diversion', 'content_extortion', 'content_brand_impersonation', 'content_text_obfuscation']);
   const F = (id: string, c: ContentCategory, severity: Severity, title: string, detail: string) =>
     findings.push(makeFinding({ id, dimension: 'content', severity, title, detail, source: 'content-rules', exactness: 'exact', reliability: SPECIFIC.has(id) || (id === 'content_bec_request' && input.fromIsFreeMail) ? 'medium' : 'low', evidence: ev(c) }));
   const get = (id: ContentCategoryId) => cats.get(id);
@@ -279,11 +366,13 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   if ((c = get('qr'))) F('content_qr_lure', c, lureNow ? 'medium' : 'low', 'Tells you to scan a QR code', 'QR codes hide the destination from link scanners and move the attack to your phone, which is less protected. Treat unexpected QR codes asking you to sign in as phishing.');
   if ((c = get('image_only'))) F('content_image_only_body', c, 'low', 'Message is mostly images', 'Text rendered as an image, or a QR code, bypasses text and link analysis. Look at the message itself.');
   if ((c = get('hidden_text'))) F('content_hidden_text', c, 'low', 'Large amount of hidden text', 'Hidden text is used to dilute spam filters. Marketing pre-headers are short; this much hidden text is unusual.');
-  if ((c = get('obfuscation'))) F('content_text_obfuscation', c, c.strong ? 'medium' : 'low', c.strong ? 'Words mix look-alike letters from other alphabets' : 'Invisible characters inside the text', 'Look-alike letters and invisible characters are used to slip words past keyword filters.');
+  if ((c = get('obfuscation'))) F('content_text_obfuscation', c, c.strong ? 'medium' : 'low', c.matches[0].rule === 'latin_lookalike' ? 'Key words are spelt with look-alike characters (such as "lnvoice" for "invoice")' : c.strong ? 'Words mix look-alike letters from other alphabets' : 'Invisible characters inside the text', 'Look-alike letters and invisible characters are used to slip words past keyword filters. Genuine senders have no reason to misspell their own invoice or brand.');
+  if ((c = get('payment_demand'))) F('content_payment_demand', c, c.strong ? 'medium' : 'low', c.strong ? 'Instructs you to pay now by a specific method (such as "pay via ACH today")' : 'Instructs you to make a payment', 'A direct instruction to send money, especially immediately and by a named transfer method, is the core of invoice and business-email-compromise fraud. Genuine reminders give a due date and are verified through known contacts.');
+  if ((c = get('forwarded_thread'))) F('content_forwarded_thread', c, 'low', 'Forwards an e-mail thread from an unrelated organisation with only a short note', 'Fraudsters paste a fabricated "forwarded" conversation (often an invoice) to make a request look already approved. Check the original with the named organisation directly.');
   if ((c = get('brand'))) F('content_brand_impersonation', c, 'medium', `The message speaks as ${c.matches[0].rule.replace('brand_', '')} but the sender is not ${c.matches[0].rule.replace('brand_', '')}`, `The subject or text uses the ${c.matches[0].rule.replace('brand_', '')} brand while the sender domain (${reg ?? 'unknown'}) is not one of that brand's domains.`);
 
   /* combination: several different lures together are what separates phishing from an ordinary notice */
-  const LURES: ContentCategoryId[] = ['urgency', 'credential', 'financial', 'gift_card', 'payment_redirection', 'payroll', 'extortion', 'delivery', 'advance_fee', 'document_share', 'attachment_lure', 'qr'];
+  const LURES: ContentCategoryId[] = ['urgency', 'credential', 'financial', 'gift_card', 'payment_redirection', 'payroll', 'extortion', 'delivery', 'advance_fee', 'document_share', 'attachment_lure', 'qr', 'payment_demand', 'forwarded_thread'];
   const present = LURES.filter((k) => cats.has(k));
   if (present.length >= 3) {
     findings.push(makeFinding({
@@ -299,8 +388,8 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   const conf = (n: number): ContentIntent['confidence'] => (n >= 3 ? 'high' : n === 2 ? 'medium' : 'low');
   const pushIntent = (id: IntentId, label: string, reasons: ContentCategoryId[]) => { const r = reasons.filter(has); if (r.length) intents.push({ id, label, confidence: conf(r.length + (r.some((k) => cats.get(k)!.strong) ? 1 : 0)), reasons: r.map((k) => LABELS[k]) }); };
   pushIntent('credential_harvesting', 'Credential harvesting', ['credential', 'urgency', 'document_share', 'qr']);
-  pushIntent('financial_fraud', 'Financial fraud / payment redirection', ['payment_redirection', 'financial', 'payroll', 'gift_card', 'urgency']);
-  pushIntent('business_email_compromise', 'Business email compromise', ['bec', 'gift_card', 'payment_redirection', 'payroll']);
+  pushIntent('financial_fraud', 'Financial fraud / payment redirection', ['payment_redirection', 'payment_demand', 'financial', 'payroll', 'gift_card', 'urgency']);
+  pushIntent('business_email_compromise', 'Business email compromise', ['bec', 'gift_card', 'payment_redirection', 'payroll', 'payment_demand', 'forwarded_thread']);
   pushIntent('delivery_scam', 'Delivery notification scam', ['delivery']);
   pushIntent('malware_delivery', 'Malware delivery via attachment', ['attachment_lure', 'document_share']);
   pushIntent('extortion', 'Extortion', ['extortion']);
