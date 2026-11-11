@@ -84,9 +84,26 @@ export const onRequestPost = route(async (ctx) => {
       return ok(r.ok ? done({ check: 'usercheck', value: r.data }, convertUserCheck(req, r.data)) : fail(r.code, r.message));
     }
     case 'ipqs': {
-      if (!(ctx.env as Env).IPQS_API_KEY) return ok({ request: req, findings: [], data: null, checks: [check(idOf(req), 'sender', labelOf(req), 'skipped', null, 'IPQualityScore is not configured on this deployment (IPQS_API_KEY is not set).')] } satisfies SenderCheckResponse);
-      const r = await callInternal<EmailReputation>(ctx, '/api/email/ipqs', { params: { email: req.email } });
-      return ok(r.ok ? done({ check: 'ipqs', value: r.data }, convertIpqs(req, r.data)) : fail(r.code, r.message));
+      // IPQualityScore first. UserCheck is used ONLY when IPQS cannot answer: daily cap spent, quota / API error, upstream
+      // failure, or no IPQS key. Otherwise UserCheck is never called for the address.
+      const env = ctx.env as Env;
+      let why: string;
+      if (env.IPQS_API_KEY) {
+        const r = await callInternal<EmailReputation>(ctx, '/api/email/ipqs', { params: { email: req.email } });
+        if (r.ok) return ok(done({ check: 'ipqs', value: r.data }, convertIpqs(req, r.data)));
+        why = r.code === 'PROVIDER_BUDGET' ? `IPQualityScore limit reached: ${r.message.replace(/^IPQualityScore( budget reached)?:?\s*/i, '')}` : `IPQualityScore failed: ${r.message} (${r.code})`;
+      } else {
+        why = 'IPQualityScore is not configured (IPQS_API_KEY is not set)';
+      }
+      if (!env.USERCHECK_API_KEY) {
+        const neither = !env.IPQS_API_KEY;
+        return ok({ request: req, findings: [], data: null, checks: [check(idOf(req), 'sender', labelOf(req), neither ? 'skipped' : 'failed', null, neither ? 'IPQualityScore and UserCheck are not configured on this deployment (IPQS_API_KEY and USERCHECK_API_KEY are not set).' : `${why}. No UserCheck fallback is configured (USERCHECK_API_KEY is not set).`)] } satisfies SenderCheckResponse);
+      }
+      const uc = await callInternal<EmailCheck>(ctx, '/api/email/usercheck', { params: { email: req.email } });
+      if (!uc.ok) return ok(fail(uc.code, `${why}. The UserCheck fallback also failed: ${uc.message}`));
+      const c = convertUserCheck({ check: 'usercheck', email: req.email, roles: req.roles }, uc.data);
+      const fallbackCheck = { ...c.check, id: idOf(req), label: `Address check (UserCheck fallback): ${req.email}`, detail: `${why}. Results come from UserCheck instead.` };
+      return ok({ request: req, findings: c.findings, checks: [fallbackCheck], data: { check: 'usercheck', value: uc.data } } satisfies SenderCheckResponse);
     }
   }
 });

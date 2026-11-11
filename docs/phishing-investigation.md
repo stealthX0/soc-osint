@@ -11,7 +11,7 @@ The page runs small stages and merges what each returns. Every stage returns the
 | Stage | Endpoint | Outbound requests | Rate-limit cost | What it does |
 |---|---|---|---|---|
 | Parse | `POST /api/phishing/parse` | none | 2 | Header forensics (trusted receiver boundary, labelled SPF/DKIM/DMARC), MIME body, links with gateway unwrapping, attachment hashes and static analysis, local link screening, sender identity (brand / look-alike), wording analysis |
-| Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address check (UserCheck), sender mailbox reputation (IPQualityScore). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
+| Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address reputation (IPQualityScore first, UserCheck fallback). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
 | Links | `POST /api/phishing/urls` | OpenPhish feed + at most 3 full lookups | 8 | Ranks links from offline evidence, checks all against the OpenPhish feed, runs the existing URL intelligence on the top few. Runs automatically after Analyse (full lookup on the top 3 links) |
 | Attachments | `POST /api/phishing/attachments` | one hash per call | 2 | Hash reputation through `/api/file/hash` |
 | Verdict | none (in the browser, `shared/phishing/verdict.ts`) | none | | Rules, scoring, coverage, confidence |
@@ -27,8 +27,7 @@ Why small stages: a Worker has a limited number of outbound requests per invocat
 | Pasted headers, body, subject, attachment bytes | **nobody**: they are parsed in memory by the Worker and never stored, logged or forwarded | always |
 | Public sender IPs | the IP intelligence providers (ipapi.is, RIPE, Shodan InternetDB, AbuseIPDB, VirusTotal, Pulsedive, as configured) | when the sender stage runs. Private and reserved addresses are never sent |
 | Sender and related domains | RDAP / WHOIS, DNS-over-HTTPS resolvers | when the sender stage runs. Consumer mailboxes and large mail platforms are skipped |
-| Sender e-mail address | UserCheck.com | always, when `USERCHECK_API_KEY` is configured (the address is sent to that service) |
-| Sender mailbox reputation | IPQualityScore Email Validation | always, when `IPQS_API_KEY` is configured (the address is sent to IPQS, which also probes the address's mail server). Fraud score, recent abuse, mailbox existence, domain trust, risky TLD; breach exposure is shown but never scored |
+| Sender e-mail address | IPQualityScore Email Validation, falling back to UserCheck.com | IPQS is always tried first (the address is sent to IPQS, which also probes the address's mail server): fraud score, recent abuse, mailbox existence, domain trust, risky TLD; breach exposure is shown but never scored. UserCheck is used **only** when IPQS cannot answer: its daily cap (`IPQS_DAILY`, default 35) is spent, it returns an error or quota/limit error, or `IPQS_API_KEY` is not set. The check row and the card say when the fallback was used and why |
 | Link URLs | the URL intelligence providers (VirusTotal, URLhaus, Google Safe Browsing, Pulsedive, urlscan.io), DNS resolvers, and **the link destination itself (Cloudflare fetches it, with SSRF protection)** | automatically after Analyse (the top 3 links get a full lookup) |
 | File hashes | the hash intelligence providers (VirusTotal, MalwareBazaar, CIRCL, Hybrid Analysis, as configured) | automatically after Analyse. Files are never uploaded; a file attached in the form is analysed in the browser and only its hash is sent |
 
@@ -231,8 +230,8 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | Setting | Purpose |
 |---|---|
 | `VIRUSTOTAL_API_KEY`, `ABUSEIPDB_API_KEY`, `PULSEDIVE_API_KEY`, `GOOGLE_SAFE_BROWSING_API_KEY`, `URLSCAN_API_KEY`, `HYBRID_ANALYSIS_API_KEY`, `ABUSECH_AUTH_KEY`, `IPAPI_IS_API_KEY`, `APILAYER_API_KEY` | Optional provider keys already used by the other tools (see the README). A missing key shows that provider as skipped, never clean |
-| `USERCHECK_API_KEY`, `USERCHECK_DAILY` | UserCheck.com key for the sender address check (skipped when absent); optional daily cap |
-| `IPQS_API_KEY`, `IPQS_DAILY` | IPQualityScore key for the sender mailbox reputation check (skipped when absent); daily cap, default 30 to fit the free 1,000/month plan |
+| `USERCHECK_API_KEY`, `USERCHECK_DAILY` | UserCheck.com key: fallback for the sender address check when IPQS is unavailable; optional daily cap |
+| `IPQS_API_KEY`, `IPQS_DAILY` | IPQualityScore key for the sender address check (primary provider); daily cap, default 35, after which UserCheck answers for the rest of the day |
 | `OPENPHISH_FEED_URL`, `OPENPHISH_DAILY` | Optional https-only override of the OpenPhish community feed, and its daily download budget (default 300) |
 | `RATE_LIMIT` (KV) and `RATE_LIMIT_PER_MIN` | Shared per-client rate limit (default 60 cost units a minute). Without KV the counters are per isolate |
 

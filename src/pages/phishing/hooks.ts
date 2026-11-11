@@ -23,7 +23,8 @@ export function useSenderStage(parse: ParseStageResult) {
     setSlots(plan.requests.map((req) => ({ req, state: 'running' as const })));
     setFinishedAt(null);
     let next = 0;
-    // UserCheck plans have a request-rate limit: its address checks go one at a time, and one that is rate limited is retried once.
+    // Address checks (IPQS, which can fall back to UserCheck) go one at a time: UserCheck plans have a request-rate limit,
+    // and a check that is rate limited is retried once.
     let ucTail: Promise<unknown> = Promise.resolve();
     const send = (req: SenderCheckRequest) => api<SenderCheckResponse>('/api/phishing/sender', { method: 'POST', body: req, signal: ac.signal });
     const sendUserCheck = async (req: SenderCheckRequest) => {
@@ -36,7 +37,7 @@ export function useSenderStage(parse: ParseStageResult) {
       return first;
     };
     const dispatch = (req: SenderCheckRequest) => {
-      if (req.check !== 'usercheck') return send(req);
+      if (req.check !== 'usercheck' && req.check !== 'ipqs') return send(req);
       const p = ucTail.then(() => sendUserCheck(req));
       ucTail = p.catch(() => undefined);
       return p;

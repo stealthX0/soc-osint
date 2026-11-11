@@ -112,13 +112,11 @@ export function planSenderChecks(r: ParseStageResult): SenderPlan {
   if (connecting && envDomain && !isFreeMail(envDomain)) requests.push({ check: 'spf', domain: envDomain, ip: connecting.ip, reported: fx?.authentication.spf?.result ?? null, trust: fx?.authentication.spf?.trust ?? 'unverified' });
   else skipped.push(check('sender.spf_recheck', 'sender', 'Independent SPF re-check', 'skipped', null, !connecting ? 'No trusted connecting IP to test.' : 'No envelope sender domain, or it is a consumer mailbox.'));
 
-  // Address check with UserCheck.com (the address is sent to that service)
+  // Sender address reputation: IPQualityScore first. The Worker falls back to UserCheck.com only when IPQS cannot answer
+  // (daily cap spent, quota / API error, or no IPQS key), so each address costs one IPQS lookup or one UserCheck lookup.
+  // The address is sent to whichever service answers; IPQS also probes the address's mail server.
   const addrs: { email: string; roles: EmailRole[] }[] = r.indicators.emails.filter((e) => e.roles.some((x) => x === 'from' || x === 'reply_to' || x === 'supplied')).slice(0, 2).map((e) => ({ email: e.address, roles: e.roles }));
-  if (!addrs.length) skipped.push(check('sender.usercheck', 'sender', 'Sender address check (UserCheck)', 'not_applicable', null, 'No sender address available.'));
-  else for (const a of addrs) requests.push({ check: 'usercheck', email: a.email, roles: a.roles });
-
-  // Mailbox reputation with IPQualityScore (same addresses; the address is sent to that service, which probes its mail server)
-  if (!addrs.length) skipped.push(check('sender.ipqs', 'sender', 'Sender mailbox reputation (IPQualityScore)', 'not_applicable', null, 'No sender address available.'));
+  if (!addrs.length) skipped.push(check('sender.ipqs', 'sender', 'Sender address reputation (IPQualityScore, UserCheck fallback)', 'not_applicable', null, 'No sender address available.'));
   else for (const a of addrs) requests.push({ check: 'ipqs', email: a.email, roles: a.roles });
 
   return { requests, skipped };

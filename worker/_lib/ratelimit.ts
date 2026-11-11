@@ -88,7 +88,7 @@ const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
   safebrowsing: { daily: 9000 }, // Lookup API: 10,000 requests/day
   urlscan: { rpm: 20 }, // anonymous search is limited to ~30/min per source address
   usercheck: {}, // plan quotas differ; set USERCHECK_DAILY to add a cap
-  ipqs: { daily: 30 }, // free plan: 1,000 lookups/month (~33/day); raise with IPQS_DAILY on a paid plan
+  ipqs: { daily: 35 }, // when spent, the sender address check falls back to UserCheck; raise with IPQS_DAILY on a paid plan
   openphish: { daily: 300 }, // feed downloads only (the parsed feed is reused for ~30 minutes), never per-URL
 };
 

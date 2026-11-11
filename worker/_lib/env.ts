@@ -26,7 +26,7 @@ export interface Env {
   USERCHECK_DAILY?: string;
   /** IPQualityScore API key: sender mailbox reputation (exists, fraud score, recent abuse, domain trust). Optional; without it the check is skipped. https://www.ipqualityscore.com */
   IPQS_API_KEY?: string;
-  /** Daily cap on IPQS lookups (default 30, which fits the free 1,000/month plan). */
+  /** Daily cap on IPQS lookups (default 35). Once spent, sender address checks fall back to UserCheck for the rest of the day. */
   IPQS_DAILY?: string;
   /** URL intelligence sources (all optional) */
   /** abuse.ch Auth-Key (free, https://auth.abuse.ch): one key serves URLhaus (URL Intelligence) and MalwareBazaar (File Analysis). */

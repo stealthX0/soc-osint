@@ -44,8 +44,8 @@ npm run deploy                                       # typecheck + vite build + 
 npx wrangler secret put IPAPI_IS_API_KEY             # optional: ipapi.is key (primary IP provider works without one; a key raises the quota)
 npx wrangler secret put APILAYER_API_KEY             # optional: APILayer WHOIS, fallback for TLDs without RDAP (.de, .io)
 npx wrangler secret put PULSEDIVE_API_KEY             # optional: Pulsedive, threat-intel risk rating, linked threats and feeds
-npx wrangler secret put USERCHECK_API_KEY             # UserCheck.com, sender address / domain checks (disposable, spam, MX, domain age); skipped without a key
-npx wrangler secret put IPQS_API_KEY                  # IPQualityScore, sender mailbox reputation (fraud score, recent abuse, mailbox exists); skipped without a key
+npx wrangler secret put IPQS_API_KEY                  # IPQualityScore, sender address reputation (fraud score, recent abuse, mailbox exists); primary provider, 35 lookups/day by default (IPQS_DAILY)
+npx wrangler secret put USERCHECK_API_KEY             # UserCheck.com, fallback for the sender address check when IPQS is capped or errors (disposable, spam, MX, domain age)
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
 npx wrangler secret put CTLOGS_API_KEY               # optional: ctlogs.dev, primary Certificate Transparency source (free key: account.ctlogs.dev)
 npx wrangler secret put VIRUSTOTAL_API_KEY           # optional: VirusTotal (free, ~4 req/min), multi-engine verdicts (IPs, URLs, file hashes and file upload scans)

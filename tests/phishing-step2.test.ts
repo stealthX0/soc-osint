@@ -174,21 +174,20 @@ Subject: x`;
     const kinds = plan.requests.map((q) => q.check);
     assert.equal(kinds.filter((k) => k === 'ip').length, 1);
     assert.deepEqual(plan.requests.filter((q) => q.check === 'domain').map((q) => (q as { domain: string }).domain).sort(), ['bank.example', 'evil.example']);
-    assert.ok(kinds.includes('spf') && kinds.includes('auth') && kinds.includes('usercheck'));
+    assert.ok(kinds.includes('spf') && kinds.includes('auth') && kinds.includes('ipqs'));
+    assert.ok(!kinds.includes('usercheck'), 'UserCheck is only a fallback inside the ipqs check, never planned on its own');
     assert.ok(!plan.requests.some((q) => q.check === 'domain' && (q as { domain: string }).domain === 'gmail.com'));
   });
   it('always plans the address check when there is a sender address, and notes when there is none', async () => {
     const r = await parseSubmission({ body: 'hello' });
     const plan = planSenderChecks(r);
-    assert.ok(!plan.requests.some((q) => q.check === 'usercheck'));
-    assert.ok(plan.skipped.some((c) => c.id === 'sender.usercheck' && c.status === 'not_applicable'));
-    assert.ok(!plan.requests.some((q) => q.check === 'ipqs'));
+    assert.ok(!plan.requests.some((q) => q.check === 'usercheck' || q.check === 'ipqs'));
     assert.ok(plan.skipped.some((c) => c.id === 'sender.ipqs' && c.status === 'not_applicable'));
   });
   it('for a message with no headers and a free-mail sender, plans only the address check (no IP or domain lookups)', async () => {
     const r = await parseSubmission({ body: 'hi', sender: { email: 'x@gmail.com' } });
     const plan = planSenderChecks(r);
-    assert.deepEqual(plan.requests, [{ check: 'usercheck', email: 'x@gmail.com', roles: ['supplied'] }, { check: 'ipqs', email: 'x@gmail.com', roles: ['supplied'] }]);
+    assert.deepEqual(plan.requests, [{ check: 'ipqs', email: 'x@gmail.com', roles: ['supplied'] }]);
   });
 });
 
