@@ -20,8 +20,6 @@ import { identityFindings } from './SenderTab';
 import { KeyFindings, RiskByArea, ReasoningCard, areaStates, type AnalysisTab } from './OverviewParts';
 import type { SenderStage, LinkStage } from './hooks';
 import type { AttachmentStage } from './AttachmentPanel';
-import type { IpLookup } from '../../../shared/types';
-import { assessIpRisk } from '../../../shared/phishing/ipRisk';
 
 /* ─── colour maps ─── */
 const verdictTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
@@ -141,21 +139,6 @@ function VerdictGlyph({ label }: { label: VerdictLabel }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Reusable Panel
-   ═══════════════════════════════════════════════════════════ */
-function Panel({ title, icon, children, className = '' }: { title: string; icon?: IconName; children: ReactNode; className?: string }) {
-  return (
-    <section className={`rounded-xl border border-line/70 bg-[#0c1529] ${className}`}>
-      <header className="flex items-center gap-2 border-b border-line/50 px-4 py-2.5">
-        {icon && <Icon name={icon} size={16} className="text-muted" />}
-        <h3 className="text-base font-bold text-fg">{title}</h3>
-      </header>
-      <div className="p-4">{children}</div>
-    </section>
-  );
-}
-
 /** Tab-bar count chip, tinted by the worst severity among that tab's findings. */
 const countChip: Record<Severity, string> = {
   critical: 'bg-rose/20 text-rose', high: 'bg-rose/20 text-rose', medium: 'bg-amber/20 text-amber', low: 'bg-sky/15 text-sky', info: 'bg-line/50 text-muted',
@@ -187,9 +170,6 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 
   /* per-area state (tone, score, findings) shared by Key Findings, Risk by Area and the bottom panels */
   const areas = useMemo(() => areaStates(verdict, findings), [verdict, findings]);
-  const area = (d: Finding['dimension']) => areas.find((x) => x.dim === d)!;
-  const urlDim = { tone: area('url').tone };
-  const infraDim = { tone: area('infrastructure').tone, top: area('infrastructure').findings[0] ?? null };
 
   /* findings shown in each tab, and the tab-bar counts */
   const tabFindings = useMemo(() => {
@@ -398,41 +378,6 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             </div>
           </section>
 
-          {/* ── BOTTOM ROW: 2 panels, each sized to its content (not stretched to half the page or to each other's height) ── */}
-          <div className="flex flex-wrap items-start gap-4">
-
-            {/* Link Details */}
-            <Panel title="Link Details" icon="shield" className="w-full lg:w-auto lg:min-w-[340px] lg:max-w-[600px]">
-              {r.links.length > 0 ? (
-                <div className="space-y-2">
-                  {r.links.slice(0, 3).map((l, i) => (
-                    <div key={i} className="rounded-lg border border-line bg-bg2/40 p-2">
-                      <div className="flex items-start justify-between gap-2 mb-0.5">
-                        <code className="break-all font-mono text-[11px] text-fg/80 line-clamp-2">{l.url}</code>
-                        <Badge tone={urlDim.tone === 'bad' ? 'bad' : urlDim.tone === 'warn' ? 'warn' : 'neutral'}>
-                          {urlDim.tone === 'bad' ? 'Malicious' : urlDim.tone === 'warn' ? 'Suspicious' : 'Unknown'}
-                        </Badge>
-                      </div>
-                      {l.text && <div className="text-[10px] text-faint truncate">Text: {l.text}</div>}
-                    </div>
-                  ))}
-                  {r.links.length > 3 && <p className="text-[11px] text-faint">+ {r.links.length - 3} more links</p>}
-                </div>
-              ) : (
-                <p className="text-xs text-muted">No links found in the email.</p>
-              )}
-            </Panel>
-
-            {/* IP Reputation — from actual IP intelligence API results */}
-            <Panel title="IP Reputation" icon="network" className="w-full lg:w-auto lg:min-w-[340px] lg:max-w-[600px]">
-              {senderIp !== '—' ? (
-                <IpReputationContent sender={sender} senderIp={senderIp} infraDim={infraDim} />
-              ) : (
-                <p className="text-xs text-muted">No sender IP available.</p>
-              )}
-            </Panel>
-          </div>
-
           {/* ── ACTION BAR ── */}
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel/60 px-4 py-2.5">
             <ExportBar report={report} />
@@ -451,134 +396,6 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
         </div>
       </div>{/* end main content */}
       </div>{/* end body flex (sidebar + main) */}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   IP Reputation Panel (uses real IP intelligence data)
-   ═══════════════════════════════════════════════════════════ */
-function IpReputationContent({ sender, senderIp, infraDim }: { sender: SenderStage; senderIp: string; infraDim: { tone: Tone; top: Finding | null } }) {
-  /* find the IP lookup data from sender results */
-  const ipData: IpLookup | null = useMemo(() => {
-    for (const res of sender.results) {
-      if (res.data?.check === 'ip') return res.data.value;
-    }
-    return null;
-  }, [sender.results]);
-
-  if (!ipData) {
-    return (
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <Copyable value={senderIp} ioc />
-          <Badge tone={infraDim.tone}>
-            {infraDim.tone === 'bad' ? 'High Risk' : infraDim.tone === 'warn' ? 'Medium Risk' : infraDim.tone === 'good' ? 'Low Risk' : 'Unknown'}
-          </Badge>
-        </div>
-        <p className="text-xs text-muted">{sender.running ? 'Looking up IP intelligence…' : 'No IP intelligence data available.'}</p>
-      </div>
-    );
-  }
-
-  const rep = ipData.reputation;
-  const net = ipData.network;
-  const geo = ipData.geo;
-  const nt = ipData.netType;
-  const vt = ipData.virustotal;
-  const pd = ipData.pulsedive;
-
-  /* overall reputation from every intelligence provider (same assessment as the Domain & IP Intelligence tab) */
-  const abuseScore = rep?.abuseConfidence ?? 0;
-  const risk = assessIpRisk(ipData);
-  const repLabel = { high: 'High Risk', medium: 'Medium Risk', low: 'Low Risk', unknown: 'Unknown' }[risk.level];
-  const repTone: Tone = { high: 'bad', medium: 'warn', low: 'good', unknown: 'neutral' }[risk.level] as Tone;
-
-  const flags: string[] = [];
-  if (nt?.isVpn) flags.push('VPN');
-  if (nt?.isProxy) flags.push('Proxy');
-  if (nt?.isTor) flags.push('Tor');
-  if (nt?.isDatacenter) flags.push('Datacenter');
-  if (nt?.isAbuser) flags.push('Known Abuser');
-  if (rep?.isTor) flags.push('Tor Exit');
-
-  return (
-    <div className="space-y-2.5">
-      {/* IP + reputation badge */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Copyable value={senderIp} ioc />
-        <Badge tone={repTone}>{repLabel}</Badge>
-      </div>
-
-      {/* AbuseIPDB */}
-      {rep && (
-        <div className="space-y-1">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">AbuseIPDB</div>
-          <div className="grid grid-cols-[auto_auto] justify-start gap-x-8 gap-y-1 text-xs">
-            <IpKV label="Confidence" value={<span className={abuseScore >= 50 ? 'text-rose font-semibold' : abuseScore >= 25 ? 'text-amber' : 'text-green'}>{abuseScore}%</span>} />
-            <IpKV label="Reports" value={<span className="text-fg">{rep.totalReports}</span>} />
-            <IpKV label="Reporters" value={<span className="text-fg">{rep.distinctReporters}</span>} />
-            <IpKV label="Last Reported" value={<span className="text-fg">{rep.lastReportedAt ? new Date(rep.lastReportedAt).toLocaleDateString() : '—'}</span>} />
-            {rep.isWhitelisted && <IpKV label="Whitelisted" value={<span className="text-green">Yes</span>} />}
-          </div>
-        </div>
-      )}
-
-      {/* Network / ASN */}
-      {net && (net.org || net.asn) && (
-        <div className="space-y-1 border-t border-line/40 pt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">Network</div>
-          <div className="grid grid-cols-[auto_auto] justify-start gap-x-8 gap-y-1 text-xs">
-            {net.org && <IpKV label="Org" value={<span className="text-fg truncate" title={net.org}>{net.org}</span>} />}
-            {net.asn && <IpKV label="ASN" value={<span className="font-mono text-fg">{net.asn}</span>} />}
-            {net.isp && net.isp !== net.org && <IpKV label="ISP" value={<span className="text-fg truncate" title={net.isp}>{net.isp}</span>} />}
-            {geo?.countryCode && <IpKV label="Country" value={<span className="text-fg">{geo.country ?? geo.countryCode}</span>} />}
-            {geo?.city && <IpKV label="City" value={<span className="text-fg">{geo.city}{geo.region ? `, ${geo.region}` : ''}</span>} />}
-          </div>
-        </div>
-      )}
-
-      {/* Network type flags */}
-      {flags.length > 0 && (
-        <div className="flex flex-wrap gap-1 border-t border-line/40 pt-2">
-          {flags.map((f) => <Badge key={f} tone={f === 'Known Abuser' || f === 'Tor Exit' ? 'bad' : 'warn'}>{f}</Badge>)}
-        </div>
-      )}
-
-      {/* VirusTotal */}
-      {vt && vt.observed && (
-        <div className="space-y-1 border-t border-line/40 pt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">VirusTotal</div>
-          <div className="flex items-center gap-3 text-xs">
-            <span className={vt.malicious > 0 ? 'text-rose font-semibold' : 'text-green'}>{vt.malicious} malicious</span>
-            <span className={vt.suspicious > 0 ? 'text-amber' : 'text-muted'}>{vt.suspicious} suspicious</span>
-            <span className="text-muted">{vt.harmless} clean</span>
-          </div>
-        </div>
-      )}
-
-      {/* Pulsedive */}
-      {pd && pd.observed && (
-        <div className="space-y-1 border-t border-line/40 pt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">Pulsedive</div>
-          <div className="text-xs">
-            <span className="text-muted">Risk: </span>
-            <span className={pd.risk === 'critical' || pd.risk === 'high' ? 'text-rose font-semibold' : pd.risk === 'medium' ? 'text-amber' : 'text-green'}>{pd.risk}</span>
-            {pd.threats.length > 0 && (
-              <span className="ml-2 text-muted">· {pd.threats.map(t => t.name).join(', ')}</span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function IpKV({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5 min-w-0">
-      <span className="text-faint shrink-0">{label}:</span>
-      {value}
     </div>
   );
 }

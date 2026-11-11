@@ -528,8 +528,8 @@ describe('server-render smoke tests: every tab and the form render without throw
   it('the finished report: the investigation dashboard with its analysis tabs and focusable verdict heading', async () => {
     const f = await fixture();
     const out = html(createElement(FinishedReport, { r: f.r, input: f.input, sender: senderDone, links: linkStub, att: attDone, startedAt: Date.now(), historyEnabled: false }));
-    for (const s of ['Email Investigation Dashboard', 'Investigation Summary', 'Input Details', 'Key Findings', 'Detailed Analysis', 'Overview', 'Sender Analysis', 'Link Analysis', 'Domain &amp; IP Intelligence', 'Content Analysis', 'Evidence', 'Link Details', 'IP Reputation']) assert.ok(out.includes(s), s);
-    assert.ok(!out.includes('Indicators Checked'), 'Indicators Checked panel was removed');
+    for (const s of ['Email Investigation Dashboard', 'Investigation Summary', 'Input Details', 'Key Findings', 'Detailed Analysis', 'Overview', 'Sender Analysis', 'Link Analysis', 'Domain &amp; IP Intelligence', 'Content Analysis', 'Evidence']) assert.ok(out.includes(s), s);
+    for (const gone of ['Indicators Checked', 'Link Details', 'IP Reputation']) assert.ok(!out.includes(gone), `${gone} panel was removed (it has its own tab)`);
     assert.match(out, /<h2[^>]*tabindex="-1"/);
   });
 
