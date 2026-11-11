@@ -2,7 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index';
-import { cleanKey, ipqsAttempts, keyHint, mapIpqs } from '../worker/api/email/ipqs';
+import { cleanKey, ipqsAttempts, keyHint, keySha, mapIpqs } from '../worker/api/email/ipqs';
 import { convertIpqs, labelOf, idOf } from '../shared/phishing/sender';
 import { computeVerdict } from '../shared/phishing/verdict';
 import { groupOf, POINTS } from '../shared/phishing/verdictRules';
@@ -243,6 +243,10 @@ describe('IPQS key delivery', () => {
   const KEY = 'abcdefghijklmnopqrstuvwxyz12Fb9q';
   const REJECT = { success: false, message: 'Invalid or unauthorized key. Please check the API key and try again. (EID: 61771)' };
 
+  it('the SHA-256 fingerprint is the first 12 hex characters of the digest', async () => {
+    assert.equal(await keySha('abc'), 'ba7816bf8f01');
+  });
+
   it('tries the path, then the IPQS-KEY header, then the plain path', () => {
     const a = ipqsAttempts(KEY, 'a+b@evil.example');
     assert.deepEqual(a.map((x) => x.name), ['URL path', 'IPQS-KEY header', 'plain URL path']);
@@ -274,7 +278,7 @@ describe('IPQS key delivery', () => {
     restore = m.restore;
     const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY, USERCHECK_API_KEY: 'uc' });
     assert.equal(json.data.data.check, 'usercheck');
-    assert.match(json.data.checks[0].detail, /ending "…Fb9q"; rejected when sent as: URL path, IPQS-KEY header, plain URL path/);
+    assert.match(json.data.checks[0].detail, new RegExp(`ending "…Fb9q", SHA-256 ${await keySha(KEY)}…; rejected when sent as: URL path, IPQS-KEY header, plain URL path`));
     assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 3);
     assert.ok(!JSON.stringify(json).includes(KEY));
   });

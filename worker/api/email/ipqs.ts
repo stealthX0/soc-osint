@@ -54,6 +54,12 @@ export const cleanKey = (k: string | undefined): string => (k ?? '').trim().repl
 /** A safe fingerprint of a key for error messages: its length, plus the last 4 characters only for keys of 16+ characters. Exported for tests. */
 export const keyHint = (k: string): string => (k.length >= 16 ? `${k.length} characters, ending "…${k.slice(-4)}"` : `${k.length} characters`);
 
+/** First 12 hex characters of the key's SHA-256: proves which exact key is stored without revealing it. Exported for tests. */
+export async function keySha(k: string): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(k));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+}
+
 /** IPQS says this when it does not accept the key as sent. */
 export const isKeyRejection = (m: unknown): boolean => typeof m === 'string' && /invalid|unauthori[sz]ed/i.test(m) && /key/i.test(m);
 
@@ -135,7 +141,7 @@ export const onRequestGet = route(async (ctx) => {
       const msg = (typeof r.message === 'string' ? r.message : 'request was not successful').split(key).join('[key]').slice(0, 200);
       const quota = /credit|quota|exceeded|limit/i.test(msg);
       // For a rejected key, say which key the Worker holds without revealing it, and which ways of sending it were tried.
-      const hint = isKeyRejection(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}; rejected when sent as: ${tried.join(', ')}]` : '';
+      const hint = isKeyRejection(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}, SHA-256 ${await keySha(key)}…; rejected when sent as: ${tried.join(', ')}]` : '';
       throw new ApiError(502, quota ? 'PROVIDER_BUDGET' : 'UPSTREAM_ERROR', `IPQualityScore: ${msg}${hint}`);
     }
     return { value: mapIpqs(email, domain, r, Date.now() - t0), ttl: 6 * 3600 };
