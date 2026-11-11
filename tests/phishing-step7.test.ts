@@ -494,7 +494,7 @@ describe('server-render smoke tests: every tab and the form render without throw
     const f = await fixture();
     const Harness = () => createElement(AttachmentTab, { att: useAttachmentStage(f.r) });
     const out = html(createElement(Harness));
-    assert.match(out, /Drop an attachment here/);
+    assert.doesNotMatch(out, /Drop an attachment here/, 'no adding files after the analysis was submitted');
     assert.match(out, /Invoice_4491\.pdf\.exe/);
     assert.match(out, /Check hash reputation/);
   });

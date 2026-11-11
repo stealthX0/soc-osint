@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Badge, Card, Copyable, DataTable, Empty, Spinner, type Tone } from '../../components/ui';
 import { Icon } from '../../components/icons';
 import { api, ApiClientError } from '../../lib/api';
-import { fmtBytes, MAX_LOCAL_BYTES, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/fileApi';
+import { fmtBytes, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/fileApi';
 import { navigate } from '../../lib/router';
 import { hashBytes } from '../../../shared/fileAnalysis';
 import { analyzeDroppedFile, convertActiveScan, type ActiveScanOutcome, type AttachmentHashRequest, type AttachmentHashResponse, type StaticResult } from '../../../shared/phishing/attachments';
@@ -89,7 +89,6 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
   const [rep, setRep] = useState<Record<number, RepState>>({});
   const [scans, setScans] = useState<Record<number, ScanState>>({});
   const [busy, setBusy] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [settled, setSettled] = useState(false);
   // A new analysis starts clean: dropped files and lookups belong to the message they were added to.
@@ -201,21 +200,6 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
     setBusy(false);
   };
 
-  const addFile = async (f: File | undefined | null) => {
-    if (!f) return;
-    setErr(null);
-    if (f.size > MAX_LOCAL_BYTES) { setErr(`${f.name} is ${fmtBytes(f.size)}. Files over ${fmtBytes(MAX_LOCAL_BYTES)} cannot be analysed in the browser. Compute its SHA-256 yourself and add it to the attachments box instead.`); return; }
-    try {
-      // Inspected in memory on this device, looked up by hash, then uploaded to VirusTotal for an active scan.
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const h = await hashBytes(bytes);
-      const index = r.attachments.length + locals.length;
-      const local: LocalFile = { index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256), file: f };
-      setLocals((p) => [...p, local]);
-      void lookup({ index, name: f.name, hash: h.sha256, hashType: 'sha256' }).then((res) => activeScan([local], () => true, { [index]: res }));
-    } catch { setErr(`Could not read ${f.name}.`); }
-  };
-
   // Runs once per analysis: inspect the files attached in the form, look up every hash (embedded, typed or attached),
   // two at a time, then upload the attached files to VirusTotal for an active scan. The report is held back until this has finished, so the verdict never rests on half the evidence.
   useEffect(() => {
@@ -257,15 +241,6 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
 
   const panel = (
     <div className="space-y-4">
-      <div
-        onDragOver={(e: DragEvent) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
-        onDrop={(e: DragEvent) => { e.preventDefault(); setDragging(false); void addFile(e.dataTransfer.files?.[0]); }}
-        className={`rounded-xl border-2 border-dashed p-5 text-center text-sm ${dragging ? 'border-teal bg-teal/10' : 'border-line2 bg-bg2/60'}`}
-      >
-        <Icon name="file" size={20} className="mx-auto mb-2 text-muted" />
-        <p>Drop an attachment here to analyse it in your browser, or <label className="cursor-pointer text-teal hover:underline">choose a file<input type="file" className="sr-only" onChange={(e: ChangeEvent<HTMLInputElement>) => { void addFile(e.target.files?.[0]); e.target.value = ''; }} /></label>.</p>
-        <p className="mt-1 text-xs text-faint">The file is inspected on your device (up to {fmtBytes(MAX_LOCAL_BYTES)}), looked up by hash and uploaded to VirusTotal for an active scan (up to {fmtBytes(MAX_UPLOAD_BYTES)}). Never open it to check it.</p>
-      </div>
       {err && <p className="text-sm text-bad" role="alert">{err}</p>}
 
       {rows.length > 0 && (
@@ -306,7 +281,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
             <ScanCell key="a" state={sc} origin={x.origin} />,
           ];
         })} />
-      ) : <Empty>No attachments were found or listed. Drop a file above to analyse it locally.</Empty>}
+      ) : <Empty>No attachments were found in the message or added to the form.</Empty>}
 
       {urls.length > 0 && (
         <Card title={`URLs and IPs found inside attachments (${urls.length})`}>
@@ -325,7 +300,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
 const ORIGIN: Record<Row['origin'], { label: string; title: string }> = {
   embedded: { label: 'in message', title: 'Found inside the raw message you pasted.' },
   supplied: { label: 'hash only', title: 'A name or hash you typed; there is no file to inspect or upload.' },
-  dropped: { label: 'file', title: 'The actual file: extracted from the e-mail file you loaded, attached in the form or dropped here. Inspected on your device, looked up by hash and scanned on VirusTotal.' },
+  dropped: { label: 'file', title: 'The actual file: extracted from the e-mail file you loaded or attached in the form. Inspected on your device, looked up by hash and scanned on VirusTotal.' },
 };
 
 /** The "Active scan" cell: upload / scan progress and the fresh VirusTotal result. */
