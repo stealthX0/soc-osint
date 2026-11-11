@@ -66,3 +66,12 @@ Also look at the **confidence** column: samples with failed or missing checks sh
 ```ts
 computeVerdict({ parse, findings, checks, tuning: { thresholds: { suspiciousRisk: 35 }, points: { reply_to_mismatch: 14 } } });
 ```
+
+## 12 Nov 2026: combined risk and label-based confidence
+
+- **Risk** is now a weighted "noisy OR" of the area scores (`combineFloor` 0.5, `combineScale` 1) instead of half the strongest area plus half the weighted average. The old average let a clean area dilute the others: adding one harmless link to a BEC sample lowered its risk from 45 to 42. The new scale runs higher, so `suspiciousRisk` moved 25 → 28 and `legitimateRisk` 12 → 15 (the only values that kept all 80 samples agreeing with no bad mail cleared). `nonMaliciousCap` 84 and `maliciousFloor` 85 keep the number consistent with the label.
+- **Grouping**: the payment findings (`bec_payment_reply_redirect`, `content_payment_demand`, `content_payment_redirection`, `content_payroll_diversion`, `content_gift_card_request`) form one `payment_request` group, and `content_multiple_lure_signals` joined `lure_wording`, so one request for money is not counted three times.
+- **Confidence** for Suspicious: `30 + 30 x margin + 15 x agreeing areas/3 + 10 x source quality + 15 x coverage` (margin = distance past the Suspicious line by risk or by the strongest single signal); Likely legitimate: `35 + 15 x margin + 40 x coverage (+8 when authentication supports it)`; Inconclusive: `20 + 35 x coverage`, capped below High. Conflicts −15, missing important checks −10, lookups still running −10.
+- `tests/phishing-verdict-properties.test.ts` checks the properties on every corpus sample: no padding, adding a finding never lowers risk, risk consistent with the label, confidence ordered by strength.
+- Margins are thin: `S02` sits exactly on 28 and `I12` at 26. Real labelled samples are needed before trusting the exact thresholds.
+

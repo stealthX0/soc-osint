@@ -11,7 +11,8 @@
  *     only about shared mail infrastructure.
  *  2. Findings that describe the same underlying fact are grouped so they cannot add up as if they were independent.
  *  3. Points are summed per dimension (authentication, infrastructure, URLs, attachments, content), turned into a 0-100
- *     score and combined with the dimension weights into a risk score. Passing authentication never lowers risk.
+ *     score and combined into a risk score, each area counting by its weight. Areas are combined so that one with nothing
+ *     found never dilutes the others: more evidence can only raise risk. Passing authentication never lowers risk.
  *  4. VERDICT RULES decide the outcome, not the score: a confirmed-malicious exact URL or file is Malicious whatever else
  *     is missing; an authentication failure alone, or a bad IP alone, can never be more than Suspicious; and a clean
  *     result needs real coverage. The score only drives the grey zone.
@@ -229,14 +230,17 @@ export function computeVerdict(input: VerdictInput): Verdict {
     const active = cov.byDimension[d].active || list.some((c) => c.counted > 0);
     return { dimension: d, weight: DIMENSION_WEIGHTS[d], effectiveWeight: 0, active, points: Math.round(points * 10) / 10, score: Math.round(100 * (1 - Math.exp(-points / T.saturation))), coverage: cov.byDimension[d].coverage, findings: list.length };
   });
-  // The denominator is the dimensions that APPLY to this message; a dimension that only has findings still adds to the numerator.
-  // This keeps the score monotonic: more evidence can never lower it.
+  // Coverage is averaged over the areas that APPLY to this message (a dimension that only has findings counts as active).
   const applicableW = dims.filter((d) => cov.byDimension[d.dimension].active).reduce((s, d) => s + d.weight, 0) || 1;
   for (const d of dims) d.effectiveWeight = d.active ? d.weight / applicableW : 0;
-  const weighted = Math.min(100, dims.reduce((s, d) => s + d.effectiveWeight * d.score, 0));
-  const strongest = Math.max(0, ...dims.filter((d) => d.active).map((d) => d.score));
-  const risk = Math.round(T.strongestShare * strongest + (1 - T.strongestShare) * weighted);
   const coverage = Math.round(dims.reduce((s, d) => s + d.effectiveWeight * d.coverage, 0) * 100) / 100;
+  // Risk combines the areas like independent pieces of evidence (a weighted "noisy OR"): each area leaves a share of doubt
+  // (1 - score) raised to its relative weight, and risk is what is left after multiplying those doubts. An area with nothing
+  // found leaves a factor of 1, so a clean link or attachment can never lower risk (padding a message cannot hide it), and
+  // any extra evidence can only raise it. A heavier area (links) moves risk more than a lighter one (content) of equal score.
+  const maxW = Math.max(...dims.map((d) => d.weight));
+  const doubt = dims.reduce((p, d) => p * Math.pow(1 - Math.min(99.9, d.score) / 100, (T.combineFloor + (1 - T.combineFloor) * (d.weight / maxW)) * T.combineScale), 1);
+  const risk = Math.round(100 * (1 - doubt));
 
   /* 4. evidence helpers */
   const byId = (pred: (f: Finding) => boolean) => findings.filter(pred);
@@ -284,7 +288,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
   let headline: string;
   const notes: string[] = [];
   // When a verdict rule decides MALICIOUS, floor the risk so the number does not contradict the label.
-  const ruleFloor = rule ? 85 : 0;
+  const ruleFloor = rule ? T.maliciousFloor : 0;
   if (rule) { label = 'malicious'; headline = (rule as RuleHit).text; }
   else if (suspicious) {
     label = 'suspicious';
@@ -323,19 +327,34 @@ export function computeVerdict(input: VerdictInput): Verdict {
   if (findings.some((f) => f.id === 'attachment_hash_known_good')) mitigating.push('An attachment matches a known file in the CIRCL database.');
   if (mitigating.length) notes.push('These show the sender is authenticated, not that the message is harmless: an authenticated sender can still send phishing.');
 
-  /* 9. confidence */
+  /* 9. confidence: how firmly the evidence supports THIS label, not how many checks ran (that is coverage, reported apart).
+        It rises with the distance from the decision threshold, with independent areas agreeing and with good sources. */
   const independentDims = new Set(contributions.filter((c) => c.counted >= 5).map((c) => c.dimension)).size;
   const countedTotal = contributions.reduce((s, c) => s + c.counted, 0);
   // share of the counted evidence that is about the exact subject, from a trusted source
   const quality = countedTotal ? contributions.filter((c) => c.multipliers.trust >= 0.9 && c.multipliers.exactness === 1 && c.multipliers.reliability >= 0.8).reduce((s, c) => s + c.counted, 0) / countedTotal : 0;
+  const span = (x: number, lo: number, hi: number) => Math.max(0, Math.min(1, (x - lo) / (hi - lo)));
   const confNotes: string[] = [];
   let conf: number;
   if (label === 'malicious') {
     conf = 82 + (independentDims >= 2 ? 8 : 0) + (quality >= 0.5 ? 6 : 0) - (conflicts.length ? 8 : 0);
     confNotes.push('Decided by a verdict rule based on direct evidence about the exact URL, file or sender.');
+  } else if (label === 'suspicious') {
+    // margin past the Suspicious line, by risk or by the single strongest signal
+    const margin = Math.max(span(risk, T.suspiciousRisk - 8, T.suspiciousRisk + 32), span(maxCounted, T.strongSingle - 5, T.strongSingle + 25));
+    conf = 30 + 30 * margin + 15 * Math.min(1, independentDims / 3) + 10 * quality + 15 * coverage;
+    if (margin < 0.35) confNotes.push('The evidence is only just past the Suspicious line.');
+    if (independentDims <= 1) confNotes.push('The warning signs come from a single area.');
+  } else if (label === 'likely_legitimate') {
+    const margin = span(T.legitimateRisk - risk, 0, T.legitimateRisk);
+    conf = 35 + 15 * margin + 40 * coverage + (mitigating.length ? 8 : 0);
   } else {
-    conf = coverage * 65 + Math.min(1, independentDims / 3) * 20 + quality * 15 - (conflicts.length ? 15 : 0) - (critGaps.length ? 10 : 0);
-    if (label === 'likely_legitimate') conf = coverage * 85 + (mitigating.length ? 10 : 0);
+    // Inconclusive means the evidence does not support a call either way, so it is never reported with high confidence.
+    conf = Math.min(T.highConfidence - 15, 20 + 35 * coverage);
+    confNotes.push('Inconclusive: the evidence does not support a confident call either way.');
+  }
+  if (label !== 'malicious') {
+    conf -= (conflicts.length ? 15 : 0) + (critGaps.length ? 10 : 0);
     if (critGaps.length) confNotes.push(`${critGaps.length} important check${critGaps.length === 1 ? '' : 's'} did not complete.`);
     if (conflicts.length) confNotes.push('Some evidence conflicts.');
   }
@@ -377,7 +396,8 @@ export function computeVerdict(input: VerdictInput): Verdict {
   } else actions.push('Provide the message and try again.');
 
   return {
-    label, headline, risk: clamp(Math.max(risk, ruleFloor)), confidence: { level, score, notes: confNotes }, rule, reasons, mitigating, conflicts, gaps: cov.gaps.sort((a, b) => Number(b.critical) - Number(a.critical)),
+    // The number never contradicts the label: Malicious is at least maliciousFloor, anything else stays below it.
+    label, headline, risk: rule ? clamp(Math.max(risk, ruleFloor)) : Math.min(risk, T.nonMaliciousCap), confidence: { level, score, notes: confNotes }, rule, reasons, mitigating, conflicts, gaps: cov.gaps.sort((a, b) => Number(b.critical) - Number(a.critical)),
     coverage, provisional: cov.pending, dimensions: dims, contributions: contributions.sort((a, b) => b.counted - a.counted), unmapped: [...new Set(contributions.filter((c) => !c.mapped).map((c) => c.findingId))],
     indicators, actions, notes,
   };

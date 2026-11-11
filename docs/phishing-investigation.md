@@ -156,7 +156,7 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `received_timestamps_inconsistent` | 3 | none | Received timestamps go backwards. |
 | `untrusted_received_hops` | 0 | none | Received headers precede the trusted boundary and could be forged (information). |
 | `x_originating_ip_present` | 0 | none | An X-Originating-IP header is present (unverified clue). |
-| `bec_payment_reply_redirect` | 20 | none | Asks for payment while Reply-To routes answers to a different organisation (invoice fraud / BEC pattern). |
+| `bec_payment_reply_redirect` | 20 | payment request | Asks for payment while Reply-To routes answers to a different organisation (invoice fraud / BEC pattern). |
 
 #### Sender identity and infrastructure
 
@@ -206,9 +206,9 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `content_urgency` | low 4, info 0 | lure wording | Urgent wording, strongest when it threatens consequences. |
 | `content_credential_request` | 8 | lure wording | Asks to verify, reset or re-enter account credentials. |
 | `content_financial_request` | 5 | lure wording | Asks about bank, card or payment details. |
-| `content_gift_card_request` | 22 | none | Asks for gift cards or their codes. |
-| `content_payment_redirection` | 24 | none | Says bank details have changed or asks for payment to a new account. |
-| `content_payroll_diversion` | 22 | none | Asks to change payroll or direct-deposit details. |
+| `content_gift_card_request` | 22 | payment request | Asks for gift cards or their codes. |
+| `content_payment_redirection` | 24 | payment request | Says bank details have changed or asks for payment to a new account. |
+| `content_payroll_diversion` | 22 | payment request | Asks to change payroll or direct-deposit details. |
 | `content_bec_request` | medium 14, low 6 | none | A short, link-free request typical of business-email-compromise. |
 | `content_extortion` | 22 | none | Threatens exposure unless a cryptocurrency payment is made. |
 | `content_delivery_scam` | 4 | lure wording | A parcel-delivery problem notice. |
@@ -220,8 +220,8 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `content_hidden_text` | 4 | none | A large amount of CSS-hidden text. |
 | `content_text_obfuscation` | medium 10, low 3 | none | Look-alike letters or invisible characters inside words. |
 | `content_brand_impersonation` | 10 | sender impersonation | The message speaks as a brand the sender does not own. |
-| `content_multiple_lure_signals` | 14 | none | Several different lure types appear together. |
-| `content_payment_demand` | medium 10, low 4 | none | Instructs you to pay, strongest when it demands payment now by a named method ("pay via ACH today"). |
+| `content_multiple_lure_signals` | 14 | lure wording | Several different lure types appear together. |
+| `content_payment_demand` | medium 10, low 4 | payment request | Instructs you to pay, strongest when it demands payment now by a named method ("pay via ACH today"). |
 | `content_forwarded_thread` | 3 | none | Forwards a thread from an unrelated organisation with only a short note (a common way to fake prior approval). |
 | `content_language_not_analysed` | 0 | none | The wording is not in a language the rules can read (information; widens the evidence gap). |
 
