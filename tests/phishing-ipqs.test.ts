@@ -1,5 +1,5 @@
 /** IPQualityScore Email Validation: mapping, findings and the sender-stage endpoint. */
-import { describe, it, afterEach } from 'node:test';
+import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index';
 import { cleanKey, ipqsAttempts, keyHint, keySha, mapIpqs } from '../worker/api/email/ipqs';
@@ -160,7 +160,7 @@ describe('UserCheck fallback for the ipqs check', () => {
   let restore = () => {};
   afterEach(() => { restore(); resetRateLimitMemory(); });
   const UC = { email: 'a@evil.example', domain: 'evil.example', domain_age_in_days: 3, mx: true, disposable: true, spam: false, public_domain: false, relay_domain: false, free_subdomain: false, role_account: false, did_you_mean: null };
-  const keys = { IPQS_API_KEY: 'k123', USERCHECK_API_KEY: 'uc-key' };
+  const keys = { IPQS_API_KEY: 'k123', USERCHECK_API_KEY: 'uc-key', IPQS_FALLBACK_DETAILS: 'true' };
   /** IPQS answers with `ipqs`; UserCheck with the sample; every call is recorded by host. */
   const providers = (ipqs: () => Response) => {
     const m = mockFetch([
@@ -223,7 +223,7 @@ describe('UserCheck fallback for the ipqs check', () => {
 
   it('falls back when IPQS has no key', async () => {
     const p = providers(() => jsonRes(RAW));
-    expectFallback((await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { USERCHECK_API_KEY: 'uc-key' })).json, /not configured/);
+    expectFallback((await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { USERCHECK_API_KEY: 'uc-key', IPQS_FALLBACK_DETAILS: 'true' })).json, /not configured/);
     assert.deepEqual(p.hosts(), ['api.usercheck.com']);
   });
 
@@ -277,7 +277,7 @@ describe('IPQS key delivery', () => {
       (u) => (u.hostname === 'api.usercheck.com' ? jsonRes({ email: 'a@evil.example', domain: 'evil.example', mx: true }) : undefined),
     ]);
     restore = m.restore;
-    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY, USERCHECK_API_KEY: 'uc' });
+    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY, USERCHECK_API_KEY: 'uc', IPQS_FALLBACK_DETAILS: 'true' });
     assert.equal(json.data.data.check, 'usercheck');
     assert.match(json.data.checks[0].detail, new RegExp(`ending "…Fb9q", SHA-256 ${await keySha(KEY)}…; rejected when sent as: URL path, IPQS-KEY header, plain URL path; request_id: Req1x, Req2x, Req3x`));
     assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 3);
@@ -298,5 +298,44 @@ describe('IPQS key delivery', () => {
     const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
     assert.ok(!JSON.stringify(json).includes('<script>'));
     assert.match(json.data.checks[0].detail, /no request_id returned/);
+  });
+});
+
+describe('fallback reason visibility', () => {
+  let restore = () => {};
+  afterEach(() => { restore(); resetRateLimitMemory(); });
+  const UC = { email: 'a@evil.example', domain: 'evil.example', mx: true, disposable: true };
+  const setup = () => {
+    const m = mockFetch([
+      (u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ success: false, message: 'Invalid or unauthorized key. (EID: 61771)', request_id: 'Rq1' }) : undefined),
+      (u) => (u.hostname === 'api.usercheck.com' ? jsonRes(UC) : undefined),
+    ]);
+    restore = m.restore;
+  };
+
+  it('by default a fallback looks like an ordinary UserCheck result, and the reason only goes to the log', async () => {
+    setup();
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: 'abcdefghijklmnopqrstuvwxyz12Fb9q', USERCHECK_API_KEY: 'uc' });
+      const c = json.data.checks[0];
+      assert.equal(json.data.data.check, 'usercheck');
+      assert.equal(c.status, 'complete');
+      assert.doesNotMatch(c.label, /fallback/i);
+      assert.ok(!/IPQualityScore|EID|request_id|Fb9q/.test(JSON.stringify(json)), 'nothing about IPQS reaches the dashboard');
+      assert.ok(json.data.findings.some((f: { id: string }) => f.id === 'sender_address_disposable'));
+      const logged = warn.mock.calls.map((x) => String(x.arguments[0])).join('\n');
+      assert.match(logged, /\[ipqs-fallback\] a@evil\.example: IPQualityScore failed: Invalid or unauthorized key.*request_id: Rq1/);
+    } finally { warn.mock.restore(); }
+  });
+
+  it('IPQS_FALLBACK_DETAILS=true shows the reason on the dashboard', async () => {
+    setup();
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: 'abcdefghijklmnopqrstuvwxyz12Fb9q', USERCHECK_API_KEY: 'uc', IPQS_FALLBACK_DETAILS: 'true' });
+      assert.match(json.data.checks[0].label, /UserCheck fallback/);
+      assert.match(json.data.checks[0].detail, /EID: 61771.*request_id: Rq1/);
+    } finally { warn.mock.restore(); }
   });
 });

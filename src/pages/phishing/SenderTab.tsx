@@ -114,7 +114,7 @@ export function SenderPanel({ slots, skipped, running }: { slots: Slot[]; skippe
           if (d.check === 'ipqs') return <IpqsCard key={idOf(res!.request)} v={d.value} />;
           const v = d.value;
           return (
-            <Card key={idOf(res!.request)} title={`Address ${v.email}`} action={res!.request.check === 'ipqs'
+            <Card key={idOf(res!.request)} title={`Address ${v.email}`} action={res!.request.check === 'ipqs' && /fallback/i.test(res!.checks[0]?.label ?? '')
               ? <Badge tone="warn" title={res!.checks[0]?.detail ?? 'IPQualityScore was unavailable, so UserCheck.com answered instead'}>UserCheck · fallback</Badge>
               : <Badge tone="info" title="Checked by UserCheck.com">UserCheck</Badge>}>
               <Metric k="Domain" v={v.domain} />
@@ -125,7 +125,7 @@ export function SenderPanel({ slots, skipped, running }: { slots: Slot[]; skippe
               <Metric k="Mailbox type" v={[v.publicDomain ? 'public provider' : null, v.relayDomain ? 'relay service' : null, v.freeSubdomain ? 'free subdomain' : null, v.roleAccount ? 'role account' : null].filter(Boolean).join(', ') || 'ordinary'} />
               {v.didYouMean && <Metric k="Looks like a typo of" v={v.didYouMean} />}
               {(v.spf || v.dmarc) && <Metric k="SPF / DMARC (domain)" v={`${v.spf ?? 'n/a'} / ${v.dmarc ?? 'n/a'}`} />}
-              {res!.request.check === 'ipqs' && res!.checks[0]?.detail && <p className="mt-2 text-xs text-amber">{res!.checks[0].detail}</p>}
+              {res!.request.check === 'ipqs' && /fallback/i.test(res!.checks[0]?.label ?? '') && res!.checks[0]?.detail && <p className="mt-2 text-xs text-amber">{res!.checks[0].detail}</p>}
             </Card>
           );
         })}

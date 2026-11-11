@@ -100,9 +100,15 @@ export const onRequestPost = route(async (ctx) => {
         return ok({ request: req, findings: [], data: null, checks: [check(idOf(req), 'sender', labelOf(req), neither ? 'skipped' : 'failed', null, neither ? 'IPQualityScore and UserCheck are not configured on this deployment (IPQS_API_KEY and USERCHECK_API_KEY are not set).' : `${why}. No UserCheck fallback is configured (USERCHECK_API_KEY is not set).`)] } satisfies SenderCheckResponse);
       }
       const uc = await callInternal<EmailCheck>(ctx, '/api/email/usercheck', { params: { email: req.email } });
-      if (!uc.ok) return ok(fail(uc.code, `${why}. The UserCheck fallback also failed: ${uc.message}`));
+      // Why IPQS was skipped always goes to the Worker log (Cloudflare → Workers → Logs). It is shown on the dashboard
+      // only when IPQS_FALLBACK_DETAILS is "true"; otherwise a fallback answer looks like an ordinary UserCheck result.
+      console.warn(`[ipqs-fallback] ${req.email}: ${why}`);
+      const showWhy = /^(1|true|yes|on)$/i.test(env.IPQS_FALLBACK_DETAILS ?? '');
+      if (!uc.ok) return ok(fail(uc.code, showWhy ? `${why}. The UserCheck fallback also failed: ${uc.message}` : `UserCheck: ${uc.message}`));
       const c = convertUserCheck({ check: 'usercheck', email: req.email, roles: req.roles }, uc.data);
-      const fallbackCheck = { ...c.check, id: idOf(req), label: `Address check (UserCheck fallback): ${req.email}`, detail: `${why}. Results come from UserCheck instead.` };
+      const fallbackCheck = showWhy
+        ? { ...c.check, id: idOf(req), label: `Address check (UserCheck fallback): ${req.email}`, detail: `${why}. Results come from UserCheck instead.` }
+        : { ...c.check, id: idOf(req) };
       return ok({ request: req, findings: c.findings, checks: [fallbackCheck], data: { check: 'usercheck', value: uc.data } } satisfies SenderCheckResponse);
     }
   }
