@@ -215,7 +215,8 @@ describe('findings and checks', () => {
     const listed = r.findings.find((f) => f.id === 'url_listed_phishing')!;
     assert.deepEqual([listed.severity, listed.exactness, listed.source], ['critical', 'exact', 'OpenPhish']);
     const host = r.findings.find((f) => f.id === 'url_host_listed')!;
-    assert.deepEqual([host.severity, host.exactness], ['high', 'related']);
+    // Host-level matches are capped at medium (8 Nov fix: other tenants' listings on docs.google.com made a genuine email Malicious).
+    assert.deepEqual([host.severity, host.exactness], ['medium', 'related']);
     assert.match(r.checks.find((c) => c.id === 'urls.openphish')!.result ?? '', /1 exact match/);
   });
 });
