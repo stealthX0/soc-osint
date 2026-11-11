@@ -247,18 +247,60 @@ describe('IPQS key delivery', () => {
     assert.equal(await keySha('abc'), 'ba7816bf8f01');
   });
 
-  it('tries the path, then the IPQS-KEY header, then the plain path', () => {
+  it('tries every documented form, in order, none disguised as a browser', () => {
     const a = ipqsAttempts(KEY, 'a+b@evil.example');
-    assert.deepEqual(a.map((x) => x.name), ['URL path', 'IPQS-KEY header', 'plain URL path']);
+    assert.deepEqual(a.map((x) => x.name), ['URL path', 'IPQS-KEY header', 'plain URL path', 'plain URL path without the Spectrix user agent', 'ipqualityscore.com (no www)', 'ipqs.com', 'POST form']);
     assert.equal(a[0].url, `https://www.ipqualityscore.com/api/json/email/${KEY}/a%2Bb@evil.example?timeout=7&abuse_strictness=0`);
     assert.ok(!a[1].url.includes(KEY) && a[1].headers?.['IPQS-KEY'] === KEY, 'the header form keeps the key out of the URL');
     assert.equal(a[2].url, `https://www.ipqualityscore.com/api/json/email/${KEY}/a%2Bb@evil.example`);
+    assert.equal(a[3].noUserAgent, true); assert.equal(a[3].url, a[2].url);
+    assert.equal(a[4].url, `https://ipqualityscore.com/api/json/email/${KEY}/a%2Bb@evil.example`);
+    assert.equal(a[5].url, `https://ipqs.com/api/json/email/${KEY}/a%2Bb@evil.example`);
+    assert.equal(a[6].method, 'POST'); assert.ok(!a[6].url.includes(KEY)); assert.match(a[6].body ?? '', new RegExp(`^key=${KEY}&email=a%2Bb%40evil\\.example&`));
+    for (const x of a) assert.ok(!/mozilla|chrome|safari/i.test(JSON.stringify(x.headers ?? {})), 'no browser user agent');
+  });
+
+  it('the no-user-agent form sends no Spectrix user agent; the others do', async () => {
+    const uas: (string | null)[] = [];
+    const m = mockFetch([(u, init) => {
+      if (!/ipqualityscore\.com$|ipqs\.com$/.test(u.hostname)) return undefined;
+      uas.push(new Headers(init?.headers).get('user-agent'));
+      return jsonRes(REJECT);
+    }]);
+    restore = m.restore;
+    await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+    assert.equal(uas.length, 7);
+    assert.equal(uas[3], null);
+    assert.ok(uas.filter((x, i) => i !== 3).every((x) => /^Spectrix\//.test(x ?? '')));
+  });
+
+  it('a variant that errors (e.g. HTTP 404 on another host) is noted and the next one still tried', async () => {
+    let n = 0;
+    const m = mockFetch([(u) => {
+      if (u.hostname === 'ipqs.com') return new Response('nope', { status: 404 });
+      if (/ipqualityscore\.com$/.test(u.hostname)) return jsonRes({ ...REJECT, request_id: `R${++n}` });
+      return undefined;
+    }]);
+    restore = m.restore;
+    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+    assert.match(json.data.checks[0].detail, /ipqs\.com \(Upstream provider has no data for this query\), POST form;/);
+  });
+
+  it('a later form that works is used, and logged', async () => {
+    const m = mockFetch([(u, init) => (/ipqualityscore\.com$|ipqs\.com$/.test(u.hostname) ? jsonRes(init?.method === 'POST' ? { ...RAW, fraud_score: 77 } : REJECT) : undefined)]);
+    restore = m.restore;
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+      assert.equal(json.data.data.check, 'ipqs'); assert.equal(json.data.data.value.fraudScore, 77);
+      assert.match(warn.mock.calls.map((c) => String(c.arguments[0])).join('\n'), /\[ipqs\] key accepted when sent as: POST form/);
+    } finally { warn.mock.restore(); }
   });
 
   it('when the path form is rejected, the header form is used and its result returned', async () => {
     const seen: { url: string; header: string | null }[] = [];
     const m = mockFetch([(u, init) => {
-      if (u.hostname !== 'www.ipqualityscore.com') return undefined;
+      if (!/ipqualityscore\.com$|ipqs\.com$/.test(u.hostname)) return undefined;
       const header = new Headers(init?.headers).get('IPQS-KEY');
       seen.push({ url: u.toString(), header });
       return jsonRes(header === KEY ? { ...RAW, fraud_score: 91 } : REJECT);
@@ -273,14 +315,14 @@ describe('IPQS key delivery', () => {
   it('when every form is rejected, says which were tried and their request ids, then falls back to UserCheck', async () => {
     let n = 0;
     const m = mockFetch([
-      (u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ ...REJECT, request_id: `Req${++n}x` }) : undefined),
+      (u) => (/ipqualityscore\.com$|ipqs\.com$/.test(u.hostname) ? jsonRes({ ...REJECT, request_id: `Req${++n}x` }) : undefined),
       (u) => (u.hostname === 'api.usercheck.com' ? jsonRes({ email: 'a@evil.example', domain: 'evil.example', mx: true }) : undefined),
     ]);
     restore = m.restore;
     const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY, USERCHECK_API_KEY: 'uc', IPQS_FALLBACK_DETAILS: 'true' });
     assert.equal(json.data.data.check, 'usercheck');
-    assert.match(json.data.checks[0].detail, new RegExp(`ending "…Fb9q", SHA-256 ${await keySha(KEY)}…; rejected when sent as: URL path, IPQS-KEY header, plain URL path; request_id: Req1x, Req2x, Req3x`));
-    assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 3);
+    assert.match(json.data.checks[0].detail, new RegExp(`ending "…Fb9q", SHA-256 ${await keySha(KEY)}…; rejected when sent as: URL path, IPQS-KEY header, plain URL path, plain URL path without the Spectrix user agent, ipqualityscore.com \\(no www\\), ipqs.com, POST form; request_id: Req1x, Req2x, Req3x, Req4x, Req5x, Req6x, Req7x`));
+    assert.equal(m.calls.filter((c) => /ipqualityscore\.com|ipqs\.com/.test(new URL(c).hostname)).length, 7);
     assert.ok(!JSON.stringify(json).includes(KEY));
   });
 
@@ -307,17 +349,17 @@ describe('fallback reason visibility', () => {
   const UC = { email: 'a@evil.example', domain: 'evil.example', mx: true, disposable: true };
   const setup = () => {
     const m = mockFetch([
-      (u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ success: false, message: 'Invalid or unauthorized key. (EID: 61771)', request_id: 'Rq1' }) : undefined),
+      (u) => (/ipqualityscore\.com$|ipqs\.com$/.test(u.hostname) ? jsonRes({ success: false, message: 'Invalid or unauthorized key. (EID: 61771)', request_id: 'Rq1' }) : undefined),
       (u) => (u.hostname === 'api.usercheck.com' ? jsonRes(UC) : undefined),
     ]);
     restore = m.restore;
   };
 
-  it('by default a fallback looks like an ordinary UserCheck result, and the reason only goes to the log', async () => {
+  it('IPQS_FALLBACK_DETAILS=false makes a fallback look like an ordinary UserCheck result; the reason still goes to the log', async () => {
     setup();
     const warn = mock.method(console, 'warn', () => {});
     try {
-      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: 'abcdefghijklmnopqrstuvwxyz12Fb9q', USERCHECK_API_KEY: 'uc' });
+      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: 'abcdefghijklmnopqrstuvwxyz12Fb9q', USERCHECK_API_KEY: 'uc', IPQS_FALLBACK_DETAILS: 'false' });
       const c = json.data.checks[0];
       assert.equal(json.data.data.check, 'usercheck');
       assert.equal(c.status, 'complete');
@@ -329,11 +371,11 @@ describe('fallback reason visibility', () => {
     } finally { warn.mock.restore(); }
   });
 
-  it('IPQS_FALLBACK_DETAILS=true shows the reason on the dashboard', async () => {
+  it('by default the reason is shown on the dashboard', async () => {
     setup();
     const warn = mock.method(console, 'warn', () => {});
     try {
-      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: 'abcdefghijklmnopqrstuvwxyz12Fb9q', USERCHECK_API_KEY: 'uc', IPQS_FALLBACK_DETAILS: 'true' });
+      const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: 'abcdefghijklmnopqrstuvwxyz12Fb9q', USERCHECK_API_KEY: 'uc' });
       assert.match(json.data.checks[0].label, /UserCheck fallback/);
       assert.match(json.data.checks[0].detail, /EID: 61771.*request_id: Rq1/);
     } finally { warn.mock.restore(); }

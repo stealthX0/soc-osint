@@ -151,10 +151,11 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
 }
 
 /** Fetches JSON from a trusted third-party API (fixed host, never user-controlled). */
-export async function fetchJson<T>(url: string, init: { headers?: Record<string, string>; timeoutMs?: number; method?: 'GET' | 'POST'; body?: BodyInit } = {}): Promise<T> {
+export async function fetchJson<T>(url: string, init: { headers?: Record<string, string>; timeoutMs?: number; method?: 'GET' | 'POST'; body?: BodyInit; /** Send no User-Agent of our own (the runtime default applies). */ noUserAgent?: boolean } = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, { method: init.method ?? 'GET', body: init.body, headers: { accept: 'application/json', 'user-agent': USER_AGENT, ...init.headers }, signal: AbortSignal.timeout(init.timeoutMs ?? 6000) });
+    const headers: Record<string, string> = { accept: 'application/json', ...(init.noUserAgent ? {} : { 'user-agent': USER_AGENT }), ...init.headers };
+    res = await fetch(url, { method: init.method ?? 'GET', body: init.body, headers, signal: AbortSignal.timeout(init.timeoutMs ?? 6000) });
   } catch (e) {
     const timeout = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
     throw new ApiError(timeout ? 504 : 502, timeout ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_ERROR', timeout ? 'Upstream provider timed out.' : 'Upstream provider unreachable.');

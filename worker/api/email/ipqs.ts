@@ -68,15 +68,21 @@ export const isKeyRejection = (m: unknown): boolean => typeof m === 'string' && 
  * The documented ways of sending the key, in the order tried. The address keeps a plain "@" in the path, exactly as a
  * browser sends it. Exported for tests.
  */
-export function ipqsAttempts(key: string, email: string): { name: string; url: string; headers?: Record<string, string> }[] {
-  const base = 'https://www.ipqualityscore.com/api/json/email';
+export interface IpqsAttempt { name: string; url: string; headers?: Record<string, string>; method?: 'GET' | 'POST'; body?: string; noUserAgent?: boolean }
+export function ipqsAttempts(key: string, email: string): IpqsAttempt[] {
   const addr = encodeURIComponent(email).replace(/%40/g, '@');
   const k = encodeURIComponent(key);
   const opts = 'timeout=7&abuse_strictness=0';
+  const path = (host: string) => `https://${host}/api/json/email/${k}/${addr}`;
   return [
-    { name: 'URL path', url: `${base}/${k}/${addr}?${opts}` },
-    { name: 'IPQS-KEY header', url: `${base}?email=${encodeURIComponent(email)}&${opts}`, headers: { 'IPQS-KEY': key } },
-    { name: 'plain URL path', url: `${base}/${k}/${addr}` },
+    { name: 'URL path', url: `${path('www.ipqualityscore.com')}?${opts}` },
+    { name: 'IPQS-KEY header', url: `https://www.ipqualityscore.com/api/json/email?email=${encodeURIComponent(email)}&${opts}`, headers: { 'IPQS-KEY': key } },
+    { name: 'plain URL path', url: path('www.ipqualityscore.com') },
+    // Diagnostics for the Cloudflare Workers rejection: all documented forms, none disguised as a browser.
+    { name: 'plain URL path without the Spectrix user agent', url: path('www.ipqualityscore.com'), noUserAgent: true },
+    { name: 'ipqualityscore.com (no www)', url: path('ipqualityscore.com') },
+    { name: 'ipqs.com', url: path('ipqs.com') },
+    { name: 'POST form', url: 'https://www.ipqualityscore.com/api/json/email', method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: `key=${k}&email=${encodeURIComponent(email)}&${opts}` },
   ];
 }
 
@@ -133,13 +139,22 @@ export const onRequestGet = route(async (ctx) => {
     let r: IpqsRaw = {};
     const tried: string[] = [];
     const ids: string[] = [];
-    for (const attempt of ipqsAttempts(key, email)) {
-      tried.push(attempt.name);
-      r = await fetchJson<IpqsRaw>(attempt.url, { timeoutMs: 10_000, headers: attempt.headers });
+    const attempts = ipqsAttempts(key, email);
+    for (let i = 0; i < attempts.length; i++) {
+      const at = attempts[i];
+      try {
+        r = await fetchJson<IpqsRaw>(at.url, { timeoutMs: 10_000, headers: at.headers, method: at.method, body: at.body, noUserAgent: at.noUserAgent });
+      } catch (e) {
+        if (i === 0) throw e; // the normal form failed outright (timeout, HTTP error): no point trying variants
+        tried.push(`${at.name} (${e instanceof Error ? e.message.replace(/\.$/, '') : 'failed'})`);
+        continue; // a later variant failing outright leaves the earlier key rejection standing
+      }
+      tried.push(at.name);
       // IPQS support looks requests up by request_id; keep the ids of rejected attempts (short alphanumeric only).
       if (r.success === false && typeof r.request_id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(r.request_id)) ids.push(r.request_id);
       if (r.success !== false || !isKeyRejection(r.message)) break;
     }
+    if (r.success !== false && tried.length > 1) console.warn(`[ipqs] key accepted when sent as: ${tried[tried.length - 1]}`);
     if (r.success === false) {
       // e.g. invalid key or quota exhausted. Never echo anything that could contain the key.
       const msg = (typeof r.message === 'string' ? r.message : 'request was not successful').split(key).join('[key]').slice(0, 200);

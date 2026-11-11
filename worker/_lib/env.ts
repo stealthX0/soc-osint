@@ -26,7 +26,7 @@ export interface Env {
   USERCHECK_DAILY?: string;
   /** IPQualityScore API key: sender mailbox reputation (exists, fraud score, recent abuse). Optional; without it the check is skipped. https://www.ipqualityscore.com */
   IPQS_API_KEY?: string;
-  /** "true" shows on the dashboard why a sender address check fell back from IPQS to UserCheck. Off by default; the reason is always written to the Worker log. */
+  /** "false" hides on the dashboard why a sender address check fell back from IPQS to UserCheck (shown by default). The reason is always written to the Worker log. */
   IPQS_FALLBACK_DETAILS?: string;
   /** Daily cap on IPQS lookups (default 35). Once spent, sender address checks fall back to UserCheck for the rest of the day. */
   IPQS_DAILY?: string;

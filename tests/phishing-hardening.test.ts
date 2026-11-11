@@ -239,7 +239,7 @@ describe('data leaving the app', () => {
     for (const s of seen) if (SECRET.test(s.headers)) assert.match(new URL(s.url).hostname, /usercheck\.com|virustotal\.com|abuseipdb\.com|ipqualityscore\.com/);
     // IPQS takes its key in the URL path: only its own host may see it there
     assert.ok(seen.some((s) => s.url.includes('sk-canary-ipqs-key')), 'the IPQS lookup was attempted');
-    for (const s of seen) if (SECRET.test(s.url)) assert.equal(new URL(s.url).hostname, 'www.ipqualityscore.com');
+    for (const s of seen) if (SECRET.test(s.url)) assert.match(new URL(s.url).hostname, /^(www\.)?ipqualityscore\.com$|^ipqs\.com$/);
   });
 
   it('private and reserved addresses are never sent to a third party', async () => {
