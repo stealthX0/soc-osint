@@ -2,7 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index';
-import { mapIpqs } from '../worker/api/email/ipqs';
+import { cleanKey, mapIpqs } from '../worker/api/email/ipqs';
 import { convertIpqs, labelOf, idOf } from '../shared/phishing/sender';
 import { computeVerdict } from '../shared/phishing/verdict';
 import { groupOf, POINTS } from '../shared/phishing/verdictRules';
@@ -27,6 +27,20 @@ const RAW = {
 };
 const rep = (over: Partial<EmailReputation> = {}): EmailReputation => ({ ...mapIpqs('a@evil.example', 'evil.example', RAW, 5), ...over });
 const req = { check: 'ipqs' as const, email: 'a@evil.example', roles: ['from' as const] };
+
+describe('IPQS key handling', () => {
+  it('strips whitespace, line breaks and quotes pasted along with the key', () => {
+    for (const k of ['abc123', ' abc123 ', 'abc123\n', 'abc123\r\n', '"abc123"', "'abc123'", '\tabc123  \n']) assert.equal(cleanKey(k), 'abc123', JSON.stringify(k));
+    assert.equal(cleanKey(undefined), '');
+  });
+  it('sends the cleaned key to IPQS', async () => {
+    const m = mockFetch([(u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes(RAW) : undefined)]);
+    try {
+      await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: ' k123\n' });
+      assert.match(m.calls.find((c) => c.includes('ipqualityscore'))!, /\/email\/k123\//);
+    } finally { m.restore(); resetRateLimitMemory(); }
+  });
+});
 
 describe('IPQS response mapping', () => {
   it('maps the documented fields', () => {

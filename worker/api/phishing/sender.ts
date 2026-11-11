@@ -91,7 +91,7 @@ export const onRequestPost = route(async (ctx) => {
       if (env.IPQS_API_KEY) {
         const r = await callInternal<EmailReputation>(ctx, '/api/email/ipqs', { params: { email: req.email } });
         if (r.ok) return ok(done({ check: 'ipqs', value: r.data }, convertIpqs(req, r.data)));
-        why = r.code === 'PROVIDER_BUDGET' ? `IPQualityScore limit reached: ${r.message.replace(/^IPQualityScore( budget reached)?:?\s*/i, '')}` : `IPQualityScore failed: ${r.message} (${r.code})`;
+        why = r.code === 'PROVIDER_BUDGET' ? `IPQualityScore limit reached: ${r.message.replace(/^IPQualityScore( budget reached)?:?\s*/i, '')}` : `IPQualityScore failed: ${r.message.replace(/^IPQualityScore:\s*/i, '')} (${r.code})`;
       } else {
         why = 'IPQualityScore is not configured (IPQS_API_KEY is not set)';
       }

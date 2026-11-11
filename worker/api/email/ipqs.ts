@@ -48,6 +48,9 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const iso = (d: IpqsDate | undefined): string | null => (d && typeof d.timestamp === 'number' && d.timestamp > 0 ? str(d.iso) : null);
 const human = (d: IpqsDate | undefined): string | null => (d && typeof d.timestamp === 'number' && d.timestamp > 0 ? str(d.human) : null);
 
+/** Strips whitespace, line breaks and wrapping quotes that often come along when a key is pasted into a secret. Exported for tests. */
+export const cleanKey = (k: string | undefined): string => (k ?? '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+
 /** Maps the IPQS response to Spectrix's shape. Exported for tests. */
 export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): EmailReputation {
   const timedOut = bool(r.timed_out);
@@ -87,7 +90,8 @@ export const onRequestGet = route(async (ctx) => {
   if (!parsed) throw badInput(raw ? `"${raw.slice(0, 80)}" is not a valid e-mail address.` : 'Missing "email" parameter.');
   const email = `${parsed.local}@${parsed.domain}`.toLowerCase();
   const domain = parsed.domain.toLowerCase();
-  const key = env.IPQS_API_KEY;
+  // Secrets pasted with a trailing newline / spaces or wrapping quotes are rejected by IPQS as "invalid key": clean them.
+  const key = cleanKey(env.IPQS_API_KEY);
   if (!key) throw new ApiError(503, 'NOT_CONFIGURED', 'IPQualityScore is not configured (IPQS_API_KEY is not set).');
 
   const { value, hit } = await cached(ctx, `ipqs:${email}`, async () => {
