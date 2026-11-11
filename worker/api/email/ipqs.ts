@@ -54,6 +54,25 @@ export const cleanKey = (k: string | undefined): string => (k ?? '').trim().repl
 /** A safe fingerprint of a key for error messages: its length, plus the last 4 characters only for keys of 16+ characters. Exported for tests. */
 export const keyHint = (k: string): string => (k.length >= 16 ? `${k.length} characters, ending "…${k.slice(-4)}"` : `${k.length} characters`);
 
+/** IPQS says this when it does not accept the key as sent. */
+export const isKeyRejection = (m: unknown): boolean => typeof m === 'string' && /invalid|unauthori[sz]ed/i.test(m) && /key/i.test(m);
+
+/**
+ * The documented ways of sending the key, in the order tried. The address keeps a plain "@" in the path, exactly as a
+ * browser sends it. Exported for tests.
+ */
+export function ipqsAttempts(key: string, email: string): { name: string; url: string; headers?: Record<string, string> }[] {
+  const base = 'https://www.ipqualityscore.com/api/json/email';
+  const addr = encodeURIComponent(email).replace(/%40/g, '@');
+  const k = encodeURIComponent(key);
+  const opts = 'timeout=7&abuse_strictness=0';
+  return [
+    { name: 'URL path', url: `${base}/${k}/${addr}?${opts}` },
+    { name: 'IPQS-KEY header', url: `${base}?email=${encodeURIComponent(email)}&${opts}`, headers: { 'IPQS-KEY': key } },
+    { name: 'plain URL path', url: `${base}/${k}/${addr}` },
+  ];
+}
+
 /** Maps the IPQS response to Spectrix's shape. Exported for tests. */
 export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): EmailReputation {
   const timedOut = bool(r.timed_out);
@@ -101,15 +120,22 @@ export const onRequestGet = route(async (ctx) => {
     const b = await takeProviderBudget(env, 'ipqs');
     if (!b.ok) throw new ApiError(429, 'PROVIDER_BUDGET', `IPQualityScore budget reached: ${b.why}.`);
     const t0 = Date.now();
-    // timeout=7 is IPQS's default wait for the mail server; the fetch itself gets a little longer than that.
-    const url = `https://www.ipqualityscore.com/api/json/email/${encodeURIComponent(key)}/${encodeURIComponent(email)}?timeout=7&abuse_strictness=0`;
-    const r = await fetchJson<IpqsRaw>(url, { timeoutMs: 10_000 });
+    // IPQS accepts the key in the URL path, in an IPQS-KEY header, or as a parameter. Some accounts reject one form with
+    // "Invalid or unauthorized key" while another works, so on that answer (and only that one) the next form is tried.
+    // A rejected key costs no IPQS credit. timeout=7 is IPQS's default wait for the mail server.
+    let r: IpqsRaw = {};
+    const tried: string[] = [];
+    for (const attempt of ipqsAttempts(key, email)) {
+      tried.push(attempt.name);
+      r = await fetchJson<IpqsRaw>(attempt.url, { timeoutMs: 10_000, headers: attempt.headers });
+      if (r.success !== false || !isKeyRejection(r.message)) break;
+    }
     if (r.success === false) {
       // e.g. invalid key or quota exhausted. Never echo anything that could contain the key.
       const msg = (typeof r.message === 'string' ? r.message : 'request was not successful').split(key).join('[key]').slice(0, 200);
       const quota = /credit|quota|exceeded|limit/i.test(msg);
-      // For a rejected key, say which key the Worker holds without revealing it: length and last 4 characters only.
-      const hint = /invalid|unauthori[sz]ed/i.test(msg) && /key/i.test(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}]` : '';
+      // For a rejected key, say which key the Worker holds without revealing it, and which ways of sending it were tried.
+      const hint = isKeyRejection(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}; rejected when sent as: ${tried.join(', ')}]` : '';
       throw new ApiError(502, quota ? 'PROVIDER_BUDGET' : 'UPSTREAM_ERROR', `IPQualityScore: ${msg}${hint}`);
     }
     return { value: mapIpqs(email, domain, r, Date.now() - t0), ttl: 6 * 3600 };

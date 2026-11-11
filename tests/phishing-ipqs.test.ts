@@ -2,7 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index';
-import { cleanKey, keyHint, mapIpqs } from '../worker/api/email/ipqs';
+import { cleanKey, ipqsAttempts, keyHint, mapIpqs } from '../worker/api/email/ipqs';
 import { convertIpqs, labelOf, idOf } from '../shared/phishing/sender';
 import { computeVerdict } from '../shared/phishing/verdict';
 import { groupOf, POINTS } from '../shared/phishing/verdictRules';
@@ -127,7 +127,8 @@ describe('POST /api/phishing/sender with check "ipqs"', () => {
     assert.deepEqual(json.data.findings.map((f: { id: string }) => f.id).sort(), ['sender_address_fraud_score', 'sender_address_recent_abuse']);
     const call = m.calls.find((c) => new URL(c).hostname === 'www.ipqualityscore.com');
     assert.ok(call, 'IPQS was called');
-    assert.match(call!, /\/api\/json\/email\/k123\/a%40evil\.example\?/);
+    assert.match(call!, /\/api\/json\/email\/k123\/a@evil\.example\?/, 'a plain @, as a browser sends it');
+    assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 1, 'one request when the first form works');
     assert.ok(!JSON.stringify(json).includes('k123'), 'the key is not in the response');
   });
 
@@ -233,5 +234,55 @@ describe('UserCheck fallback for the ipqs check', () => {
     assert.equal(json.data.checks[0].status, 'failed');
     assert.match(json.data.checks[0].detail, /IPQualityScore failed.*UserCheck fallback also failed/);
     assert.deepEqual(json.data.findings, []);
+  });
+});
+
+describe('IPQS key delivery', () => {
+  let restore = () => {};
+  afterEach(() => { restore(); resetRateLimitMemory(); });
+  const KEY = 'abcdefghijklmnopqrstuvwxyz12Fb9q';
+  const REJECT = { success: false, message: 'Invalid or unauthorized key. Please check the API key and try again. (EID: 61771)' };
+
+  it('tries the path, then the IPQS-KEY header, then the plain path', () => {
+    const a = ipqsAttempts(KEY, 'a+b@evil.example');
+    assert.deepEqual(a.map((x) => x.name), ['URL path', 'IPQS-KEY header', 'plain URL path']);
+    assert.equal(a[0].url, `https://www.ipqualityscore.com/api/json/email/${KEY}/a%2Bb@evil.example?timeout=7&abuse_strictness=0`);
+    assert.ok(!a[1].url.includes(KEY) && a[1].headers?.['IPQS-KEY'] === KEY, 'the header form keeps the key out of the URL');
+    assert.equal(a[2].url, `https://www.ipqualityscore.com/api/json/email/${KEY}/a%2Bb@evil.example`);
+  });
+
+  it('when the path form is rejected, the header form is used and its result returned', async () => {
+    const seen: { url: string; header: string | null }[] = [];
+    const m = mockFetch([(u, init) => {
+      if (u.hostname !== 'www.ipqualityscore.com') return undefined;
+      const header = new Headers(init?.headers).get('IPQS-KEY');
+      seen.push({ url: u.toString(), header });
+      return jsonRes(header === KEY ? { ...RAW, fraud_score: 91 } : REJECT);
+    }]);
+    restore = m.restore;
+    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+    assert.equal(json.data.data.check, 'ipqs');
+    assert.equal(json.data.data.value.fraudScore, 91);
+    assert.equal(seen.length, 2);
+  });
+
+  it('when every form is rejected, says which were tried, then falls back to UserCheck', async () => {
+    const m = mockFetch([
+      (u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes(REJECT) : undefined),
+      (u) => (u.hostname === 'api.usercheck.com' ? jsonRes({ email: 'a@evil.example', domain: 'evil.example', mx: true }) : undefined),
+    ]);
+    restore = m.restore;
+    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY, USERCHECK_API_KEY: 'uc' });
+    assert.equal(json.data.data.check, 'usercheck');
+    assert.match(json.data.checks[0].detail, /ending "…Fb9q"; rejected when sent as: URL path, IPQS-KEY header, plain URL path/);
+    assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 3);
+    assert.ok(!JSON.stringify(json).includes(KEY));
+  });
+
+  it('a quota error is not retried with other forms', async () => {
+    const m = mockFetch([(u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ success: false, message: 'You have exceeded your request quota.' }) : undefined)]);
+    restore = m.restore;
+    await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+    assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 1);
   });
 });

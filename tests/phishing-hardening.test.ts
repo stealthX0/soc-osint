@@ -236,7 +236,7 @@ describe('data leaving the app', () => {
     for (const o of outputs) assert.ok(!SECRET.test(o), 'a secret key appeared in a response');
     for (const s of seen) assert.ok(!s.url.includes(CANARY) && !s.body.includes(CANARY), 'the attachment file name was sent to a provider');
     // keys go only to their own provider
-    for (const s of seen) if (SECRET.test(s.headers)) assert.match(new URL(s.url).hostname, /usercheck\.com|virustotal\.com|abuseipdb\.com/);
+    for (const s of seen) if (SECRET.test(s.headers)) assert.match(new URL(s.url).hostname, /usercheck\.com|virustotal\.com|abuseipdb\.com|ipqualityscore\.com/);
     // IPQS takes its key in the URL path: only its own host may see it there
     assert.ok(seen.some((s) => s.url.includes('sk-canary-ipqs-key')), 'the IPQS lookup was attempted');
     for (const s of seen) if (SECRET.test(s.url)) assert.equal(new URL(s.url).hostname, 'www.ipqualityscore.com');
