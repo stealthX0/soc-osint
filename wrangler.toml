@@ -27,6 +27,22 @@ IPQS_RELAY_URL = "https://soc-osint-ipqs-vercel.vercel.app/api/ipqs"
 
 [observability]
 enabled = true
+head_sampling_rate = 1
+redact_query_string = false
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+
+[observability.issue_detection]
+enabled = true
 
 # Optional secrets (never commit). Each provider is skipped, and shown as such in the UI, when its key is absent:
 #   npx wrangler secret put IPAPI_IS_API_KEY     # ipapi.is (primary IP provider works without it; a key raises the quota)
