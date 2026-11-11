@@ -35,7 +35,7 @@ export function tidy(title: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-export function summarizeReasoning(v: Verdict, maxPoints = 5): ReasoningSummary {
+export function summarizeReasoning(v: Verdict, maxPoints = 7): ReasoningSummary {
   const reasons = v.reasons;
   const areas = [...new Set(reasons.map((r) => r.dimension))].map((d) => AREA[d]);
   const strong = reasons.filter((r) => r.severity === 'critical' || r.severity === 'high').length;

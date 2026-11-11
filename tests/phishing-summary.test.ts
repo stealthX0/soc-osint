@@ -21,7 +21,7 @@ describe('reasoning summary', () => {
     const short = [x.summary, ...x.points.map((p) => p.text), x.caveat ?? ''].join(' ');
     assert.ok(short.length < full.length / 2, `${short.length} vs ${full.length}`);
     assert.match(x.summary, /^Suspicious: \d+ warning signs/);
-    assert.ok(x.points.length <= 5 && x.points.length > 0);
+    assert.ok(x.points.length <= 7 && x.points.length > 0);
     assert.equal(x.points[0].text, v.reasons[0].title.replace(/\.$/, ''));
     assert.match(x.caveat ?? '', /stops short of Malicious/);
   });
