@@ -23,3 +23,20 @@ test('a quoted thread header is found with the forwarder note length', () => {
   assert.equal(q?.noteChars, 11);
   assert.equal(quotedThread('No thread here.'), null);
 });
+
+import { analyzeContent } from '../shared/phishing/content';
+const ids = (text: string) => analyzeContent({ subject: null, text, html: null, linkCount: 0, attachments: [], displayName: null, fromDomain: 'vendor.example', fromIsFreeMail: false }).findings.map((f) => `${f.id}:${f.severity}`);
+
+test('payment instructions are recognised on payment rails worldwide', () => {
+  for (const rail of ['ACH', 'RTGS', 'NEFT', 'UPI', 'SEPA', 'BACS', 'CHAPS', 'Faster Payments', 'PIX', 'SPEI', 'Interac e-Transfer', 'PayNow', 'PromptPay', 'Zengin', 'telegraphic transfer']) {
+    assert.ok(ids(`Please pay the balance via ${rail} today.`).includes('content_payment_demand:medium'), rail);
+  }
+  assert.ok(ids('Kindly remit by RTGS.').includes('content_payment_demand:low'));
+  assert.ok(ids('Our IFSC code has changed, please note it.').some((x) => x.startsWith('content_financial_request')));
+});
+
+test('ordinary wording does not look like a payment instruction', () => {
+  for (const t of ['We will process this with fast turnaround.', 'Send it by post today.', 'Make sure to bring the giro form to the meeting.']) {
+    assert.ok(!ids(t).some((x) => x.startsWith('content_payment_demand')), t);
+  }
+});
