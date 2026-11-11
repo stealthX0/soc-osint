@@ -88,15 +88,16 @@ export const onRequestPost = route(async (ctx) => {
       // failure, or no IPQS key. Otherwise UserCheck is never called for the address.
       const env = ctx.env as Env;
       let why: string;
-      if (env.IPQS_API_KEY) {
+      const ipqsOn = !!(env.IPQS_API_KEY || env.IPQS_RELAY_URL);
+      if (ipqsOn) {
         const r = await callInternal<EmailReputation>(ctx, '/api/email/ipqs', { params: { email: req.email } });
         if (r.ok) return ok(done({ check: 'ipqs', value: r.data }, convertIpqs(req, r.data)));
         why = r.code === 'PROVIDER_BUDGET' ? `IPQualityScore limit reached: ${r.message.replace(/^IPQualityScore( budget reached)?:?\s*/i, '')}` : `IPQualityScore failed: ${r.message.replace(/^IPQualityScore:\s*/i, '')} (${r.code})`;
       } else {
-        why = 'IPQualityScore is not configured (IPQS_API_KEY is not set)';
+        why = 'IPQualityScore is not configured (IPQS_API_KEY / IPQS_RELAY_URL is not set)';
       }
       if (!env.USERCHECK_API_KEY) {
-        const neither = !env.IPQS_API_KEY;
+        const neither = !ipqsOn;
         return ok({ request: req, findings: [], data: null, checks: [check(idOf(req), 'sender', labelOf(req), neither ? 'skipped' : 'failed', null, neither ? 'IPQualityScore and UserCheck are not configured on this deployment (IPQS_API_KEY and USERCHECK_API_KEY are not set).' : `${why}. No UserCheck fallback is configured (USERCHECK_API_KEY is not set).`)] } satisfies SenderCheckResponse);
       }
       const uc = await callInternal<EmailCheck>(ctx, '/api/email/usercheck', { params: { email: req.email } });

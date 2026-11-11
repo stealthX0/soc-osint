@@ -230,6 +230,7 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 |---|---|
 | `VIRUSTOTAL_API_KEY`, `ABUSEIPDB_API_KEY`, `PULSEDIVE_API_KEY`, `GOOGLE_SAFE_BROWSING_API_KEY`, `URLSCAN_API_KEY`, `HYBRID_ANALYSIS_API_KEY`, `ABUSECH_AUTH_KEY`, `IPAPI_IS_API_KEY`, `APILAYER_API_KEY` | Optional provider keys already used by the other tools (see the README). A missing key shows that provider as skipped, never clean |
 | `USERCHECK_API_KEY`, `USERCHECK_DAILY` | UserCheck.com key: fallback for the sender address check when IPQS is unavailable; optional daily cap |
+| `IPQS_RELAY_URL`, `IPQS_RELAY_SECRET` | Route IPQS lookups through the relay in `relay/ipqs-vercel` (deployed on Vercel), because IPQS rejects the key from Cloudflare Workers. The relay holds the IPQS key; the Worker sends only the address and the shared secret (32+ characters). Unset = call IPQS directly |
 | `IPQS_FALLBACK_DETAILS` | `false` hides on the dashboard why an address check fell back from IPQS to UserCheck (shown by default; always logged) |
 | `IPQS_API_KEY`, `IPQS_DAILY` | IPQualityScore key for the sender address check (primary provider); daily cap, default 35, after which UserCheck answers for the rest of the day |
 | `OPENPHISH_FEED_URL`, `OPENPHISH_DAILY` | Optional https-only override of the OpenPhish community feed, and its daily download budget (default 300) |

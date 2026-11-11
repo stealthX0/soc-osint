@@ -86,6 +86,35 @@ export function ipqsAttempts(key: string, email: string): IpqsAttempt[] {
   ];
 }
 
+/**
+ * The IPQS relay (relay/ipqs-vercel), used instead of calling IPQS directly when IPQS_RELAY_URL and IPQS_RELAY_SECRET
+ * are set: IPQS rejects the key when the request comes from Cloudflare Workers. Returns null when not configured.
+ * Exported for tests.
+ */
+export function relayConfig(env: Env): { url: string; secret: string } | null {
+  const url = (env.IPQS_RELAY_URL ?? '').trim();
+  if (!url) return null;
+  const secret = cleanKey(env.IPQS_RELAY_SECRET);
+  let ok = false;
+  try { ok = new URL(url).protocol === 'https:'; } catch { /* invalid URL */ }
+  if (!ok || secret.length < 32) throw new ApiError(503, 'NOT_CONFIGURED', 'The IPQS relay is misconfigured: IPQS_RELAY_URL must be an https URL and IPQS_RELAY_SECRET at least 32 characters.');
+  return { url, secret };
+}
+
+/** Calls the relay: POST {email} with the shared secret; it answers with IPQS's JSON unchanged. */
+async function viaRelay(relay: { url: string; secret: string }, email: string): Promise<IpqsRaw> {
+  try {
+    return await fetchJson<IpqsRaw>(relay.url, { method: 'POST', timeoutMs: 15_000, headers: { 'content-type': 'application/json', 'x-relay-secret': relay.secret }, body: JSON.stringify({ email }) });
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e;
+    const why = /HTTP 401/.test(e.message) ? 'the relay rejected the shared secret (IPQS_RELAY_SECRET on the Worker must equal RELAY_SECRET on the relay)'
+      : e.code === 'NOT_FOUND' ? 'the relay URL was not found (check IPQS_RELAY_URL ends in /api/ipqs)'
+      : /HTTP 503/.test(e.message) ? 'the relay is not configured (set RELAY_SECRET and IPQS_API_KEY on the relay)'
+      : e.message.replace(/^Upstream provider/, 'the relay').replace(/\.$/, '');
+    throw new ApiError(e.status, e.code, `IPQS relay: ${why}.`);
+  }
+}
+
 /** Maps the IPQS response to Spectrix's shape. Exported for tests. */
 export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): EmailReputation {
   const timedOut = bool(r.timed_out);
@@ -114,7 +143,8 @@ export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): 
 /**
  * GET /api/email/ipqs?email=user@example.com
  * Mailbox reputation from IPQualityScore's Email Validation API: whether the mailbox exists, fraud score, recent abuse,
- * spam-trap and breach flags, domain age. Needs IPQS_API_KEY (no keyless mode).
+ * spam-trap and breach flags, domain age. Needs IPQS_API_KEY, or IPQS_RELAY_URL + IPQS_RELAY_SECRET to go through the
+ * relay in relay/ipqs-vercel (IPQS rejects the key from Cloudflare Workers).
  * The address is sent to ipqualityscore.com, which also probes the address's mail server. IPQS takes the key in the URL
  * path, so the URL is never logged or put in an error message.
  */
@@ -127,7 +157,8 @@ export const onRequestGet = route(async (ctx) => {
   const domain = parsed.domain.toLowerCase();
   // Secrets pasted with a trailing newline / spaces or wrapping quotes are rejected by IPQS as "invalid key": clean them.
   const key = cleanKey(env.IPQS_API_KEY);
-  if (!key) throw new ApiError(503, 'NOT_CONFIGURED', 'IPQualityScore is not configured (IPQS_API_KEY is not set).');
+  const relay = relayConfig(env);
+  if (!key && !relay) throw new ApiError(503, 'NOT_CONFIGURED', 'IPQualityScore is not configured (IPQS_API_KEY / IPQS_RELAY_URL is not set).');
 
   const { value, hit } = await cached(ctx, `ipqs:${email}`, async () => {
     const b = await takeProviderBudget(env, 'ipqs');
@@ -139,7 +170,12 @@ export const onRequestGet = route(async (ctx) => {
     let r: IpqsRaw = {};
     const tried: string[] = [];
     const ids: string[] = [];
-    const attempts = ipqsAttempts(key, email);
+    const attempts = relay ? [] : ipqsAttempts(key, email);
+    if (relay) {
+      tried.push('the IPQS relay');
+      r = await viaRelay(relay, email);
+      if (r.success === false && typeof r.request_id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(r.request_id)) ids.push(r.request_id);
+    }
     for (let i = 0; i < attempts.length; i++) {
       const at = attempts[i];
       try {
@@ -157,11 +193,14 @@ export const onRequestGet = route(async (ctx) => {
     if (r.success !== false && tried.length > 1) console.warn(`[ipqs] key accepted when sent as: ${tried[tried.length - 1]}`);
     if (r.success === false) {
       // e.g. invalid key or quota exhausted. Never echo anything that could contain the key.
-      const msg = (typeof r.message === 'string' ? r.message : 'request was not successful').split(key).join('[key]').slice(0, 200);
+      const raw = typeof r.message === 'string' ? r.message : 'request was not successful';
+      const msg = (key ? raw.split(key).join('[key]') : raw).slice(0, 200);
       const quota = /credit|quota|exceeded|limit/i.test(msg);
       // For a rejected key, say which key the Worker holds without revealing it, and which ways of sending it were tried.
       const reqIds = ids.length ? ` request_id: ${ids.join(', ')}` : '';
-      const hint = isKeyRejection(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}, SHA-256 ${await keySha(key)}…; rejected when sent as: ${tried.join(', ')};${reqIds || ' no request_id returned'}]` : reqIds ? ` [${reqIds.trim()}]` : '';
+      const hint = !isKeyRejection(msg) ? (reqIds ? ` [${reqIds.trim()}]` : '')
+        : relay ? ` [sent via the IPQS relay, which holds the key: check IPQS_API_KEY on the relay;${reqIds || ' no request_id returned'}]`
+        : ` [IPQS_API_KEY on this Worker: ${keyHint(key)}, SHA-256 ${await keySha(key)}…; rejected when sent as: ${tried.join(', ')};${reqIds || ' no request_id returned'}]`;
       throw new ApiError(502, quota ? 'PROVIDER_BUDGET' : 'UPSTREAM_ERROR', `IPQualityScore: ${msg}${hint}`);
     }
     return { value: mapIpqs(email, domain, r, Date.now() - t0), ttl: 6 * 3600 };

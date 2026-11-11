@@ -26,6 +26,10 @@ export interface Env {
   USERCHECK_DAILY?: string;
   /** IPQualityScore API key: sender mailbox reputation (exists, fraud score, recent abuse). Optional; without it the check is skipped. https://www.ipqualityscore.com */
   IPQS_API_KEY?: string;
+  /** URL of the IPQS relay (relay/ipqs-vercel, e.g. https://<project>.vercel.app/api/ipqs). When set with IPQS_RELAY_SECRET, IPQS lookups go through it: IPQS rejects the key from Cloudflare Workers. */
+  IPQS_RELAY_URL?: string;
+  /** Shared secret for the IPQS relay (32+ characters, equal to RELAY_SECRET on the relay). */
+  IPQS_RELAY_SECRET?: string;
   /** "false" hides on the dashboard why a sender address check fell back from IPQS to UserCheck (shown by default). The reason is always written to the Worker log. */
   IPQS_FALLBACK_DETAILS?: string;
   /** Daily cap on IPQS lookups (default 35). Once spent, sender address checks fall back to UserCheck for the rest of the day. */

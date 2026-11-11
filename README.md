@@ -45,6 +45,7 @@ npx wrangler secret put IPAPI_IS_API_KEY             # optional: ipapi.is key (p
 npx wrangler secret put APILAYER_API_KEY             # optional: APILayer WHOIS, fallback for TLDs without RDAP (.de, .io)
 npx wrangler secret put PULSEDIVE_API_KEY             # optional: Pulsedive, threat-intel risk rating, linked threats and feeds
 npx wrangler secret put IPQS_API_KEY                  # IPQualityScore, sender address reputation (fraud score, recent abuse, mailbox exists); primary provider, 35 lookups/day by default (IPQS_DAILY)
+# IPQS rejects its key from Cloudflare Workers: deploy relay/ipqs-vercel (see its README) and set IPQS_RELAY_URL + IPQS_RELAY_SECRET instead
 npx wrangler secret put USERCHECK_API_KEY             # UserCheck.com, fallback for the sender address check when IPQS is capped or errors (disposable, spam, MX, domain age)
 npx wrangler secret put ABUSEIPDB_API_KEY            # optional: abuse confidence score
 npx wrangler secret put CTLOGS_API_KEY               # optional: ctlogs.dev, primary Certificate Transparency source (free key: account.ctlogs.dev)
