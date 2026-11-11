@@ -270,23 +270,33 @@ describe('IPQS key delivery', () => {
     assert.equal(seen.length, 2);
   });
 
-  it('when every form is rejected, says which were tried, then falls back to UserCheck', async () => {
+  it('when every form is rejected, says which were tried and their request ids, then falls back to UserCheck', async () => {
+    let n = 0;
     const m = mockFetch([
-      (u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes(REJECT) : undefined),
+      (u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ ...REJECT, request_id: `Req${++n}x` }) : undefined),
       (u) => (u.hostname === 'api.usercheck.com' ? jsonRes({ email: 'a@evil.example', domain: 'evil.example', mx: true }) : undefined),
     ]);
     restore = m.restore;
     const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY, USERCHECK_API_KEY: 'uc' });
     assert.equal(json.data.data.check, 'usercheck');
-    assert.match(json.data.checks[0].detail, new RegExp(`ending "…Fb9q", SHA-256 ${await keySha(KEY)}…; rejected when sent as: URL path, IPQS-KEY header, plain URL path`));
+    assert.match(json.data.checks[0].detail, new RegExp(`ending "…Fb9q", SHA-256 ${await keySha(KEY)}…; rejected when sent as: URL path, IPQS-KEY header, plain URL path; request_id: Req1x, Req2x, Req3x`));
     assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 3);
     assert.ok(!JSON.stringify(json).includes(KEY));
   });
 
-  it('a quota error is not retried with other forms', async () => {
-    const m = mockFetch([(u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ success: false, message: 'You have exceeded your request quota.' }) : undefined)]);
+  it('a quota error is not retried with other forms, and still reports its request id', async () => {
+    const m = mockFetch([(u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ success: false, message: 'You have exceeded your request quota.', request_id: 'Q9z' }) : undefined)]);
     restore = m.restore;
-    await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
     assert.equal(m.calls.filter((c) => c.includes('ipqualityscore')).length, 1);
+    assert.match(json.data.checks[0].detail, /\[request_id: Q9z\]/);
+  });
+
+  it('an unexpected request_id value is never echoed', async () => {
+    const m = mockFetch([(u) => (u.hostname === 'www.ipqualityscore.com' ? jsonRes({ ...REJECT, request_id: '<script>x</script>' }) : undefined)]);
+    restore = m.restore;
+    const { json } = await post('/api/phishing/sender', { check: 'ipqs', email: 'a@evil.example', roles: ['from'] }, { IPQS_API_KEY: KEY });
+    assert.ok(!JSON.stringify(json).includes('<script>'));
+    assert.match(json.data.checks[0].detail, /no request_id returned/);
   });
 });

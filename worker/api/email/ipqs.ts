@@ -16,6 +16,7 @@ interface IpqsDate { human?: string | null; timestamp?: number | null; iso?: str
 interface IpqsRaw {
   success?: boolean;
   message?: string;
+  request_id?: string;
   valid?: boolean;
   timed_out?: boolean;
   suspect?: boolean;
@@ -131,9 +132,12 @@ export const onRequestGet = route(async (ctx) => {
     // A rejected key costs no IPQS credit. timeout=7 is IPQS's default wait for the mail server.
     let r: IpqsRaw = {};
     const tried: string[] = [];
+    const ids: string[] = [];
     for (const attempt of ipqsAttempts(key, email)) {
       tried.push(attempt.name);
       r = await fetchJson<IpqsRaw>(attempt.url, { timeoutMs: 10_000, headers: attempt.headers });
+      // IPQS support looks requests up by request_id; keep the ids of rejected attempts (short alphanumeric only).
+      if (r.success === false && typeof r.request_id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(r.request_id)) ids.push(r.request_id);
       if (r.success !== false || !isKeyRejection(r.message)) break;
     }
     if (r.success === false) {
@@ -141,7 +145,8 @@ export const onRequestGet = route(async (ctx) => {
       const msg = (typeof r.message === 'string' ? r.message : 'request was not successful').split(key).join('[key]').slice(0, 200);
       const quota = /credit|quota|exceeded|limit/i.test(msg);
       // For a rejected key, say which key the Worker holds without revealing it, and which ways of sending it were tried.
-      const hint = isKeyRejection(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}, SHA-256 ${await keySha(key)}…; rejected when sent as: ${tried.join(', ')}]` : '';
+      const reqIds = ids.length ? ` request_id: ${ids.join(', ')}` : '';
+      const hint = isKeyRejection(msg) ? ` [IPQS_API_KEY on this Worker: ${keyHint(key)}, SHA-256 ${await keySha(key)}…; rejected when sent as: ${tried.join(', ')};${reqIds || ' no request_id returned'}]` : reqIds ? ` [${reqIds.trim()}]` : '';
       throw new ApiError(502, quota ? 'PROVIDER_BUDGET' : 'UPSTREAM_ERROR', `IPQualityScore: ${msg}${hint}`);
     }
     return { value: mapIpqs(email, domain, r, Date.now() - t0), ttl: 6 * 3600 };
