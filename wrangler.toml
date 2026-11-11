@@ -21,6 +21,8 @@ run_worker_first = ["/api/*"]
 
 [vars]
 RATE_LIMIT_PER_MIN = "60"
+# IPQS calls go through the Vercel relay (relay/ipqs-vercel); the shared secret is the IPQS_RELAY_SECRET secret.
+IPQS_RELAY_URL = "https://soc-osint-ipqs-vercel.vercel.app/api/ipqs"
 # ALLOWED_ORIGINS = "https://example.com"
 
 [observability]
@@ -38,4 +40,5 @@ enabled = true
 #   npx wrangler secret put HYBRID_ANALYSIS_API_KEY  # Hybrid Analysis: sandbox verdict for a file SHA-256 (File Analysis)
 #   npx wrangler secret put GOOGLE_SAFE_BROWSING_API_KEY  # Google Safe Browsing (URL Intelligence)
 #   npx wrangler secret put URLSCAN_API_KEY      # urlscan.io (URL Intelligence); search works without it
+#   npx wrangler secret put IPQS_RELAY_SECRET    # shared secret for the IPQS relay (same value as RELAY_SECRET in Vercel)
 # Optional: OPENPHISH_FEED_URL overrides the OpenPhish feed (https only). The free community feed needs no key.
