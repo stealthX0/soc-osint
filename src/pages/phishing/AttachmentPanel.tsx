@@ -288,7 +288,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
           const repFindings = s?.status === 'done' ? s.res.findings : [];
           const noDetections = s?.status === 'done' && !repFindings.some((f) => f.id === 'attachment_hash_malicious' || f.id === 'attachment_hash_suspicious');
           return [
-            <div key="f" className="min-w-0"><span className="break-all text-sm">{x.name ?? <span className="text-faint">unnamed</span>}</span><div className="mt-1 flex flex-wrap gap-1"><Badge tone="info">{x.origin}</Badge>{x.size !== null && <Badge>{fmtBytes(x.size)}</Badge>}</div></div>,
+            <div key="f" className="min-w-0"><span className="break-all text-sm">{x.name ?? <span className="text-faint">unnamed</span>}</span><div className="mt-1 flex flex-wrap gap-1"><Badge tone="info" title={ORIGIN[x.origin].title}>{ORIGIN[x.origin].label}</Badge>{x.size !== null && <Badge>{fmtBytes(x.size)}</Badge>}</div></div>,
             <div key="t" className="space-y-0.5 text-xs"><div><span className="text-faint">declared </span>{x.declaredType ?? '—'}</div><div><span className="text-faint">detected </span>{x.detectedType ?? (x.origin === 'supplied' ? 'not inspected (no file)' : '—')}</div></div>,
             <div key="h" className="space-y-1 text-xs">{local ? (<><div>SHA-256 <Copyable value={local.sha256} /></div><div>SHA-1 <Copyable value={local.sha1} /></div><div>MD5 <Copyable value={local.md5} /></div></>) : x.hash ? <div>{x.hashType?.toUpperCase()} <Copyable value={x.hash} /></div> : <span className="text-faint">none</span>}</div>,
             x.findings.length
@@ -320,6 +320,13 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
 
   return { findings, checks, urls, results, panel, settled };
 }
+
+/** How each row got here, in words an analyst recognises (the internal names describe the code path, not the source). */
+const ORIGIN: Record<Row['origin'], { label: string; title: string }> = {
+  embedded: { label: 'in message', title: 'Found inside the raw message you pasted.' },
+  supplied: { label: 'hash only', title: 'A name or hash you typed; there is no file to inspect or upload.' },
+  dropped: { label: 'file', title: 'The actual file: extracted from the e-mail file you loaded, attached in the form or dropped here. Inspected on your device, looked up by hash and scanned on VirusTotal.' },
+};
 
 /** The "Active scan" cell: upload / scan progress and the fresh VirusTotal result. */
 function ScanCell({ state, origin }: { state: ScanState | undefined; origin: 'embedded' | 'supplied' | 'dropped' }) {
