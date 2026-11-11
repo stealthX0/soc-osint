@@ -27,7 +27,7 @@ export const onRequestGet = route(async (ctx) => {
   if (!env.VIRUSTOTAL_API_KEY) throw new ApiError(503, 'NOT_CONFIGURED', 'File scanning is not enabled on this site (no VirusTotal key configured).');
 
   const budget = await takeProviderBudget(env, 'virustotal');
-  if (!budget.ok) throw new ApiError(429, 'PROVIDER_BUDGET', `VirusTotal quota reached: ${budget.why}.`, { 'retry-after': '60' });
+  if (!budget.ok) throw new ApiError(429, 'PROVIDER_BUDGET', `VirusTotal quota reached: ${budget.why}.`, { 'retry-after': String(budget.retryAfter ?? 60) });
 
   const r = await fetchJson<VtAnalysis>(`https://www.virustotal.com/api/v3/analyses/${encodeURIComponent(id)}`, { headers: { 'x-apikey': env.VIRUSTOTAL_API_KEY } });
   const a = r.data?.attributes;

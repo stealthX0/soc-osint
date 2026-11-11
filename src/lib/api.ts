@@ -1,13 +1,20 @@
 import type { ApiResponse } from '../../shared/types';
 
 export class ApiClientError extends Error {
-  constructor(message: string, public code: string, public status: number) {
+  /** Seconds the server asked us to wait (Retry-After), when it said. */
+  constructor(message: string, public code: string, public status: number, public retryAfter: number | null = null) {
     super(message);
     this.name = 'ApiClientError';
   }
 }
 
 type Params = Record<string, string | number | boolean | undefined | null>;
+
+/** Retry-After in seconds (only the delta-seconds form is used by this API). */
+export const retryAfterOf = (res: Response): number | null => {
+  const n = Number(res.headers.get('retry-after'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 export async function api<T>(
   path: string,
@@ -44,6 +51,6 @@ export async function api<T>(
       res.status,
     );
   }
-  if (!body.ok) throw new ApiClientError(body.error.message, body.error.code, res.status);
+  if (!body.ok) throw new ApiClientError(body.error.message, body.error.code, res.status, retryAfterOf(res));
   return { data: body.data, cached: !!body.meta.cached };
 }

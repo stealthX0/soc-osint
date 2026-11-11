@@ -55,6 +55,7 @@ describe('provider quota budgets', () => {
     const blocked = await takeProviderBudget({} as never, 'virustotal', t0);
     assert.equal(blocked.ok, false);
     assert.match(blocked.why!, /4\/min/);
+    assert.equal(blocked.retryAfter, 50, 'retry when the minute window resets, not a fixed 60 s');
     assert.equal((await takeProviderBudget({} as never, 'virustotal', t0 + 61_000)).ok, true, 'next minute is allowed');
 
     resetRateLimitMemory();

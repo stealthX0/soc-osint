@@ -1,4 +1,4 @@
-import { ApiClientError } from './api';
+import { ApiClientError, retryAfterOf } from './api';
 import type { ApiResponse, FileUploadResult } from '../../shared/types';
 
 /** Largest file the site will forward to VirusTotal (its direct-upload limit is just under 32 MB). */
@@ -21,6 +21,6 @@ export async function uploadFile(file: File, signal?: AbortSignal): Promise<File
   let body: ApiResponse<FileUploadResult> | null = null;
   try { body = (await res.json()) as ApiResponse<FileUploadResult>; } catch { /* handled below */ }
   if (!body || typeof body !== 'object' || !('ok' in body)) throw new ApiClientError(`Unexpected response from the API (HTTP ${res.status}).`, 'BAD_RESPONSE', res.status);
-  if (!body.ok) throw new ApiClientError(body.error.message, body.error.code, res.status);
+  if (!body.ok) throw new ApiClientError(body.error.message, body.error.code, res.status, retryAfterOf(res));
   return body.data;
 }

@@ -39,7 +39,7 @@ export const onRequestPost = route(async (ctx) => {
   const name = cleanFileName(param(url, 'name', 300));
 
   const budget = await takeProviderBudget(env, 'virustotal');
-  if (!budget.ok) throw new ApiError(429, 'PROVIDER_BUDGET', `VirusTotal quota reached: ${budget.why}.`, { 'retry-after': '60' });
+  if (!budget.ok) throw new ApiError(429, 'PROVIDER_BUDGET', `VirusTotal quota reached: ${budget.why}.`, { 'retry-after': String(budget.retryAfter ?? 60) });
 
   const sha256 = toHex(await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource));
   const form = new FormData();

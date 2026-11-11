@@ -92,7 +92,7 @@ const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
   openphish: { daily: 300 }, // feed downloads only (the parsed feed is reused for ~30 minutes), never per-URL
 };
 
-export async function takeProviderBudget(env: Env, provider: string, now = Date.now()): Promise<{ ok: boolean; why?: string }> {
+export async function takeProviderBudget(env: Env, provider: string, now = Date.now()): Promise<{ ok: boolean; why?: string; retryAfter?: number }> {
   const base = PROVIDER_BUDGETS[provider] ?? {};
   const vars = env as unknown as Record<string, string | undefined>;
   const override = (suffix: string): number | undefined => {
@@ -104,7 +104,7 @@ export async function takeProviderBudget(env: Env, provider: string, now = Date.
 
   if (rpm) {
     const r = await rateLimit(env, `pb:${provider}:min`, 1, now, { limit: rpm, windowSeconds: 60 });
-    if (!r.allowed) return { ok: false, why: `Request budget reached (${rpm}/min); retry in ${r.resetSeconds}s` };
+    if (!r.allowed) return { ok: false, why: `Request budget reached (${rpm}/min); retry in ${r.resetSeconds}s`, retryAfter: Math.max(1, r.resetSeconds) };
   }
   if (daily) {
     const r = await rateLimit(env, `pb:${provider}:day`, 1, now, { limit: daily, windowSeconds: 86_400 });

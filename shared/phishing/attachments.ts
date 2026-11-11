@@ -504,6 +504,8 @@ export type ActiveScanOutcome =
   | { status: 'completed'; report: FileAnalysisReport }
   | { status: 'pending'; link: string | null }
   | { status: 'skipped'; reason: string }
+  /** VirusTotal already had a recent report for the exact file (from the hash lookup), so it was not uploaded again. */
+  | { status: 'known'; reason: string }
   | { status: 'failed'; reason: string };
 
 /**
@@ -514,6 +516,7 @@ export type ActiveScanOutcome =
 export function convertActiveScan(outcome: ActiveScanOutcome, ctx: ActiveScanContext): { findings: Finding[]; checks: CheckResult[] } {
   const id = `attach.${ctx.index}.scan.virustotal`;
   const label = `VirusTotal active scan: ${ctx.filename}`;
+  if (outcome.status === 'known') return { findings: [], checks: [check(id, 'attachments', label, 'not_applicable', 'existing report used', outcome.reason.slice(0, 240))] };
   if (outcome.status === 'skipped') return { findings: [], checks: [check(id, 'attachments', label, 'skipped', null, outcome.reason.slice(0, 200))] };
   if (outcome.status === 'failed') return { findings: [], checks: [check(id, 'attachments', label, 'failed', null, outcome.reason.slice(0, 200))] };
   if (outcome.status === 'pending') {

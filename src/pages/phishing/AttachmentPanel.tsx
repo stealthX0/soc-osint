@@ -17,11 +17,27 @@ interface LocalFile { index: number; name: string; size: number; md5: string; sh
 type RepState = { status: 'loading' } | { status: 'done'; res: AttachmentHashResponse } | { status: 'error'; message: string };
 type ScanState = { status: 'uploading' } | { status: 'scanning'; link: string | null } | { status: 'final'; outcome: ActiveScanOutcome };
 
-/** Waits between VirusTotal analysis polls. Every poll spends one request of the shared VirusTotal quota (4/min on the free tier). */
-const SCAN_POLL_DELAYS_S = [15, 20, 25, 30, 30, 40, 45];
+/**
+ * Waits between VirusTotal analysis polls. A small file usually finishes in 20–60 s, so polling starts early and stays at
+ * about 4 a minute (the free-tier quota, shared with the other lookups); a poll refused for quota just waits for the next.
+ */
+const SCAN_POLL_DELAYS_S = [10, 10, 12, 12, 15, 15, 15, 15, 15, 15, 20, 20, 20, 25];
 /** Longest the analysis waits for VirusTotal scans to finish before reporting them as still running. */
 const SCAN_DEADLINE_MS = 200_000;
+/** Longest wait after a quota refusal; normally the server's Retry-After (time to the next minute window) is used. */
 const QUOTA_WAIT_MS = 60_000;
+const quotaWait = (e: unknown) => Math.min(QUOTA_WAIT_MS, ((e instanceof ApiClientError && e.retryAfter) || 60) * 1000 + 500);
+/** A VirusTotal report younger than this makes a fresh upload unnecessary: the existing multi-engine result is used. */
+const KNOWN_REPORT_MAX_AGE_MS = 30 * 86_400_000;
+/** VirusTotal already has a recent report for this file (from the hash lookup), so uploading it again only adds waiting. */
+const knownToVt = (res: AttachmentHashResponse | null | undefined): string | null => {
+  const vt = res?.data?.virustotal;
+  if (!vt?.observed) return null;
+  const at = vt.lastAnalysis ? Date.parse(vt.lastAnalysis) : NaN;
+  if (!Number.isFinite(at) || Date.now() - at > KNOWN_REPORT_MAX_AGE_MS) return null;
+  const total = vt.malicious + vt.suspicious + vt.harmless + vt.undetected;
+  return `VirusTotal already scanned this exact file on ${new Date(at).toISOString().slice(0, 10)} (${vt.malicious} of ${total} engines flag it); that report is used instead of a new upload.`;
+};
 const sleep = (ms: number, alive: () => boolean) => new Promise<void>((res) => {
   const end = Date.now() + ms;
   const tick = () => (!alive() || Date.now() >= end ? res() : setTimeout(tick, Math.min(1000, end - Date.now())));
@@ -111,15 +127,17 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
   );
   const urls = useMemo(() => [...new Set([...r.attachmentStatic.flatMap((s) => s.urls), ...locals.flatMap((l) => l.result.summary.urls)])], [r, locals]);
 
-  const lookup = async (row: Pick<Row, 'index' | 'name' | 'hash' | 'hashType'>) => {
-    if (!row.hash || !row.hashType) return;
+  const lookup = async (row: Pick<Row, 'index' | 'name' | 'hash' | 'hashType'>): Promise<AttachmentHashResponse | null> => {
+    if (!row.hash || !row.hashType) return null;
     setRep((p) => ({ ...p, [row.index]: { status: 'loading' } }));
     try {
       const body: AttachmentHashRequest = { hash: row.hash, hashType: row.hashType, index: row.index, ...(row.name ? { filename: row.name } : {}) };
       const { data } = await api<AttachmentHashResponse>('/api/phishing/attachments', { method: 'POST', body });
       setRep((p) => ({ ...p, [row.index]: { status: 'done', res: data } }));
+      return data;
     } catch (e) {
       setRep((p) => ({ ...p, [row.index]: { status: 'error', message: e instanceof Error ? e.message : 'Lookup failed.' } }));
+      return null;
     }
   };
 
@@ -127,13 +145,15 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
    * Active scan: uploads each file to VirusTotal (the upload API the tool provides), then polls the analyses until they
    * finish or the deadline passes. Uploads go one at a time and back off when the shared VirusTotal quota is used up.
    */
-  const activeScan = async (list: LocalFile[], alive: () => boolean) => {
+  const activeScan = async (list: LocalFile[], alive: () => boolean, known: Record<number, AttachmentHashResponse | null> = {}) => {
     const final = (index: number, outcome: ActiveScanOutcome) => setScans((p) => ({ ...p, [index]: { status: 'final', outcome } }));
     const started = Date.now();
     const uploaded: { l: LocalFile; id: string; link: string | null }[] = [];
     for (const l of list) {
       if (!alive()) return;
       if (l.file.size > MAX_UPLOAD_BYTES) { final(l.index, { status: 'skipped', reason: `${fmtBytes(l.file.size)} is over the ${fmtBytes(MAX_UPLOAD_BYTES)} VirusTotal upload limit; only the hash was looked up.` }); continue; }
+      const already = knownToVt(known[l.index]);
+      if (already) { final(l.index, { status: 'known', reason: already }); continue; }
       setScans((p) => ({ ...p, [l.index]: { status: 'uploading' } }));
       for (let attempt = 0; ; attempt++) {
         try {
@@ -143,7 +163,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
           break;
         } catch (e) {
           if (isNotConfigured(e)) { final(l.index, { status: 'skipped', reason: 'File upload is not enabled on this site (no VirusTotal key configured).' }); break; }
-          if (isQuota(e) && attempt < 3 && Date.now() - started + QUOTA_WAIT_MS < SCAN_DEADLINE_MS) { await sleep(QUOTA_WAIT_MS, alive); if (!alive()) return; continue; }
+          if (isQuota(e) && attempt < 3 && Date.now() - started + quotaWait(e) < SCAN_DEADLINE_MS) { await sleep(quotaWait(e), alive); if (!alive()) return; continue; }
           final(l.index, { status: 'failed', reason: `Upload failed: ${e instanceof Error ? e.message : 'unknown error'}` });
           break;
         }
@@ -192,7 +212,7 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
       const index = r.attachments.length + locals.length;
       const local: LocalFile = { index, name: f.name, size: f.size, ...h, result: analyzeDroppedFile(bytes, index, f.name, h.sha256), file: f };
       setLocals((p) => [...p, local]);
-      void lookup({ index, name: f.name, hash: h.sha256, hashType: 'sha256' }).then(() => activeScan([local], () => true));
+      void lookup({ index, name: f.name, hash: h.sha256, hashType: 'sha256' }).then((res) => activeScan([local], () => true, { [index]: res }));
     } catch { setErr(`Could not read ${f.name}.`); }
   };
 
@@ -218,9 +238,15 @@ export function useAttachmentStage(r: ParseStageResult, files: File[] = []): Att
         ...r.attachments.flatMap((a, i) => (!a.inline && a.hash && a.hashType ? [{ index: i, name: a.filename, hash: a.hash, hashType: a.hashType }] : [])),
         ...added.map((l) => ({ index: l.index, name: l.name, hash: l.sha256, hashType: 'sha256' as const })),
       ];
-      for (let i = 0; i < todo.length && live; i += 2) await Promise.all(todo.slice(i, i + 2).map(lookup));
-      // Every attached / extracted file is also uploaded for a fresh multi-engine scan before the verdict is computed.
-      if (live && added.length) await activeScan(added, () => live);
+      const known: Record<number, AttachmentHashResponse | null> = {};
+      for (let i = 0; i < todo.length && live; i += 2) {
+        const batch = todo.slice(i, i + 2);
+        const res = await Promise.all(batch.map(lookup));
+        batch.forEach((t, k) => { known[t.index] = res[k]; });
+      }
+      // Every attached / extracted file is also uploaded for a fresh multi-engine scan before the verdict is computed,
+      // unless VirusTotal already has a recent report for that exact file.
+      if (live && added.length) await activeScan(added, () => live, known);
       if (live) setSettled(true);
     })();
     return () => { live = false; };
@@ -301,6 +327,7 @@ function ScanCell({ state, origin }: { state: ScanState | undefined; origin: 'em
   if (state.status === 'uploading') return <Spinner label="Uploading to VirusTotal" />;
   if (state.status === 'scanning') return <Spinner label="VirusTotal scanning" />;
   const o = state.outcome;
+  if (o.status === 'known') return <Badge tone="neutral" title={o.reason}>already on VirusTotal</Badge>;
   if (o.status === 'skipped') return <Badge tone="warn" title={o.reason}>skipped</Badge>;
   if (o.status === 'failed') return <Badge tone="bad" title={o.reason}>scan failed</Badge>;
   if (o.status === 'pending') return <div className="space-y-1 text-xs"><Badge tone="warn">still scanning</Badge>{o.link && <a className="block text-teal hover:underline" href={o.link} target="_blank" rel="noreferrer noopener">open report</a>}</div>;
