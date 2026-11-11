@@ -46,7 +46,7 @@ describe('IPQS response mapping', () => {
   it('maps the documented fields', () => {
     const r = rep();
     assert.equal(r.valid, true); assert.equal(r.fraudScore, 10); assert.equal(r.smtpScore, 3); assert.equal(r.deliverability, 'high');
-    assert.equal(r.domainTrust, 'neutral'); assert.equal(r.suggestedDomain, null, '"N/A" means no suggestion');
+    assert.ok(!('domainTrust' in r), 'domain trust is not used'); assert.equal(r.suggestedDomain, null, '"N/A" means no suggestion');
     assert.equal(r.firstSeenHuman, '3 years ago'); assert.equal(r.domainAgeHuman, '10 years ago');
   });
   it('does not trust an "invalid" result after a timeout or temporary error', () => {
@@ -55,8 +55,8 @@ describe('IPQS response mapping', () => {
     assert.equal(mapIpqs('a@x.example', 'x.example', { ...RAW, valid: false }, 1).valid, false);
   });
   it('ignores plan-restricted text in rating fields (e.g. "Upgraded plan required.")', () => {
-    const r = mapIpqs('a@x.example', 'x.example', { ...RAW, domain_trust: 'Upgraded plan required.', deliverability: 'Enterprise required', spam_trap_score: 'High' }, 1);
-    assert.equal(r.domainTrust, null); assert.equal(r.deliverability, null); assert.equal(r.spamTrapScore, 'high');
+    const r = mapIpqs('a@x.example', 'x.example', { ...RAW, deliverability: 'Enterprise required', spam_trap_score: 'High' }, 1);
+    assert.equal(r.deliverability, null); assert.equal(r.spamTrapScore, 'high');
   });
   it('a rejected key is reported with a safe fingerprint (length and last 4), never the key', async () => {
     const key = 'abcdefghijklmnopqrstuvwxyz12WXYZ';
@@ -88,11 +88,9 @@ describe('IPQS findings', () => {
     assert.equal(convertIpqs(req, rep({ fraudScore: 80 })).findings[0].severity, 'low');
     assert.equal(convertIpqs(req, rep({ fraudScore: 95 })).findings[0].severity, 'medium');
   });
-  it('flags recent abuse, untrusted domains, missing mailboxes, typos and risky TLDs', () => {
-    const ids = convertIpqs(req, rep({ recentAbuse: true, domainTrust: 'malicious', valid: false, suggestedDomain: 'paypal.com', riskyTld: true, disposable: true })).findings.map((f) => f.id).sort();
-    assert.deepEqual(ids, ['sender_address_disposable', 'sender_address_domain_untrusted', 'sender_address_mailbox_missing', 'sender_address_misspelt_domain', 'sender_address_recent_abuse', 'sender_address_risky_tld']);
-    assert.equal(convertIpqs(req, rep({ domainTrust: 'malicious' })).findings[0].severity, 'high');
-    assert.equal(convertIpqs(req, rep({ domainTrust: 'suspicious' })).findings[0].severity, 'medium');
+  it('flags recent abuse, missing mailboxes, typos and risky TLDs', () => {
+    const ids = convertIpqs(req, rep({ recentAbuse: true, valid: false, suggestedDomain: 'paypal.com', riskyTld: true, disposable: true })).findings.map((f) => f.id).sort();
+    assert.deepEqual(ids, ['sender_address_disposable', 'sender_address_mailbox_missing', 'sender_address_misspelt_domain', 'sender_address_recent_abuse', 'sender_address_risky_tld']);
   });
   it('a dead domain is reported once (no MX), not also as a missing mailbox', () => {
     assert.deepEqual(convertIpqs(req, rep({ valid: false, dnsValid: false })).findings.map((f) => f.id), ['sender_address_no_mx']);
@@ -105,11 +103,11 @@ describe('IPQS findings', () => {
     assert.equal(f.exactness, 'related'); assert.equal(f.source, 'IPQualityScore');
   });
   it('every IPQS finding is scored and grouped with the other address-reputation findings (no double counting with UserCheck)', () => {
-    const fs = convertIpqs(req, rep({ recentAbuse: true, fraudScore: 95, domainTrust: 'suspicious', valid: false, riskyTld: true })).findings;
+    const fs = convertIpqs(req, rep({ recentAbuse: true, fraudScore: 95, valid: false, riskyTld: true })).findings;
     for (const f of fs) { assert.ok(f.id in POINTS, f.id); assert.equal(groupOf(f), 'address_reputation:a@evil.example', f.id); }
   });
   it('address reputation alone never makes a message Malicious', () => {
-    const findings = convertIpqs(req, rep({ recentAbuse: true, fraudScore: 99, domainTrust: 'malicious', riskyTld: true })).findings;
+    const findings = convertIpqs(req, rep({ recentAbuse: true, fraudScore: 99, riskyTld: true })).findings;
     assert.notEqual(computeVerdict({ parse: null, findings, checks: [] } as never).label, 'malicious');
   });
 });

@@ -33,7 +33,6 @@ interface IpqsRaw {
   deliverability?: string;
   smtp_score?: number;
   overall_score?: number;
-  domain_trust?: string;
   risky_tld?: boolean;
   suggested_domain?: string;
   first_seen?: IpqsDate;
@@ -69,10 +68,9 @@ export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): 
     honeypot: bool(r.honeypot), spamTrapScore: oneOf(r.spam_trap_score, ['high', 'medium', 'low', 'none']), frequentComplainer: bool(r.frequent_complainer),
     catchAll: bool(r.catch_all), generic: bool(r.generic), freeProvider: bool(r.common),
     dnsValid: tri(r.dns_valid),
+    // Plan-restricted fields can come back as text such as "Upgraded plan required.": keep only documented values.
     deliverability: oneOf(r.deliverability, ['high', 'medium', 'low']),
     smtpScore: num(r.smtp_score), overallScore: num(r.overall_score),
-    // Plan-restricted fields come back as text such as "Upgraded plan required.": keep only the documented ratings.
-    domainTrust: oneOf(r.domain_trust, ['trusted', 'positive', 'neutral', 'suspicious', 'malicious', 'not rated']),
     riskyTld: bool(r.risky_tld),
     suggestedDomain: str(r.suggested_domain),
     firstSeen: iso(r.first_seen), firstSeenHuman: human(r.first_seen),
@@ -84,7 +82,7 @@ export function mapIpqs(email: string, domain: string, r: IpqsRaw, ms: number): 
 /**
  * GET /api/email/ipqs?email=user@example.com
  * Mailbox reputation from IPQualityScore's Email Validation API: whether the mailbox exists, fraud score, recent abuse,
- * spam-trap and breach flags, domain trust and age. Needs IPQS_API_KEY (no keyless mode).
+ * spam-trap and breach flags, domain age. Needs IPQS_API_KEY (no keyless mode).
  * The address is sent to ipqualityscore.com, which also probes the address's mail server. IPQS takes the key in the URL
  * path, so the URL is never logged or put in an error message.
  */

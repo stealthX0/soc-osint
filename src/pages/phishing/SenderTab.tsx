@@ -14,7 +14,6 @@ function Metric({ k, v }: { k: string; v: ReactNode }) {
 
 const yesNo = (b: boolean | null) => (b === null ? 'unknown' : b ? 'yes' : 'no');
 const SMTP: Record<number, string> = { [-1]: 'invalid address', 0: 'server rejects all mail', 1: 'temporary error', 2: 'server accepts all mail', 3: 'address verified' };
-const TRUST_TONE: Record<string, Tone> = { trusted: 'good', positive: 'good', neutral: 'neutral', suspicious: 'warn', malicious: 'bad' };
 
 /** IPQualityScore mailbox reputation: fraud score first, then whether the mailbox exists, then abuse and domain facts. */
 function IpqsCard({ v }: { v: EmailReputation }) {
@@ -41,7 +40,6 @@ function IpqsCard({ v }: { v: EmailReputation }) {
       <Metric k="Recent abuse" v={v.recentAbuse ? <Badge tone="bad">yes</Badge> : 'no'} />
       <Metric k="In a data breach" v={v.leaked ? <span title="Context only: many genuine addresses have been in a breach">yes</span> : 'no'} />
       <Metric k="Spam-trap risk" v={v.honeypot ? 'likely spam trap' : v.spamTrapScore ?? 'unknown'} />
-      <Metric k="Domain trust" v={v.domainTrust ? <Badge tone={TRUST_TONE[v.domainTrust] ?? 'neutral'}>{v.domainTrust}</Badge> : 'unknown'} />
       <Metric k="Domain age" v={v.domainAgeHuman ?? (v.domainRegistered ? v.domainRegistered.slice(0, 10) : 'unknown')} />
       <Metric k="First seen by IPQS" v={v.firstSeenHuman ?? 'unknown'} />
       <Metric k="Mail DNS valid" v={yesNo(v.dnsValid)} />

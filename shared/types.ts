@@ -261,8 +261,6 @@ export interface EmailReputation {
   smtpScore: number | null;
   /** 0 invalid · 1 DNS ok, no mail server · 2 temporary rejection · 3 accepts all · 4 verified */
   overallScore: number | null;
-  /** trusted / positive / neutral / suspicious / malicious / not rated */
-  domainTrust: string | null;
   /** The top-level domain is often tied to abuse. */
   riskyTld: boolean;
   /** Likely intended domain when this one looks like a typo. */

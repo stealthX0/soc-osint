@@ -154,7 +154,6 @@ export const POINTS: Record<string, Spec> = {
   sender_address_free_subdomain: 2,
   sender_address_recent_abuse: 8,
   sender_address_fraud_score: by({ medium: 6, low: 3 }),
-  sender_address_domain_untrusted: by({ high: 10, medium: 5 }),
   sender_address_mailbox_missing: 4,
   sender_address_risky_tld: 2,
 
@@ -203,7 +202,7 @@ const SENDER_IMPERSONATION = new Set([
 ]);
 const AUTH_FAILURE = new Set(['auth_all_failed', 'spf_fail', 'spf_softfail', 'dkim_fail', 'dmarc_fail', 'dmarc_policy_not_applied', 'spf_independent_fail', 'spf_independent_disagrees', 'dkim_domain_mismatch', 'spf_domain_mismatch', 'arc_chain_failed']);
 const IP_REPUTATION = new Set(['sender_ip_abuse_reports', 'sender_ip_vt_detections', 'sender_ip_pulsedive', 'sender_ip_known_abuser', 'sender_ip_tor', 'sender_ip_anonymizer', 'sender_ip_compromised']);
-const ADDRESS_REPUTATION = new Set(['sender_address_spam_domain', 'sender_address_disposable', 'sender_address_no_mx', 'sender_address_misspelt_domain', 'sender_address_free_subdomain', 'sender_address_recent_abuse', 'sender_address_fraud_score', 'sender_address_domain_untrusted', 'sender_address_mailbox_missing', 'sender_address_risky_tld']);
+const ADDRESS_REPUTATION = new Set(['sender_address_spam_domain', 'sender_address_disposable', 'sender_address_no_mx', 'sender_address_misspelt_domain', 'sender_address_free_subdomain', 'sender_address_recent_abuse', 'sender_address_fraud_score', 'sender_address_mailbox_missing', 'sender_address_risky_tld']);
 const URL_REPUTATION = new Set(['url_listed_phishing', 'url_listed_malware', 'url_engine_detections', 'url_engine_suspicious', 'url_scan_malicious', 'url_host_scan_malicious', 'url_threat_intel_rating', 'url_dns_blocked', 'url_host_listed', 'url_blocklisted_host']);
 const LINK_IMPERSONATION = new Set(['url_brand_mismatch', 'url_lookalike_domain', 'url_homograph_domain', 'url_deceptive_userinfo', 'link_text_mismatch']);
 const LURE_WORDING = new Set(['content_urgency', 'content_credential_request', 'content_financial_request', 'content_delivery_scam', 'content_advance_fee', 'content_document_share_lure', 'content_attachment_lure', 'content_qr_lure']);

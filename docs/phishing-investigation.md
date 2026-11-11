@@ -27,7 +27,7 @@ Why small stages: a Worker has a limited number of outbound requests per invocat
 | Pasted headers, body, subject, attachment bytes | **nobody**: they are parsed in memory by the Worker and never stored, logged or forwarded | always |
 | Public sender IPs | the IP intelligence providers (ipapi.is, RIPE, Shodan InternetDB, AbuseIPDB, VirusTotal, Pulsedive, as configured) | when the sender stage runs. Private and reserved addresses are never sent |
 | Sender and related domains | RDAP / WHOIS, DNS-over-HTTPS resolvers | when the sender stage runs. Consumer mailboxes and large mail platforms are skipped |
-| Sender e-mail address | IPQualityScore Email Validation, falling back to UserCheck.com | IPQS is always tried first (the address is sent to IPQS, which also probes the address's mail server): fraud score, recent abuse, mailbox existence, domain trust, risky TLD; breach exposure is shown but never scored. UserCheck is used **only** when IPQS cannot answer: its daily cap (`IPQS_DAILY`, default 35) is spent, it returns an error or quota/limit error, or `IPQS_API_KEY` is not set. The check row and the card say when the fallback was used and why |
+| Sender e-mail address | IPQualityScore Email Validation, falling back to UserCheck.com | IPQS is always tried first (the address is sent to IPQS, which also probes the address's mail server): fraud score, recent abuse, mailbox existence, risky TLD; breach exposure is shown but never scored. UserCheck is used **only** when IPQS cannot answer: its daily cap (`IPQS_DAILY`, default 35) is spent, it returns an error or quota/limit error, or `IPQS_API_KEY` is not set. The check row and the card say when the fallback was used and why |
 | Link URLs | the URL intelligence providers (VirusTotal, URLhaus, Google Safe Browsing, Pulsedive, urlscan.io), DNS resolvers, and **the link destination itself (Cloudflare fetches it, with SSRF protection)** | automatically after Analyse (the top 3 links get a full lookup) |
 | File hashes | the hash intelligence providers (VirusTotal, MalwareBazaar, CIRCL, Hybrid Analysis, as configured) | automatically after Analyse. Files are never uploaded; a file attached in the form is analysed in the browser and only its hash is sent |
 
@@ -195,7 +195,6 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `sender_address_free_subdomain` | 2 | address reputation | The sender address is on a free or dynamic-DNS subdomain. |
 | `sender_address_recent_abuse` | 8 | address reputation | IPQualityScore saw verified abuse from the sender address in the past few days. |
 | `sender_address_fraud_score` | medium 6, low 3 | address reputation | The sender address has an IPQualityScore fraud score of 75 or more (medium at 90+). |
-| `sender_address_domain_untrusted` | high 10, medium 5 | address reputation | IPQualityScore rates the sender address domain as suspicious or malicious. |
 | `sender_address_mailbox_missing` | 4 | address reputation | The sender mailbox does not exist according to its mail server (IPQualityScore). |
 | `sender_address_risky_tld` | 2 | address reputation | The sender address uses a top-level domain often tied to abuse (IPQualityScore). |
 
