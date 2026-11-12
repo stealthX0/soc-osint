@@ -221,6 +221,9 @@ export function groupOf(f: Finding): string | null {
   if (ADDRESS_REPUTATION.has(id)) return `address_reputation:${at}`;
   if (id === 'sender_domain_new' || id === 'sender_domain_unregistered' || id === 'sender_domain_expired') return `domain_registration:${at}`;
   if (URL_REPUTATION.has(id)) return `url_reputation:${f.id.startsWith('url_final_') ? 'final:' : ''}${at}`;
+  // A LOW brand mismatch is an ordinary link (not a call to action, form or look-alike) that is not on the claimed brand's
+  // domain. Newsletters that mention a brand have dozens of these, so together they are one weak fact, not one per link.
+  if (id === 'url_brand_mismatch' && f.severity === 'low') return 'brand_mismatch_weak';
   if (LINK_IMPERSONATION.has(id)) return `link_impersonation:${at}`;
   if (id.startsWith('url_')) return `url_hygiene:${f.id.startsWith('url_final_') ? 'final:' : ''}${at}`;
   if (id.startsWith('attachment_')) return `attachment:${at}`;

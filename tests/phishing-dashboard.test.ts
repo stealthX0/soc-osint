@@ -71,3 +71,13 @@ describe('analysis tabs', () => {
     assert.ok(sender.indexOf('Sender identity findings') < sender.indexOf('Sender reputation lookups'), 'identity findings come first');
   });
 });
+
+describe('analyst verdict for calibration', () => {
+  it('offers the four analyst labels and the labelled-set download under the analysis', async () => {
+    const f = await fixture();
+    const out = render(f);
+    for (const t of ['Your verdict', 'Phishing / malicious', 'BEC / payment fraud', 'Legitimate', 'Unsure', 'Download labelled set']) assert.ok(out.includes(t), t);
+    assert.ok(out.indexOf('Your verdict') > out.indexOf('Detailed Analysis'));
+  });
+});
+

@@ -9,6 +9,7 @@ import type { Report } from '../../../shared/phishing/report';
 import type { TimelineEvent } from '../../../shared/phishing/timeline';
 import type { CheckRowX, PipelineChip } from './model';
 import { ExportBar } from './ExportBar';
+import { AnalystLabel } from './AnalystLabel';
 import { ContentPanel } from './ContentPanel';
 import { HeadersTab } from './HeadersTab';
 import { SenderTab } from './SenderTab';
@@ -378,6 +379,9 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
               )}
             </div>
           </section>
+
+          {/* ── ANALYST VERDICT (calibration) ── */}
+          <AnalystLabel verdict={verdict} parse={r} findings={findings} checks={rows} />
 
           {/* ── ACTION BAR ── */}
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel/60 px-4 py-2.5">

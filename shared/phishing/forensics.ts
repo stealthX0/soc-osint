@@ -100,7 +100,13 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
   if (returnPath?.domain && fromDomain && !sameOrg(returnPath.domain, fromDomain)) {
     F({ id: 'return_path_mismatch', dimension: 'authentication', severity: dkimAligned === true ? 'info' : 'low', title: 'Return-Path domain differs from the From domain', detail: `Bounces go to ${returnPath.domain}, not ${fromDomain}. Normal for mailing services; check whether DKIM aligns with the From domain.${dkimAligned === true ? ' A DKIM signature does align here.' : ''}`, exactness: 'exact', evidence: [`From: ${cap(fromHeaders[0])}`, `Return-Path: ${cap(rpRaw)}`] });
   }
-  const badReply = replyTo.filter((r) => r.domain && fromDomain && !sameOrg(r.domain, fromDomain));
+  // Mailing lists set Reply-To to the list itself. That is only accepted when the message carries List-Id AND the Reply-To
+  // is the list address the message was sent to (To / Cc / List-Post), so adding a List-Id header alone cannot hide a BEC
+  // Reply-To (an attacker writes to the victim, not to the list).
+  const listId = first(pairs, 'list-id');
+  const listAddrs = new Set([...to, ...parseAddressList(first(pairs, 'cc')), ...parseAddressList((first(pairs, 'list-post') ?? '').replace(/mailto:/gi, ''))].map((a) => a.address?.toLowerCase()).filter(Boolean) as string[]);
+  const isListReply = (r: { address: string | null }) => !!listId && !!r.address && listAddrs.has(r.address.toLowerCase());
+  const badReply = replyTo.filter((r) => r.domain && fromDomain && !sameOrg(r.domain, fromDomain) && !isListReply(r));
   if (badReply.length) {
     const free = badReply.some((r) => isFreeMail(r.domain)) && !isFreeMail(fromDomain);
     const esp = badReply.every((r) => returnPath?.domain && sameOrg(r.domain, returnPath.domain)) && dkimAligned === true;

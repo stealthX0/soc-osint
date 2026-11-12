@@ -82,3 +82,26 @@ computeVerdict({ parse, findings, checks, tuning: { thresholds: { suspiciousRisk
 - **Reliability per content rule**: deterministic, specific matches (`content_text_obfuscation`, `content_payment_demand`, `content_payment_redirection`, `content_gift_card_request`, `content_payroll_diversion`, `content_extortion` at medium or above, and `bec_payment_reply_redirect`) are `high`; other specific rules `medium`; generic lure wording `low`.
 - Thresholds unchanged (the sweep still selects suspiciousRisk 28, legitimateRisk 15); 80/80 agreement, no bad mail cleared. Only S28 (the real BEC with lookups) is high risk in the corpus.
 
+## 12 Nov 2026: analyst labels and an offline sanity run on public mail
+
+**Analyst labels.** The dashboard's "Your verdict" row saves a calibration record per investigation (`shared/phishing/calibrationRecord.ts`). `npm run calibrate:labels -- spectrix-labelled-set-YYYY-MM-DD.json` replays the records (no lookups are repeated) and prints agreement, a confusion matrix, bad mail cleared and threshold sensitivity. Replay reproduces the original label, risk and high-risk flag for every corpus sample (`tests/phishing-calibration-record.test.ts`). This is the intended route to real calibration data.
+
+**Offline sanity run** (not committed; data is third-party). 300 recent phishing samples from the public `rf-peixoto/phishing_pot` repository and 400 genuine SpamAssassin `easy_ham` / `hard_ham` messages, with every lookup treated as completed and clean, so only the message's own evidence counts. This deliberately understates detection (in real use link, domain and IP lookups add evidence) and SpamAssassin mail is from 2002.
+
+| | Likely legitimate | Inconclusive | Suspicious |
+|---|---|---|---|
+| Phishing, before fixes | 197 | 36 | 67 |
+| Phishing, after fixes | 197 | 41 | 62 |
+| Genuine, before fixes | 277 | 80 | 43 |
+| Genuine, after fixes | 344 | 34 | 22 |
+
+Fixed (false alarms on genuine mail):
+- **Mailing lists**: Reply-To set to the list is no longer a Reply-To redirect when the message has `List-Id` and the Reply-To is the list address it was sent to (To / Cc / List-Post). A List-Id header alone does not hide a redirect to the recipient.
+- **Brand mismatch flood**: a newsletter that mentions a brand had every ordinary link flagged "not a <brand> domain", each counted separately (one sample reached risk 84). Low-severity brand mismatches (ordinary links, not calls to action, forms or look-alikes) now form one group (`brand_mismatch_weak`). Five phishing samples that relied on that flood moved from Suspicious to Inconclusive; none was newly cleared.
+
+Not fixed, for discussion (why most phishing came out Likely legitimate offline):
+- Wording rules are English-only; many samples are Portuguese, German, French or Dutch.
+- Spam-style scams (fake insurance, warranty, casino, weight-loss offers) under brand names in the display name with a random sender domain carry no rule; the brand list is small.
+- Random or malformed sender addresses (`no-reply@cismhkommfulsq`, `5SDYMUIF@ECF0HIAM89VDME760W64LTS2W1N…`, a domain with an emoji or no TLD) are not scored.
+- Mathematical-alphanumeric "styled" letters (e.g. a bold "Lidl" in the sender domain) are not treated as obfuscation (only Cyrillic / Greek mixing is).
+

@@ -118,6 +118,8 @@ The **File Analysis** page inspects a file entirely in the browser (`shared/file
 * **Authentication passes never subtract risk.** They are shown as supporting evidence: an authenticated sender can still send phishing. Findings about shared mail infrastructure (Google, Microsoft, mailing services) are discounted.
 * **Calibration.** The weights and thresholds in `shared/phishing/verdictRules.ts` are initial design values, not validated probabilities. `tests/phishing-step6.test.ts` holds a corpus of scenarios with the verdict an analyst would give: add real, sanitised samples there and adjust the rules until the corpus agrees. A test fails if a stage emits a finding id that has no scoring rule.
 
+* **Your verdict (calibration).** Under Detailed Analysis the analyst can record their own call: Phishing / malicious, BEC / payment fraud, Legitimate or Unsure. It is kept only in this browser (`spectrix.phishing.labels.v1`, up to 1,000) and holds just finding ids, severities, check statuses and a few structural facts; indicators are reduced to a one-way digest, and no body, subject, address or URL is stored. "Download labelled set" exports them; `npm run calibrate:labels -- <file>` replays them through the current engine and reports agreement, bad mail cleared and threshold sensitivity.
+
 Full documentation: [`docs/phishing-investigation.md`](docs/phishing-investigation.md) (architecture, what leaves the app, trust model, the finding catalogue, operations, hardening limits, known limits) and [`docs/phishing-calibration.md`](docs/phishing-calibration.md). `npm run calibrate:phishing` prints the calibration report.
 
 ## Phishing Investigation: report export and history

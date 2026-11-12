@@ -96,7 +96,7 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `url_dns_blocked` | 15 | url reputation | A security DNS resolver blocks the domain. |
 | `url_host_listed` | 10 | url reputation | The host (not the exact URL) is listed by a threat feed. |
 | `url_blocklisted_host` | 10 | url reputation | The host appears on a blocklist. |
-| `url_brand_mismatch` | 14 | link impersonation | The link goes to a domain that is not the brand the message claims to be from. |
+| `url_brand_mismatch` | 14 | brand mismatch weak | The link goes to a domain that is not the brand the message claims to be from. |
 | `url_lookalike_domain` | high 18, medium 14, low 6 | link impersonation | The link domain imitates a well-known brand (typo, digit swap, brand in the name). |
 | `url_homograph_domain` | 20 | link impersonation | The link domain uses look-alike letters from another alphabet. |
 | `url_deceptive_userinfo` | 15 | link impersonation | The URL puts a trusted name before an @ so the real host is hidden ("https://paypal.com@evil.example"). |

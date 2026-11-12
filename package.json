@@ -15,7 +15,8 @@
     "deploy": "npm run build && wrangler deploy",
     "types": "wrangler types",
     "setup:kv": "node scripts/setup-kv.mjs",
-    "calibrate:phishing": "tsx scripts/phishing-calibration.ts"
+    "calibrate:phishing": "tsx scripts/phishing-calibration.ts",
+    "calibrate:labels": "tsx scripts/calibrate-labels.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
