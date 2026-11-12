@@ -50,7 +50,8 @@ describe('dashboard verdict area', () => {
   it('the overview shows Risk by Area, key evidence with severity words, what is missing and numbered actions', async () => {
     const f = await fixture();
     const out = render(f);
-    for (const s of ['Risk by Area', 'Key evidence', 'What is missing', 'Recommended actions', 'Confidence:']) assert.ok(out.includes(s), s);
+    for (const s of ['Risk by Area', 'Key evidence', 'What is missing', 'Recommended actions']) assert.ok(out.includes(s), s);
+    assert.ok(!out.includes('Confidence:'), 'the verdict banner no longer shows confidence');
     const x = summarizeReasoning(f.verdict);
     for (const p of x.points) assert.ok(out.includes(p.text.replace(/"/g, '&quot;')), p.text);
     assert.ok(x.points.every((p) => typeof p.dimension === 'string'));

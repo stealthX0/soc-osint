@@ -24,13 +24,13 @@ import type { AttachmentStage } from './AttachmentPanel';
 /* ─── colour maps ─── */
 const verdictTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
 const verdictAccent: Record<VerdictLabel, string> = {
-  malicious: 'text-rose', suspicious: 'text-amber', likely_legitimate: 'text-green',
+  malicious: 'text-[#ef4444]', suspicious: 'text-[#fde047]', likely_legitimate: 'text-green',
   inconclusive: 'text-sky', analysis_unavailable: 'text-muted',
 };
 /** Verdict card: tinted gradient, coloured border and a soft glow in the verdict colour. */
 const verdictBannerBg: Record<VerdictLabel, string> = {
-  malicious: 'border-rose/70 bg-gradient-to-r from-rose/30 via-rose/15 to-rose/10 shadow-[0_0_24px_-6px_rgba(248,113,113,0.45)]',
-  suspicious: 'border-amber/70 bg-gradient-to-r from-amber/25 via-amber/12 to-amber/8 shadow-[0_0_24px_-6px_rgba(251,191,36,0.4)]',
+  malicious: 'border-[#ef4444]/80 bg-gradient-to-r from-[#ef4444]/30 via-[#ef4444]/15 to-[#ef4444]/10 shadow-[0_0_24px_-6px_rgba(239,68,68,0.5)]',
+  suspicious: 'border-[#fde047]/70 bg-gradient-to-r from-[#fde047]/22 via-[#fde047]/10 to-[#fde047]/6 shadow-[0_0_24px_-6px_rgba(253,224,71,0.4)]',
   likely_legitimate: 'border-green/70 bg-gradient-to-r from-green/25 via-green/12 to-green/8 shadow-[0_0_24px_-6px_rgba(52,211,153,0.4)]',
   inconclusive: 'border-sky/70 bg-gradient-to-r from-sky/25 via-sky/12 to-sky/8 shadow-[0_0_24px_-6px_rgba(56,189,248,0.4)]',
   analysis_unavailable: 'border-line bg-gradient-to-r from-line/40 to-line/15',
@@ -45,15 +45,15 @@ const verdictTitle: Record<VerdictLabel, string> = {
 };
 /** Solid fill for the verdict icon. */
 const verdictFill: Record<VerdictLabel, string> = {
-  malicious: '#ef4444', suspicious: '#f59e0b', likely_legitimate: '#22c55e', inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
+  malicious: '#ef4444', suspicious: '#fde047', likely_legitimate: '#22c55e', inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictGaugeHex: Record<VerdictLabel, string> = {
   malicious: '#f87171', suspicious: '#fbbf24', likely_legitimate: '#34d399',
   inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictPillBg: Record<VerdictLabel, string> = {
-  malicious: 'bg-rose/35 text-white',
-  suspicious: 'bg-amber/30 text-white',
+  malicious: 'bg-[#ef4444]/40 text-white',
+  suspicious: 'bg-[#fde047]/30 text-white',
   likely_legitimate: 'bg-green/30 text-white',
   inconclusive: 'bg-sky/30 text-white',
   analysis_unavailable: 'bg-line/60 text-fg',
@@ -273,9 +273,6 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <div className="rounded-full border border-white/10 bg-black/20 px-3.5 py-1.5 text-sm tabular-nums text-fg/90" title={verdict.confidence.notes.join(' ') || undefined}>
-                Confidence: <span className="font-semibold capitalize">{verdict.confidence.level}</span> <span className="text-fg/70">({verdict.confidence.score}%)</span>
-              </div>
               <div className={`rounded-full px-4 py-1.5 text-sm font-semibold tabular-nums ${verdictPillBg[verdict.label]}`}>
                 Risk Score: {verdict.risk} / 100
               </div>
