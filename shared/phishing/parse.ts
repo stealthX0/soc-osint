@@ -7,7 +7,7 @@
 import { extractMessage } from './mime';
 import { analyzeIdentity } from './brand';
 import { offlineLinkFindings } from './urlTriage';
-import { translateForAnalysis, type PretranslatedText, type TranslationRequest, type Translator } from './language';
+import { translateForAnalysis, TRANSLATE_MAX_CHARS, type PretranslatedText, type TranslationRequest, type Translator } from './language';
 import { analyzeContent, stripReceiverBanners, RECEIVER_BANNER_LINK, type ContentAnalysis } from './content';
 import { isFreeMail } from './domains';
 import { analyzeEmailHeaders, type HeaderForensics } from './forensics';
@@ -199,7 +199,7 @@ export async function parseSubmission(input: PhishingInput, opts: ParseOptions =
   }
 
   /* language: the wording rules read English, so other languages are machine-translated first (when available) */
-  const tr = await translateForAnalysis(subject, senderText.slice(0, 20_000), opts.translate, opts.pretranslated);
+  const tr = await translateForAnalysis(subject, senderText.slice(0, TRANSLATE_MAX_CHARS), opts.translate, opts.pretranslated);
   if (tr.status !== 'not_needed') {
     checks.push(check('content.translate', 'content', 'Language and translation', tr.status === 'translated' ? 'complete' : tr.status === 'unsupported' ? 'not_applicable' : 'skipped',
       tr.status === 'translated' ? `translated from ${tr.language.name}${tr.engine === 'browser' ? ' in the browser' : ''}${tr.partial ? ' (partly)' : ''}` : `${tr.language.name}: not translated`, tr.detail));

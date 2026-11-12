@@ -69,16 +69,20 @@ test('the Workers AI translator: off without the binding, model call shape, fail
   assert.equal(runs, 60);
 });
 
-test('the 5,000-character limit (2,000 for dense scripts) still applies', async () => {
+test('all the text the wording rules read is translated (no 5,000 / 2,000-character limit)', async () => {
   const long = `${FR} `.repeat(60); // ~9,000 characters
   let sent = 0;
   const r = await translateForAnalysis(null, long, async (t) => { sent = t.join('').length; return t; });
-  assert.equal(r.partial, true);
-  assert.ok(sent <= 5000 && sent > 4000, String(sent));
-  const ja = 'お支払い情報を更新してください。アカウントは二十四時間以内に停止されます。'.repeat(150);
+  assert.equal(r.partial, false);
+  assert.ok(sent > 8500, String(sent));
+  const ja = 'お支払い情報を更新してください。アカウントは二十四時間以内に停止されます。'.repeat(150); // ~5,500 characters
   const rj = await translateForAnalysis(null, ja, async (t) => { sent = t.join('').length; return t; });
-  assert.equal(rj.partial, true);
-  assert.ok(sent <= 2000, String(sent));
+  assert.equal(rj.partial, false);
+  assert.ok(sent > 5000, String(sent));
+  // a 20,000-character message (the most the parse reads) fits a browser translation too
+  const huge = `${FR}\n`.repeat(140).slice(0, 20_000);
+  const req = (await translateForAnalysis(null, huge)).request!;
+  assert.ok(validatePretranslated({ source: 'fr', pieces: req.pieces, out: req.pieces }), `${req.pieces.length} pieces`);
 });
 
 import { computeVerdict } from '../shared/phishing/verdict';
@@ -128,7 +132,7 @@ test('a browser translation for different text, or malformed, is ignored', async
   const r = await parseSubmission({ body: FR }, { pretranslated: wrong });
   assert.equal(r.content.analysis.language?.status, 'unavailable');
   assert.ok(r.translationRequest);
-  for (const bad of [null, 'x', { source: 'fr', pieces: ['a'], out: [] }, { source: '<script>', pieces: ['a'], out: ['b'] }, { source: 'fr', pieces: Array(41).fill('a'), out: Array(41).fill('b') }, { source: 'fr', pieces: ['a'], out: [1] }]) {
+  for (const bad of [null, 'x', { source: 'fr', pieces: ['a'], out: [] }, { source: '<script>', pieces: ['a'], out: ['b'] }, { source: 'fr', pieces: Array(121).fill('a'), out: Array(121).fill('b') }, { source: 'fr', pieces: ['a'], out: [1] }]) {
     assert.equal(validatePretranslated(bad), null, JSON.stringify(bad)?.slice(0, 60));
   }
 });

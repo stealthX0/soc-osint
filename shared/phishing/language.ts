@@ -56,13 +56,8 @@ export function detectLanguage(text: string): DetectedLanguage {
 /** Translates each text from `source` into English; null when translation is unavailable (budget spent, error). */
 export type Translator = (texts: string[], source: string) => Promise<string[] | null>;
 
-/**
- * Most text sent for translation per message (Cloudflare's free daily allowance is shared by every investigation). Scripts
- * without spaces (Chinese, Japanese, Korean, Thai, …) cost about one token per character, so they get less.
- */
-export const TRANSLATE_MAX_CHARS = 5000;
-const DENSE_SCRIPT_MAX_CHARS = 2000;
-const DENSE = new Set(['zh', 'ja', 'ko', 'th', 'my', 'km', 'lo']);
+/** Text sent for translation: all of what the wording rules read (the parse stops at this many characters for every message). */
+export const TRANSLATE_MAX_CHARS = 20_000;
 const CHUNK = 700;
 
 /** Splits text at paragraph, then sentence, then word boundaries into pieces the model handles well. */
@@ -115,7 +110,7 @@ const BCP47 = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/;
 export function validatePretranslated(raw: unknown): PretranslatedText | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  const strs = (v: unknown) => (Array.isArray(v) && v.length > 0 && v.length <= 40 && v.every((x) => typeof x === 'string' && x.length <= 4000) ? (v as string[]) : null);
+  const strs = (v: unknown) => (Array.isArray(v) && v.length > 0 && v.length <= 120 && v.every((x) => typeof x === 'string' && x.length <= 4000) ? (v as string[]) : null);
   const pieces = strs(r.pieces), out = strs(r.out);
   if (typeof r.source !== 'string' || !BCP47.test(r.source) || !pieces || !out || pieces.length !== out.length) return null;
   return { engine: 'browser', source: r.source, pieces, out };
@@ -151,7 +146,7 @@ export async function translateForAnalysis(subject: string | null, text: string,
   const language = detectLanguage(`${subject ?? ''}\n${text}`);
   const same = { language, subject, text, partial: false };
   if (!language.code || language.code === 'en') return { ...same, status: 'not_needed', detail: language.code ? 'The message is in English.' : 'Too little text to tell the language.' };
-  const max = DENSE.has(language.code) ? DENSE_SCRIPT_MAX_CHARS : TRANSLATE_MAX_CHARS;
+  const max = TRANSLATE_MAX_CHARS;
   const hasSubject = !!subject?.trim();
   const pieces = [...(hasSubject ? [subject!.trim()] : []), ...chunkText(text.slice(0, max))];
   const partial = text.length > max;

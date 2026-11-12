@@ -10,7 +10,7 @@ import type { Env } from '../../_lib/env';
 /**
  * POST /api/phishing/parse   body: PhishingInput (JSON)
  * Stage 1 of the phishing investigation: header forensics, authentication, MIME body, links, attachments, indicators.
- * Nothing is stored or logged. When the wording is not English, the subject and up to 5,000 characters of the body are
+ * Nothing is stored or logged. When the wording is not English, the subject and body (all the text the wording rules read) are
  * machine-translated by Cloudflare Workers AI (same provider as this Worker; zero data retention; free daily allowance
  * only) so the English wording rules can read it. TRANSLATE_CONTENT=false switches that off.
  * When that is not possible the response carries `translationRequest`; the browser can translate those pieces on the
