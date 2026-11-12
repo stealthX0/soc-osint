@@ -369,7 +369,8 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                   {activeTab === 'domain' && (
                     <div className="space-y-6">
                       <TabFindings id="ph-domain-findings" title="Authentication and infrastructure findings" findings={tabFindings.domain ?? []} />
-                      <HeadersTab r={r} sender={sender} findings={findings} />
+                      {/* a little extra space between the findings and the IP intelligence / authentication cards */}
+                      <div className="pt-4"><HeadersTab r={r} sender={sender} findings={findings} /></div>
                     </div>
                   )}
                   {activeTab === 'content' && (

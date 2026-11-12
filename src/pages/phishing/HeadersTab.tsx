@@ -46,13 +46,11 @@ export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; 
           <span className="text-xs text-faint">Reputation describes the IP, not this particular message.</span>
         </div>
       )}
-      {/*
-        Authentication is short and the IP cards are tall, so they do not share a row (that left a large hole under
-        Authentication). Authentication goes first at full width; one IP card is full width with its sections in two
-        columns, several IP cards share a two-column grid with equal-height rows.
-      */}
-      {auth}
-      {ipCards.length === 1 ? ipCards : <div className="grid gap-4 xl:grid-cols-2">{ipCards}</div>}
+      {/* IP cards and the Authentication card share one grid, so Authentication takes the next free column. */}
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        {ipCards}
+        {auth}
+      </div>
     </div>
   );
 }
@@ -62,7 +60,6 @@ export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; 
 /** One card per looked-up IP (or a note when there was nothing to look up). */
 function ipIntelligenceCards(sender: SenderStage, findings: Finding[]): ReactNode[] {
   const ipSlots = sender.slots.filter((s) => s.req.check === 'ip');
-  const wide = ipSlots.length === 1;
   if (!ipSlots.length) {
     const skipped = sender.plan.skipped.find((c) => c.id === 'sender.ip');
     return [<Card key="no-ip" title="IP intelligence"><p className="text-sm text-muted">{skipped?.detail ?? 'No IP address was found in the headers, so there was nothing to look up.'}</p></Card>];
@@ -79,7 +76,7 @@ function ipIntelligenceCards(sender: SenderStage, findings: Finding[]): ReactNod
       );
     }
     const ipFindings = findings.filter((f) => f.indicator?.type === 'ip' && f.indicator.value === req.ip);
-    return <IpCard key={req.ip} v={d.value} role={req.role} trust={req.trust} findings={ipFindings} wide={wide} />;
+    return <IpCard key={req.ip} v={d.value} role={req.role} trust={req.trust} findings={ipFindings} />;
   });
 }
 
@@ -105,7 +102,7 @@ const na = <span className="text-faint">not available</span>;
 const pct = (n: number) => `${n}%`;
 const date = (s: string | null | undefined) => (s && !Number.isNaN(Date.parse(s)) ? new Date(s).toLocaleDateString() : '—');
 
-function IpCard({ v, role, trust, findings, wide = false }: { v: IpLookup; role: string; trust: string; findings: Finding[]; wide?: boolean }) {
+function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust: string; findings: Finding[] }) {
   const risk = assessIpRisk(v);
   /** The device that sent an internal Microsoft 365 message: a person's connection, not a mail server. */
   const device = role === 'sender_client';
@@ -158,7 +155,6 @@ function IpCard({ v, role, trust, findings, wide = false }: { v: IpLookup; role:
         )}
       </Group>
 
-      <div className={wide ? 'grid gap-x-8 lg:grid-cols-2' : ''}>
       <Group title="Reputation">
         <Row k="AbuseIPDB">{rep ? <span className={rep.abuseConfidence >= 75 ? 'text-rose' : rep.abuseConfidence >= 25 ? 'text-amber' : ''}>{pct(rep.abuseConfidence)} confidence · {rep.totalReports} reports · {rep.distinctReporters} reporters</span> : na}</Row>
         {rep && <Row k="Last reported">{rep.lastReportedAt ? date(rep.lastReportedAt) : 'never'}{rep.usageType ? ` · ${rep.usageType}` : ''}</Row>}
@@ -175,7 +171,6 @@ function IpCard({ v, role, trust, findings, wide = false }: { v: IpLookup; role:
         {nt?.companyName && <Row k="Hosting company">{nt.companyName}{nt.companyType ? ` (${nt.companyType})` : ''}</Row>}
         <Row k="Location">{[v.geo?.city, v.geo?.region, v.geo?.country ?? v.geo?.countryCode].filter(Boolean).join(', ') || '—'}</Row>
       </Group>
-      </div>
 
       {v.exposure && (v.exposure.ports.length > 0 || v.exposure.vulns.length > 0) && (
         <Group title="Exposure">
