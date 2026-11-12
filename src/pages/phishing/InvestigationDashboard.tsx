@@ -158,10 +158,16 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
   /* ── derived data ── */
   const fx = r.forensics;
   const meta = VERDICT_TEXT[verdict.label];
-  const from = fx?.summary.from ?? r.indicators.emails.find((e) => e.roles.includes('from'))?.address ?? '—';
-  // "Name <user@domain>" -> domain, without the closing bracket or trailing junk.
+  // The sender's e-mail address only, never the display name ("Name <user@domain>" -> "user@domain").
+  const fromHeader = fx?.summary.from ?? '';
+  const from = fx?.addresses.from[0]?.address
+    ?? r.indicators.emails.find((e) => e.roles.includes('from'))?.address
+    ?? /<([^<>\s]+@[^<>\s]+)>/.exec(fromHeader)?.[1]
+    ?? /[^\s<>"';,]+@[^\s<>"';,]+/.exec(fromHeader)?.[0]
+    ?? '—';
   const fromDomain = /@([^\s<>"';,]+)/.exec(from)?.[1]?.toLowerCase() ?? '—';
-  const senderIp = fx?.trust.connectingIp ?? '—';
+  // The IP that connected to the receiving server; for internal Microsoft 365 mail, the sending device's IP.
+  const senderIp = fx?.trust.connectingIp ?? fx?.internal?.clientIp ?? '—';
   const linkCount = r.links.length;
   const attachmentCount = r.attachments.filter((a) => !a.inline).length;
   const analysisTime = useMemo(() => ((Date.now() - startedAt) / 1000).toFixed(1), [startedAt]);

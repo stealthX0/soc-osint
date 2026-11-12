@@ -531,6 +531,20 @@ describe('server-render smoke tests: every tab and the form render without throw
     assert.match(out, /<h2[^>]*tabindex="-1"/);
   });
 
+  it('Input Details shows the sender address only (no display name) and the internal Microsoft 365 sending device IP', async () => {
+    const headers = [
+      'Received: from SUB01.eurprd07.prod.outlook.com ([fe80::1]) by SUB01.eurprd07.prod.outlook.com ([fe80::1%4]) with mapi id 15.21.0592.009; Wed, 4 Nov 2026 08:13:34 +0000',
+      'From: Works Council Example SAS <council@example-corp.com>', 'To: alex@example-corp.com', 'Subject: News', 'Date: Wed, 4 Nov 2026 08:13:34 +0000',
+      'X-MS-Exchange-Organization-AuthAs: Internal', 'x-ms-exchange-organization-originalclientipaddress: 81.2.69.160', '', 'Hello',
+    ].join('\n');
+    const r = await parseSubmission({ headers });
+    const out = html(createElement(FinishedReport, { r, input: { headers }, sender: senderDone, links: linkStub, att: attDone, startedAt: Date.now(), historyEnabled: false }));
+    const card = out.slice(out.indexOf('Input Details'), out.indexOf('Input Details') + 3000);
+    assert.match(card, /council@example-corp\.com/);
+    assert.ok(!card.includes('Works Council Example SAS'), 'no display name in From');
+    assert.match(card, /81\.2\.69\.160/, 'sending device IP shown as Sender IP');
+  });
+
   it('while lookups are outstanding the shell renders a progress list and no verdict at all', async () => {
     const f = await fixture();
     const out = html(createElement(ResultsShell, { r: f.r, input: f.input, files: [], startedAt: Date.now() }));
