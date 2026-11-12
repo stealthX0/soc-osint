@@ -16,9 +16,9 @@ run_worker_first = ["/api/*"]
 # (dashboard: Storage & Databases > KV > Create, or `npm run setup:kv`) and put its id below. The per-client request
 # limiter stays in per-isolate memory on purpose, to stay well inside KV's free 1,000 writes/day. Without KV every
 # counter is per isolate (best-effort).
-# [[kv_namespaces]]
-# binding = "RATE_LIMIT"
-# id = "<your-kv-namespace-id>"
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "2d80d2f5da2f4781936a04e5f8b49dee"
 
 # Workers AI: machine translation of non-English e-mails before the wording rules run (worker/_lib/translate.ts).
 # Only the free daily allocation is used (no cap of the tool's own beyond Cloudflare's allowance; TRANSLATE_CONTENT = "false" switches it off).
