@@ -7,7 +7,7 @@
 import { extractMessage } from './mime';
 import { analyzeIdentity } from './brand';
 import { offlineLinkFindings } from './urlTriage';
-import { translateForAnalysis, type Translator } from './language';
+import { translateForAnalysis, type PretranslatedText, type TranslationRequest, type Translator } from './language';
 import { analyzeContent, stripReceiverBanners, RECEIVER_BANNER_LINK, type ContentAnalysis } from './content';
 import { isFreeMail } from './domains';
 import { analyzeEmailHeaders, type HeaderForensics } from './forensics';
@@ -46,6 +46,19 @@ export interface ParseStageResult {
   findings: Finding[];
   checks: CheckResult[];
   limits: string[];
+  /**
+   * Set when the wording is not English and the server could not translate it (Cloudflare budget spent, model error or
+   * a language it does not cover): the pieces to translate in the browser and send back as `browserTranslation`.
+   */
+  translationRequest?: TranslationRequest;
+  /** Set by the browser (never the server): how the in-browser translation fallback went. */
+  browserFallback?: BrowserFallbackState;
+}
+
+/** Outcome of the in-browser translation fallback (src/lib/browserTranslate.ts). */
+export interface BrowserFallbackState {
+  status: 'translated' | 'needs_download' | 'unsupported_browser' | 'unsupported_language' | 'failed' | 'declined';
+  detail: string;
 }
 
 /* ------------------------------------------------------------ validation */
@@ -104,6 +117,8 @@ const extOf = (name: string | null) => { const m = name?.toLowerCase().match(/\.
 export interface ParseOptions {
   /** Machine translation for non-English wording (the Worker supplies Workers AI within its free allowance). */
   translate?: Translator;
+  /** A translation the analyst's browser made after an earlier parse returned `translationRequest`. */
+  pretranslated?: PretranslatedText | null;
 }
 
 export async function parseSubmission(input: PhishingInput, opts: ParseOptions = {}): Promise<ParseStageResult> {
@@ -184,16 +199,16 @@ export async function parseSubmission(input: PhishingInput, opts: ParseOptions =
   }
 
   /* language: the wording rules read English, so other languages are machine-translated first (when available) */
-  const tr = await translateForAnalysis(subject, senderText.slice(0, 20_000), opts.translate);
+  const tr = await translateForAnalysis(subject, senderText.slice(0, 20_000), opts.translate, opts.pretranslated);
   if (tr.status !== 'not_needed') {
     checks.push(check('content.translate', 'content', 'Language and translation', tr.status === 'translated' ? 'complete' : tr.status === 'unsupported' ? 'not_applicable' : 'skipped',
-      tr.status === 'translated' ? `translated from ${tr.language.name}${tr.partial ? ' (partly)' : ''}` : `${tr.language.name}: not translated`, tr.detail));
+      tr.status === 'translated' ? `translated from ${tr.language.name}${tr.engine === 'browser' ? ' in the browser' : ''}${tr.partial ? ' (partly)' : ''}` : `${tr.language.name}: not translated`, tr.detail));
   }
 
   /* wording: urgency, credential / payment requests, extortion, QR and other lures (local, deterministic) */
   const wording = analyzeContent({
     subject: tr.subject, text: tr.text, html: senderHtml, linkCount: ext.links.length,
-    translation: { language: { code: tr.language.code, name: tr.language.name }, status: tr.status, detail: tr.detail, original: { subject, text: senderText } },
+    translation: { language: { code: tr.language.code, name: tr.language.name }, status: tr.status, engine: tr.engine, detail: tr.detail, original: { subject, text: senderText } },
     attachments: msg.attachments.map((a) => ({ filename: a.filename, inline: a.inline, declaredType: a.declaredType })),
     displayName: forensics?.addresses.from[0]?.display ?? sender.displayName ?? null,
     fromDomain: identityFrom, fromIsFreeMail: isFreeMail(identityFrom),
@@ -271,5 +286,6 @@ export async function parseSubmission(input: PhishingInput, opts: ParseOptions =
     findings: sortFindings(dedupeFindings(findings)),
     checks,
     limits,
+    ...(tr.request ? { translationRequest: tr.request } : {}),
   };
 }

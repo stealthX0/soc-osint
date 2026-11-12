@@ -77,7 +77,7 @@ export function OverviewTab({ r, verdict, findings, pipeline, report, running, o
 
       <details className="rounded-xl border border-line bg-panel/60">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal">Message wording analysis</summary>
-        <div className="border-t border-line p-4"><ContentPanel a={r.content.analysis} subject={r.content.subject} /></div>
+        <div className="border-t border-line p-4"><ContentPanel a={r.content.analysis} subject={r.content.subject} fallback={r.browserFallback} /></div>
       </details>
 
       <section aria-labelledby="ph-ind">

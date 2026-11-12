@@ -39,7 +39,7 @@ export interface ContentAnalysis {
   latinShare: number;
   languageSupported: boolean;
   /** Detected language and whether the text was machine-translated before the rules ran. */
-  language?: { code: string | null; name: string; status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported'; detail: string; translatedText?: string; translatedSubject?: string | null };
+  language?: { code: string | null; name: string; status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported'; engine?: 'workers-ai' | 'browser'; detail: string; translatedText?: string; translatedSubject?: string | null };
   categories: ContentCategory[];
   intents: ContentIntent[];
   notes: string[];
@@ -58,7 +58,7 @@ export interface ContentInput {
    * Set when `subject` / `text` are a machine translation: the language result, and the ORIGINAL wording, which is still
    * used for disguise checks (look-alike letters, invisible characters) that a translation would wash out.
    */
-  translation?: { language: { code: string | null; name: string }; status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported'; detail: string; original: { subject: string | null; text: string } };
+  translation?: { language: { code: string | null; name: string }; status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported'; engine?: 'workers-ai' | 'browser'; detail: string; original: { subject: string | null; text: string } };
 }
 
 /* ------------------------------------------------- receiver-added banners */
@@ -260,7 +260,7 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
 
   const tr = input.translation;
   const orig = tr?.status === 'translated' ? `${tr.original.subject ?? ''}\n${tr.original.text}` : hay;
-  if (tr) analysis.language = { code: tr.language.code, name: tr.language.name, status: tr.status, detail: tr.detail, ...(tr.status === 'translated' ? { translatedText: input.text.slice(0, 6000), translatedSubject: input.subject } : {}) };
+  if (tr) analysis.language = { code: tr.language.code, name: tr.language.name, status: tr.status, ...(tr.engine ? { engine: tr.engine } : {}), detail: tr.detail, ...(tr.status === 'translated' ? { translatedText: input.text.slice(0, 6000), translatedSubject: input.subject } : {}) };
   if (tr?.status === 'translated') notes.push(tr.detail);
   analysis.latinShare = latinShareOf(orig);
   const letterCount = (orig.match(/\p{L}/gu) ?? []).length;

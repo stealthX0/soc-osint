@@ -76,3 +76,115 @@ test('a message whose language could not be read is never cleared as likely legi
   assert.notEqual(v.label, 'likely_legitimate');
   assert.ok(v.gaps.some((g) => g.critical && /French, not translated/.test(g.text)));
 });
+
+/* ------------------------------------------- in-browser fallback (Chrome / Edge built-in Translator API) */
+import { validatePretranslated } from '../shared/phishing/language';
+import { translateInBrowser } from '../src/lib/browserTranslate';
+import { onRequestPost } from '../worker/api/phishing/parse';
+
+test('when Cloudflare cannot translate, the parse returns the exact pieces for the browser', async () => {
+  const exhausted: Translator = async () => null; // budget spent / 4006 daily allocation exceeded
+  const r = await parseSubmission({ subject: 'Compte bloqué', body: FR }, { translate: exhausted });
+  assert.equal(r.content.analysis.language?.status, 'unavailable');
+  assert.equal(r.translationRequest?.source, 'fr');
+  assert.equal(r.translationRequest?.languageName, 'French');
+  assert.equal(r.translationRequest?.pieces[0], 'Compte bloqué');
+  assert.equal(r.translationRequest?.pieces.slice(1).join(' ').replace(/\s+/g, ' '), FR);
+  const none = await parseSubmission({ body: FR });
+  assert.ok(none.translationRequest, 'also when Workers AI is off');
+  assert.equal((await parseSubmission({ body: EN })).translationRequest, undefined);
+});
+
+test('a browser translation of exactly those pieces is used instead of Workers AI', async () => {
+  const req = (await parseSubmission({ subject: 'Compte bloqué', body: FR })).translationRequest!;
+  const pre = validatePretranslated({ engine: 'browser', source: 'fr', pieces: req.pieces, out: ['Account blocked', EN] })!;
+  let cloudflare = 0;
+  const r = await parseSubmission({ subject: 'Compte bloqué', body: FR }, { pretranslated: pre, translate: async (t) => { cloudflare++; return t; } });
+  assert.equal(cloudflare, 0);
+  assert.equal(r.content.analysis.language?.status, 'translated');
+  assert.equal(r.content.analysis.language?.engine, 'browser');
+  assert.equal(r.translationRequest, undefined);
+  assert.ok(r.findings.some((f) => f.id === 'content_credential_request'));
+  assert.match(r.checks.find((c) => c.id === 'content.translate')?.result ?? '', /in the browser/);
+  // Workers AI translations are labelled as such
+  assert.equal((await parseSubmission({ body: FR }, { translate: fake })).content.analysis.language?.engine, 'workers-ai');
+});
+
+test('a browser translation for different text, or malformed, is ignored', async () => {
+  const wrong = validatePretranslated({ source: 'fr', pieces: ['autre chose'], out: ['something else'] })!;
+  const r = await parseSubmission({ body: FR }, { pretranslated: wrong });
+  assert.equal(r.content.analysis.language?.status, 'unavailable');
+  assert.ok(r.translationRequest);
+  for (const bad of [null, 'x', { source: 'fr', pieces: ['a'], out: [] }, { source: '<script>', pieces: ['a'], out: ['b'] }, { source: 'fr', pieces: Array(41).fill('a'), out: Array(41).fill('b') }, { source: 'fr', pieces: ['a'], out: [1] }]) {
+    assert.equal(validatePretranslated(bad), null, JSON.stringify(bad)?.slice(0, 60));
+  }
+});
+
+test('a language m2m100 does not cover can still be translated by the browser, which detects it', async () => {
+  const FI = 'Tilisi on lukittu. Vahvista salasanasi välittömästi, muuten tilisi poistetaan pysyvästi huomenna. Kiitos yhteistyöstä.';
+  const r = await parseSubmission({ body: FI });
+  if (r.content.analysis.language?.status !== 'unsupported') return; // franc may map it to a covered language
+  assert.equal(r.translationRequest?.source, null, 'the browser detects the language itself');
+  const pre = validatePretranslated({ source: 'fi', pieces: r.translationRequest!.pieces, out: ['Your account is locked. Verify your password immediately, otherwise your account will be permanently deleted tomorrow.'] })!;
+  const t = await parseSubmission({ body: FI }, { pretranslated: pre });
+  assert.equal(t.content.analysis.language?.status, 'translated');
+  assert.equal(t.content.analysis.language?.name, 'Finnish');
+});
+
+test('the parse endpoint uses browserTranslation and skips Workers AI', async () => {
+  const req = (await parseSubmission({ body: FR })).translationRequest!;
+  let aiCalls = 0;
+  const env = { AI: { run: async () => { aiCalls++; return { translated_text: 'x' }; } } };
+  const post = async (body: unknown) => {
+    const res = await onRequestPost({ request: new Request('https://x/api/phishing/parse', { method: 'POST', body: JSON.stringify(body) }), env } as never);
+    return ((await res.json()) as { data: { content: { analysis: { language?: { status: string; engine?: string } } } } }).data;
+  };
+  const d = await post({ body: FR, browserTranslation: { source: 'fr', pieces: req.pieces, out: [EN] } });
+  assert.equal(aiCalls, 0);
+  assert.equal(d.content.analysis.language?.engine, 'browser');
+});
+
+/** Minimal stand-in for Chrome / Edge's built-in Translator + LanguageDetector globals. */
+function fakeBrowser(o: { availability: string; detect?: string; refuseCreate?: boolean }) {
+  const g = globalThis as Record<string, unknown>;
+  const created: string[] = [];
+  g.Translator = {
+    availability: async () => o.availability,
+    create: async (p: { sourceLanguage: string; monitor?: (m: { addEventListener: (t: string, cb: (e: { loaded: number }) => void) => void }) => void }) => {
+      if (o.refuseCreate) throw Object.assign(new Error('Requires user activation'), { name: 'NotAllowedError' });
+      p.monitor?.({ addEventListener: (_t, cb) => cb({ loaded: 1 }) });
+      created.push(p.sourceLanguage);
+      return { translate: async (t: string) => `EN(${t.slice(0, 10)})`, destroy() {} };
+    },
+  };
+  g.LanguageDetector = { availability: async () => 'available', create: async () => ({ detect: async () => [{ detectedLanguage: o.detect ?? 'und', confidence: 0.9 }], destroy() {} }) };
+  return { created, restore: () => { delete g.Translator; delete g.LanguageDetector; } };
+}
+
+test('browser translator: translates when the pack is present, asks first when it must download', async () => {
+  const req = { source: 'fr', languageName: 'French', pieces: ['un', 'deux'], partial: false };
+  let b = fakeBrowser({ availability: 'available' });
+  const ok = await translateInBrowser(req, { allowDownload: false });
+  assert.ok(ok.ok && ok.value.out.length === 2 && ok.value.source === 'fr');
+  b.restore();
+  b = fakeBrowser({ availability: 'downloadable' });
+  const ask = await translateInBrowser(req, { allowDownload: false });
+  assert.equal(!ask.ok && ask.reason, 'needs_download');
+  assert.equal(b.created.length, 0, 'no download without a click');
+  let progress = 0;
+  assert.equal((await translateInBrowser(req, { allowDownload: true, onProgress: (x) => { progress = x; } })).ok, true);
+  assert.equal(progress, 1);
+  b.restore();
+  b = fakeBrowser({ availability: 'downloadable', refuseCreate: true });
+  const refused = await translateInBrowser(req, { allowDownload: true });
+  assert.equal(!refused.ok && refused.reason, 'needs_download');
+  b.restore();
+  b = fakeBrowser({ availability: 'unavailable' });
+  assert.equal(((await translateInBrowser(req, { allowDownload: true })) as { reason?: string }).reason, 'unsupported_language');
+  b.restore();
+  assert.equal(((await translateInBrowser(req, { allowDownload: true })) as { reason?: string }).reason, 'unsupported_browser');
+  b = fakeBrowser({ availability: 'available', detect: 'fi' });
+  const det = await translateInBrowser({ ...req, source: null, languageName: 'fin' }, { allowDownload: false });
+  assert.ok(det.ok && det.value.source === 'fi');
+  b.restore();
+});

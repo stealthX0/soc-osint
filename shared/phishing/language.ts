@@ -86,32 +86,93 @@ export function chunkText(text: string, max = CHUNK): string[] {
   return out;
 }
 
+/** Which engine produced a translation. */
+export type TranslationEngine = 'workers-ai' | 'browser';
+
+/**
+ * The exact pieces the server wanted translated, returned when it could not translate them (Workers AI budget spent,
+ * model error, binding off, or a language m2m100 does not cover). The browser can translate them with its built-in
+ * on-device Translator API (Chrome 138+, Edge 148+) and send them back as a PretranslatedText.
+ */
+export interface TranslationRequest {
+  /** BCP 47 code of the source language, or null when the browser should detect it (language m2m100 does not know). */
+  source: string | null;
+  languageName: string;
+  pieces: string[];
+  partial: boolean;
+}
+
+/** A translation made in the analyst's browser, sent back with a repeat of the parse request. */
+export interface PretranslatedText {
+  engine: 'browser';
+  source: string;
+  pieces: string[];
+  out: string[];
+}
+
+const BCP47 = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/;
+/** Validates a client-supplied PretranslatedText (anything malformed is ignored, never an error). */
+export function validatePretranslated(raw: unknown): PretranslatedText | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const strs = (v: unknown) => (Array.isArray(v) && v.length > 0 && v.length <= 40 && v.every((x) => typeof x === 'string' && x.length <= 4000) ? (v as string[]) : null);
+  const pieces = strs(r.pieces), out = strs(r.out);
+  if (typeof r.source !== 'string' || !BCP47.test(r.source) || !pieces || !out || pieces.length !== out.length) return null;
+  return { engine: 'browser', source: r.source, pieces, out };
+}
+
+/** English name of a BCP 47 language code ("ja" -> "Japanese"), or the code itself. */
+export function languageName(code: string): string {
+  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code; } catch { return code; }
+}
+
 export interface TranslationResult {
   language: DetectedLanguage;
   /** 'not_needed' (English / unknown / no text), 'translated', 'unavailable' (no translator, budget or error), 'unsupported'. */
   status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported';
+  /** Set when status is 'translated'. */
+  engine?: TranslationEngine;
   subject: string | null;
   text: string;
   /** True when only the first TRANSLATE_MAX_CHARS characters were translated. */
   partial: boolean;
   detail: string;
+  /** Set when status is 'unavailable' or 'unsupported': what the browser could translate instead. */
+  request?: TranslationRequest;
 }
 
-/** Detects the language of subject + body and, when it is not English, translates both with `translate`. */
-export async function translateForAnalysis(subject: string | null, text: string, translate?: Translator): Promise<TranslationResult> {
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * Detects the language of subject + body and, when it is not English, translates both: with `pretranslated` when the
+ * browser already did it for exactly these pieces, otherwise with `translate` (Workers AI).
+ */
+export async function translateForAnalysis(subject: string | null, text: string, translate?: Translator, pretranslated?: PretranslatedText | null): Promise<TranslationResult> {
   const language = detectLanguage(`${subject ?? ''}\n${text}`);
   const same = { language, subject, text, partial: false };
   if (!language.code || language.code === 'en') return { ...same, status: 'not_needed', detail: language.code ? 'The message is in English.' : 'Too little text to tell the language.' };
-  if (!language.translatable) return { ...same, status: 'unsupported', detail: `The message appears to be in ${language.name}, which the translation model does not cover.` };
-  if (!translate) return { ...same, status: 'unavailable', detail: `The message appears to be in ${language.name}; machine translation is not available here.` };
   const max = DENSE.has(language.code) ? DENSE_SCRIPT_MAX_CHARS : TRANSLATE_MAX_CHARS;
-  const body = text.slice(0, max);
-  const pieces = [...(subject?.trim() ? [subject.trim()] : []), ...chunkText(body)];
+  const hasSubject = !!subject?.trim();
+  const pieces = [...(hasSubject ? [subject!.trim()] : []), ...chunkText(text.slice(0, max))];
+  const partial = text.length > max;
+  const done = (out: string[], engine: TranslationEngine, lang: DetectedLanguage, how: string): TranslationResult => ({
+    language: lang, status: 'translated', engine, partial,
+    subject: hasSubject ? out[0] : subject, text: out.slice(hasSubject ? 1 : 0).join('\n'),
+    detail: `Machine-translated from ${lang.name} to English ${how} before the wording rules ran${partial ? ` (first ${max.toLocaleString('en')} characters)` : ''}. Quoted evidence is from the translation.`,
+  });
+  const usable = (out: string[] | null | undefined): out is string[] => !!out && out.length === pieces.length && !out.every((x) => !x?.trim());
+
+  // 1. The browser translated exactly these pieces (sent back after the server could not translate them).
+  if (pretranslated && sameList(pretranslated.pieces, pieces) && usable(pretranslated.out)) {
+    const lang = language.translatable ? language : { code: pretranslated.source, name: languageName(pretranslated.source), translatable: true };
+    return done(pretranslated.out, 'browser', lang, 'in your browser (its built-in on-device translator; the Cloudflare translation was unavailable)');
+  }
+  const request: TranslationRequest = { source: language.translatable ? language.code : null, languageName: language.name, pieces, partial };
+  if (!language.translatable) return { ...same, status: 'unsupported', request, detail: `The message appears to be in ${language.name}, which the Cloudflare translation model does not cover.` };
+  if (!translate) return { ...same, status: 'unavailable', request, detail: `The message appears to be in ${language.name}; machine translation is not available here.` };
+  // 2. Cloudflare Workers AI (free daily allowance).
   let out: string[] | null = null;
   try { out = await translate(pieces, language.code); } catch { out = null; }
-  if (!out || out.length !== pieces.length || out.every((x) => !x?.trim())) return { ...same, status: 'unavailable', detail: `The message appears to be in ${language.name}, but machine translation failed or its free daily allowance is used up.` };
-  const tSubject = subject?.trim() ? out[0] : subject;
-  const tText = out.slice(subject?.trim() ? 1 : 0).join('\n');
-  const partial = text.length > max;
-  return { language, status: 'translated', subject: tSubject, text: tText, partial, detail: `Machine-translated from ${language.name} to English before the wording rules ran${partial ? ` (first ${max.toLocaleString('en')} characters)` : ''}. Quoted evidence is from the translation.` };
+  if (!usable(out)) return { ...same, status: 'unavailable', request, detail: `The message appears to be in ${language.name}, but machine translation failed or its free daily allowance is used up.` };
+  return done(out, 'workers-ai', language, '(Cloudflare Workers AI)');
 }

@@ -370,7 +370,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                   )}
                   {activeTab === 'content' && (
                     <div className="space-y-6">
-                      <ContentPanel a={r.content.analysis} subject={r.content.subject} />
+                      <ContentPanel a={r.content.analysis} subject={r.content.subject} fallback={r.browserFallback} />
                       <TabFindings id="ph-content-findings" title="Scored content findings" findings={tabFindings.content ?? []} />
                     </div>
                   )}

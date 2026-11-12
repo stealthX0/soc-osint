@@ -4,6 +4,7 @@ import { readTextLimited } from '../../_lib/input';
 import { LIMITS } from '../../../shared/phishing/types';
 import { parseSubmission, validateInput } from '../../../shared/phishing/parse';
 import { workersAiTranslator } from '../../_lib/translate';
+import { validatePretranslated } from '../../../shared/phishing/language';
 import type { Env } from '../../_lib/env';
 
 /**
@@ -12,6 +13,9 @@ import type { Env } from '../../_lib/env';
  * Nothing is stored or logged. When the wording is not English, the subject and up to 5,000 characters of the body are
  * machine-translated by Cloudflare Workers AI (same provider as this Worker; zero data retention; free daily allowance
  * only) so the English wording rules can read it. TRANSLATE_CONTENT=false switches that off.
+ * When that is not possible the response carries `translationRequest`; the browser can translate those pieces on the
+ * device (Chrome / Edge built-in Translator API) and repeat the request with `browserTranslation`, which is then used
+ * instead of Workers AI (no second Workers AI call, so no budget is spent on a retry).
  */
 export const onRequestPost = route(async (ctx) => {
   const text = await readTextLimited(ctx.request, LIMITS.requestBytes);
@@ -23,5 +27,6 @@ export const onRequestPost = route(async (ctx) => {
   }
   const v = validateInput(json);
   if (!v.ok) throw badInput(v.error);
-  return ok(await parseSubmission(v.value, { translate: workersAiTranslator(ctx.env as Env) }));
+  const pretranslated = validatePretranslated((json as Record<string, unknown>).browserTranslation);
+  return ok(await parseSubmission(v.value, pretranslated ? { pretranslated } : { translate: workersAiTranslator(ctx.env as Env) }));
 });
