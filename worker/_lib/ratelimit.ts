@@ -8,17 +8,20 @@ const memory = new Map<string, { count: number; expires: number }>();
 /**
  * Fixed-window, cost-weighted limiter.
  *
- * - With a `RATE_LIMIT` KV binding the counter is shared across isolates (KV is eventually
- *   consistent, so treat the limit as approximate).
- * - Without KV it falls back to per-isolate memory, which still stops a single client hammering
- *   one isolate but is NOT a global limit. For hard guarantees add a Cloudflare WAF rate-limiting rule.
+ * - `store: 'shared'` (default) with a `RATE_LIMIT` KV binding: the counter is shared across isolates (KV is eventually
+ *   consistent, so treat the limit as approximate). Used for provider budgets (IPQS, VirusTotal, …).
+ * - `store: 'local'`, or no KV binding: per-isolate memory. Used for the per-client request limiter, which runs on every
+ *   API call: keeping it out of KV saves roughly half the KV writes (the free tier allows 1,000 writes a day).
+ * - If KV fails (e.g. the daily write allowance is used up) the counter falls back to per-isolate memory instead of
+ *   letting everything through.
+ * For hard guarantees add a Cloudflare WAF rate-limiting rule.
  */
 export async function rateLimit(
   env: Env,
   clientId: string,
   cost: number,
   now = Date.now(),
-  opts: { limit?: number; windowSeconds?: number } = {},
+  opts: { limit?: number; windowSeconds?: number; store?: 'shared' | 'local' } = {},
 ): Promise<RateResult> {
   const WINDOW_SECONDS = opts.windowSeconds ?? DEFAULT_WINDOW_SECONDS;
   const limit = opts.limit ?? Math.max(1, Number(env.RATE_LIMIT_PER_MIN) || 60);
@@ -26,21 +29,27 @@ export async function rateLimit(
   const key = `rl:${clientId}:${windowId}`;
   const resetSeconds = (windowId + 1) * WINDOW_SECONDS - Math.floor(now / 1000);
 
+  const local = (): number => {
+    if (memory.size > 5000) for (const [k, v] of memory) if (v.expires < now) memory.delete(k);
+    const entry = memory.get(key) ?? { count: 0, expires: now + WINDOW_SECONDS * 2000 };
+    if (entry.count + cost <= limit) memory.set(key, { count: entry.count + cost, expires: entry.expires });
+    return entry.count;
+  };
+
   let used = 0;
-  if (env.RATE_LIMIT) {
+  if (env.RATE_LIMIT && opts.store !== 'local') {
     try {
       used = Number((await env.RATE_LIMIT.get(key)) ?? 0);
       if (used + cost <= limit) {
-        await env.RATE_LIMIT.put(key, String(used + cost), { expirationTtl: WINDOW_SECONDS * 2 });
+        await env.RATE_LIMIT.put(key, String(used + cost), { expirationTtl: Math.max(60, WINDOW_SECONDS * 2) });
       }
-    } catch {
-      used = 0; // fail open if KV is unavailable
+    } catch (e) {
+      // KV unavailable or its daily write allowance spent: keep counting in this isolate rather than allowing everything.
+      console.warn(`[ratelimit] KV unavailable, counting per isolate: ${e instanceof Error ? e.message : String(e)}`);
+      used = local();
     }
   } else {
-    if (memory.size > 5000) for (const [k, v] of memory) if (v.expires < now) memory.delete(k);
-    const entry = memory.get(key) ?? { count: 0, expires: now + WINDOW_SECONDS * 2000 };
-    used = entry.count;
-    if (used + cost <= limit) memory.set(key, { count: used + cost, expires: entry.expires });
+    used = local();
   }
 
   const allowed = used + cost <= limit;

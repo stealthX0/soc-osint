@@ -61,7 +61,8 @@ deploy command `npx wrangler deploy`.
 Static files in `dist/` are served by the Workers static-assets binding; the Worker only runs for `/api/*`.
 Recommended hardening: run `npm run setup:kv` once (creates the `RATE_LIMIT` KV namespace and enables the binding in
 `wrangler.toml`), redeploy, and add a Cloudflare WAF rate-limiting rule on `/api/*` for hard guarantees.
-Without KV, rate limits and provider budgets are per-isolate (best effort).
+With KV, provider budgets (IPQS, VirusTotal, …) are shared across isolates; the per-client request limit always stays
+per-isolate to save KV writes (free tier: 1,000/day). Without KV, all counters are per-isolate (best effort).
 Note: the edge cache (Cache API) only stores entries on a custom domain, not on `*.workers.dev`.
 
 ## API

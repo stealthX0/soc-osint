@@ -12,9 +12,10 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
-# Recommended: shared rate limiting + provider quota budgets across isolates. Run `npm run setup:kv` once
-# (it creates the namespace and uncomments this block), then redeploy. Without it the API falls back to
-# per-isolate memory counters, which are only best-effort.
+# Recommended: provider quota budgets (IPQS, VirusTotal, AbuseIPDB, …) shared across isolates. Create a KV namespace
+# (dashboard: Storage & Databases > KV > Create, or `npm run setup:kv`) and put its id below. The per-client request
+# limiter stays in per-isolate memory on purpose, to stay well inside KV's free 1,000 writes/day. Without KV every
+# counter is per isolate (best-effort).
 # [[kv_namespaces]]
 # binding = "RATE_LIMIT"
 # id = "<your-kv-namespace-id>"

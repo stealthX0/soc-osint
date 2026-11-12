@@ -43,7 +43,8 @@ export const onRequest = async (ctx: Ctx): Promise<Response> => {
     const cost = costFor(url.pathname);
     if (cost > 0) {
       const client = request.headers.get('cf-connecting-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-      rl = await rateLimit(env, client, cost);
+      // Per-client limiter: per-isolate memory on purpose (it runs on every API call; KV is kept for provider budgets).
+      rl = await rateLimit(env, client, cost, Date.now(), { store: 'local' });
       if (!rl.allowed) {
         throw new ApiError(429, 'RATE_LIMITED', `Rate limit exceeded. Try again in ${rl.resetSeconds}s.`, { 'retry-after': String(rl.resetSeconds) });
       }

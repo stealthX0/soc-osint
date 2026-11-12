@@ -145,3 +145,41 @@ describe('bounded request bodies', () => {
     assert.equal(bad.status, 400);
   });
 });
+
+/* ------------------------------------------------- KV: provider budgets shared, per-client limiter local */
+
+function fakeKv(opts: { failPut?: boolean } = {}) {
+  const store = new Map<string, string>();
+  let puts = 0;
+  return {
+    kv: {
+      get: async (k: string) => store.get(k) ?? null,
+      put: async (k: string, v: string) => { if (opts.failPut) throw new Error('KV put() limit exceeded for the day'); puts++; store.set(k, v); },
+    },
+    puts: () => puts,
+  };
+}
+
+it('with KV, provider budgets are written to KV but the per-client limiter is not', async () => {
+  resetRateLimitMemory();
+  const k = fakeKv();
+  const env = { RATE_LIMIT: k.kv, RATE_LIMIT_PER_MIN: '60' } as never;
+  const now = Date.now();
+  await rateLimit(env, 'client-kv', 1, now, { store: 'local' });
+  assert.equal(k.puts(), 0, 'request limiter stays in memory');
+  assert.equal((await takeProviderBudget(env, 'ipqs', now)).ok, true);
+  assert.equal(k.puts(), 1, 'one KV write per provider call');
+});
+
+it('when KV refuses writes, counting falls back to memory instead of allowing everything', async () => {
+  resetRateLimitMemory();
+  const k = fakeKv({ failPut: true });
+  const env = { RATE_LIMIT: k.kv, IPQS_DAILY: '2' } as never;
+  const now = Date.now();
+  const orig = console.warn; console.warn = () => {};
+  try {
+    assert.equal((await takeProviderBudget(env, 'ipqs', now)).ok, true);
+    assert.equal((await takeProviderBudget(env, 'ipqs', now)).ok, true);
+    assert.equal((await takeProviderBudget(env, 'ipqs', now)).ok, false, 'the cap still holds');
+  } finally { console.warn = orig; }
+});
