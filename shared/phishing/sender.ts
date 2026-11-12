@@ -148,11 +148,11 @@ export function convertIp(req: Extract<SenderCheckRequest, { check: 'ip' }>, d: 
 
   const a = d.reputation;
   if (a && !a.isWhitelisted && a.abuseConfidence >= 25) {
-    f.push(F({ ...base, id: 'sender_ip_abuse_reports', severity: a.abuseConfidence >= 75 ? 'high' : 'medium', title: `Sender IP has abuse reports (${a.abuseConfidence}% confidence)`, detail: `AbuseIPDB lists ${who} with ${a.totalReports} report(s) from ${a.distinctReporters} reporter(s)${a.lastReportedAt ? `, last on ${a.lastReportedAt.slice(0, 10)}` : ''}.${ctx}`, source: 'AbuseIPDB', reliability: 'high', observedAt: a.lastReportedAt ?? null }));
+    f.push(F({ ...base, id: 'sender_ip_abuse_reports', severity: a.abuseConfidence >= 75 ? 'high' : 'medium', title: `Sender IP has abuse reports (${a.abuseConfidence}% confidence)`, detail: `AbuseIPDB lists ${who} with ${a.totalReports} report(s) from ${a.distinctReporters} reporter(s)${a.lastReportedAt ? `, last on ${a.lastReportedAt.slice(0, 10)}` : ''}.${ctx}`, source: 'AbuseIPDB', reliability: 'high' }));
   }
   const v = d.virustotal;
   if (v && v.malicious > 0) {
-    f.push(F({ ...base, id: 'sender_ip_vt_detections', severity: v.malicious >= 10 ? 'high' : v.malicious >= 3 ? 'medium' : 'low', title: `${v.malicious} VirusTotal engine(s) flag the sender IP`, detail: `${v.malicious} malicious and ${v.suspicious} suspicious verdicts out of ${v.malicious + v.suspicious + v.harmless + v.undetected} engines.${ctx}`, source: 'VirusTotal', reliability: 'medium', observedAt: v.lastAnalysis ?? null }));
+    f.push(F({ ...base, id: 'sender_ip_vt_detections', severity: v.malicious >= 10 ? 'high' : v.malicious >= 3 ? 'medium' : 'low', title: `${v.malicious} VirusTotal engine(s) flag the sender IP`, detail: `${v.malicious} malicious and ${v.suspicious} suspicious verdicts out of ${v.malicious + v.suspicious + v.harmless + v.undetected} engines.${ctx}`, source: 'VirusTotal', reliability: 'medium' }));
   }
   const p = d.pulsedive;
   if (p && p.observed) {
