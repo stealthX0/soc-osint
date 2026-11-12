@@ -81,7 +81,10 @@ export function planSenderChecks(r: ParseStageResult): SenderPlan {
 
   // IPs: the connecting IP first, then clues
   const ips = r.indicators.ips.filter((i) => i.ip).slice(0, 3);
-  if (!ips.length) skipped.push(check('sender.ip', 'sender', 'Sender IP intelligence', 'skipped', null, 'No sender IP could be established from the headers or the form.'));
+  const internal = fx?.internal ?? null;
+  if (!ips.length) skipped.push(internal
+    ? check('sender.ip', 'sender', 'Sender IP intelligence', 'not_applicable', null, 'Internal Microsoft 365 message, and Exchange recorded no public IP for the sending device.')
+    : check('sender.ip', 'sender', 'Sender IP intelligence', 'skipped', null, 'No sender IP could be established from the headers or the form.'));
   for (const i of ips) requests.push({ check: 'ip', ip: i.ip, role: i.role, trust: i.trust });
 
   // domains: registrable, de-duplicated, never consumer mailboxes or large mail platforms
@@ -110,6 +113,7 @@ export function planSenderChecks(r: ParseStageResult): SenderPlan {
   const connecting = fx?.ips.find((i) => i.role === 'connecting');
   const envDomain = fx?.authentication.spf?.domain ?? rpDomain;
   if (connecting && envDomain && !isFreeMail(envDomain)) requests.push({ check: 'spf', domain: envDomain, ip: connecting.ip, reported: fx?.authentication.spf?.result ?? null, trust: fx?.authentication.spf?.trust ?? 'unverified' });
+  else if (internal) skipped.push(check('sender.spf_recheck', 'sender', 'Independent SPF re-check', 'not_applicable', null, 'Internal Microsoft 365 message: SPF only applies to mail arriving from the internet.'));
   else skipped.push(check('sender.spf_recheck', 'sender', 'Independent SPF re-check', 'skipped', null, !connecting ? 'No trusted connecting IP to test.' : 'No envelope sender domain, or it is a consumer mailbox.'));
 
   // Sender address reputation: IPQualityScore first. The Worker falls back to UserCheck.com only when IPQS cannot answer
@@ -137,14 +141,16 @@ export const labelOf = (req: SenderCheckRequest): string =>
 export const idOf = (req: SenderCheckRequest): string => `sender.${req.check}.${req.check === 'ip' ? req.ip : req.check === 'usercheck' || req.check === 'ipqs' ? req.email : req.domain}`;
 
 export function convertIp(req: Extract<SenderCheckRequest, { check: 'ip' }>, d: IpLookup): { findings: Finding[]; check: CheckResult } {
-  const exact = req.role === 'connecting';
+  const exact = req.role === 'connecting' || req.role === 'sender_client';
+  /** The device of a colleague sending internal mail: an office / home / mobile connection, not a mail server. */
+  const device = req.role === 'sender_client';
   const base = { dimension: 'infrastructure' as const, exactness: exact ? ('exact' as const) : ('related' as const), indicator: { type: 'ip' as const, value: req.ip } };
   const f: Finding[] = [];
   const provider = sharedProviderOf(d);
   const ctx = provider ? ` ${provider} infrastructure is shared by many senders, so reputation here says little about this particular message.` : '';
   const who = `${req.ip}${d.network?.org ? ` (${d.network.org}${d.network.asn ? `, ${d.network.asn}` : ''})` : ''}`;
 
-  if (provider && exact) f.push(F({ ...base, id: 'sender_infra_shared_provider', severity: 'info', title: `Sent through ${provider} infrastructure`, detail: `The message reached the receiver from ${who}. Large mail platforms deliver legitimate and malicious mail alike: a genuine provider does not make the message genuine, and a clean IP does not clear it.`, source: 'ip-intelligence' }));
+  if (provider && exact && !device) f.push(F({ ...base, id: 'sender_infra_shared_provider', severity: 'info', title: `Sent through ${provider} infrastructure`, detail: `The message reached the receiver from ${who}. Large mail platforms deliver legitimate and malicious mail alike: a genuine provider does not make the message genuine, and a clean IP does not clear it.`, source: 'ip-intelligence' }));
 
   const a = d.reputation;
   if (a && !a.isWhitelisted && a.abuseConfidence >= 25) {
@@ -166,7 +172,7 @@ export function convertIp(req: Extract<SenderCheckRequest, { check: 'ip' }>, d: 
   if (d.netType?.isAbuser) f.push(F({ ...base, id: 'sender_ip_known_abuser', severity: 'medium', title: 'Sender network is flagged for abuse by ipapi.is', detail: `${d.netType.companyName ?? 'The operator'} has an elevated abuser score${d.netType.companyAbuserScore ? ` (${d.netType.companyAbuserScore})` : ''}.${ctx}`, source: 'ipapi.is' }));
   if (d.exposure?.tags.some((t) => /compromised|malware/i.test(t))) f.push(F({ ...base, id: 'sender_ip_compromised', severity: 'high', title: 'Shodan tags the sender IP as compromised / malware-related', detail: `Tags: ${d.exposure.tags.join(', ')}.`, source: 'Shodan InternetDB', reliability: 'medium' }));
 
-  if (exact && d.isPublic) {
+  if (exact && !device && d.isPublic) {
     if (!d.reverseDns.length) f.push(F({ ...base, id: 'sender_ip_no_ptr', severity: 'low', title: 'Sender IP has no reverse DNS', detail: 'Properly run mail servers have a PTR record; its absence is common for throwaway infrastructure and compromised hosts.', source: 'DNS PTR', trust: 'independently_verified' }));
     else if (RESIDENTIAL_PTR.test(d.reverseDns[0])) f.push(F({ ...base, id: 'sender_ip_residential_ptr', severity: 'low', title: 'Sender IP looks like a dynamic / residential address', detail: `Reverse DNS is ${d.reverseDns[0]}, a naming pattern for consumer connections. Business mail normally comes from dedicated mail servers.`, source: 'DNS PTR' }));
   }

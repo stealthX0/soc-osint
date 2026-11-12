@@ -112,6 +112,7 @@ export const POINTS: Record<string, Spec> = {
   auth_results_unverified: 2,
   auth_results_extra_headers: 0,
   auth_missing: 0,
+  internal_m365_message: 0,
   headers_unparsable: 0,
   supplied_sender_mismatch: 8,
   supplied_ip_not_in_headers: 0,

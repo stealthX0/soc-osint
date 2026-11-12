@@ -45,6 +45,8 @@ Evidence carries a trust label and the verdict engine discounts it accordingly.
 
 Forged `Received` headers below the point where the receiving organisation accepted the message are only ever treated as claims. The IP that connected to the receiving server is the sending infrastructure; a manually supplied IP is a clue that is compared with the headers, never authority. Spectrix cannot re-verify DKIM signatures or reproduce the receiver's SPF check from pasted headers; it re-runs the SPF policy against current DNS as independent evidence and flags any disagreement.
 
+**Internal Microsoft 365 messages.** A message sent by a signed-in user inside the same Microsoft 365 organisation never crosses the internet, so its headers carry no SPF / DKIM / DMARC results and no internet connecting IP. Spectrix treats a message as internal only when all three hold: `X-MS-Exchange-Organization-AuthAs: Internal` (Exchange Online strips these headers from internet mail and marks it Anonymous), every `Received` hop is from and by a Microsoft 365 server (`*.prod.outlook.com`), and there is no `Authentication-Results` / `Received-SPF` header (added to all inbound internet mail). SPF, DKIM, DMARC and the SPF re-check are then shown as *not applicable* (not gaps, so confidence is not lowered), finding `internal_m365_message` explains why, and the sending device's public IP from `x-ms-exchange-organization-originalclientipaddress` is investigated with role `sender_client` (Tor / VPN / abuse / location count; the mail-server checks such as missing reverse DNS or a residential name do not, because a colleague's laptop is not a mail server). The main risk with internal mail is a compromised account, which passes every authentication check.
+
 ## 4. The verdict
 
 See the "How the verdict is decided" section of the README for the principles and `shared/phishing/verdict.ts` for the code. In short: **rules decide, the score guides**; an exact confirmed-malicious URL or file is Malicious whatever else is missing; authentication failure alone or a bad IP alone is never more than Suspicious; passing authentication never lowers risk; failed or missing checks lower confidence and can force Inconclusive; findings about the same fact are counted once.
@@ -150,6 +152,7 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 | `auth_results_unverified` | 2 | none | Authentication-Results could not be tied to the receiving server. |
 | `auth_results_extra_headers` | 0 | none | Older Authentication-Results headers were ignored. |
 | `auth_missing` | 0 | none | No authentication results in the supplied headers. |
+| `internal_m365_message` | 0 | none | Sent by a signed-in user inside the same Microsoft 365 organisation; SPF / DKIM / DMARC do not apply (information). |
 | `headers_unparsable` | 0 | none | No valid header lines were found. |
 | `supplied_sender_mismatch` | 8 | none | The sender address the analyst entered differs from the headers. |
 | `supplied_ip_not_in_headers` | 0 | none | The sender IP the analyst entered is not in the headers. |

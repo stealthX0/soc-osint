@@ -83,6 +83,7 @@ export const FINDING_DESCRIPTIONS: Record<string, string> = {
   auth_results_unverified: 'Authentication-Results could not be tied to the receiving server.',
   auth_results_extra_headers: 'Older Authentication-Results headers were ignored.',
   auth_missing: 'No authentication results in the supplied headers.',
+  internal_m365_message: 'Sent by a signed-in user inside the same Microsoft 365 organisation; SPF / DKIM / DMARC do not apply (information).',
   headers_unparsable: 'No valid header lines were found.',
   supplied_sender_mismatch: 'The sender address the analyst entered differs from the headers.',
   supplied_ip_not_in_headers: 'The sender IP the analyst entered is not in the headers.',

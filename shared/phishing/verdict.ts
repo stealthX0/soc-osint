@@ -130,8 +130,10 @@ function assessCoverage(parse: ParseStageResult, checks: CheckRow[]): Coverage {
   const hasHeaders = byId.get('headers.parse')?.status === 'complete';
   if (!hasHeaders) gaps.push({ critical: true, text: 'No usable headers were supplied, so the sending infrastructure and the SPF / DKIM / DMARC results could not be assessed. Paste the complete raw headers.' });
   const authIds = ['headers.parse', 'headers.trust', 'auth.spf', 'auth.dkim', 'auth.dmarc'];
-  cov.authentication.coverage = hasHeaders ? authIds.filter(done).length / authIds.length : 0;
-  if (hasHeaders) for (const id of ['auth.spf', 'auth.dkim', 'auth.dmarc']) if (!done(id)) gaps.push({ critical: false, text: `${byId.get(id)?.label ?? id}: no result in the supplied headers.` });
+  // Checks that do not apply (e.g. SPF / DKIM / DMARC on internal Microsoft 365 mail) are not gaps.
+  const applicable = authIds.filter((id) => byId.get(id)?.status !== 'not_applicable');
+  cov.authentication.coverage = hasHeaders ? applicable.filter(done).length / Math.max(1, applicable.length) : 0;
+  if (hasHeaders) for (const id of ['auth.spf', 'auth.dkim', 'auth.dmarc']) if (byId.get(id)?.status !== 'not_applicable' && !done(id)) gaps.push({ critical: false, text: `${byId.get(id)?.label ?? id}: no result in the supplied headers.` });
 
   /* infrastructure: sender lookups (IP, domain, DNS, SPF re-check, address reputation) */
   const sender = checks.filter((c) => c.id.startsWith('sender.') && c.id !== 'sender.identity' && c.status !== 'not_applicable' && !((c.id.startsWith('sender.usercheck') || c.id.startsWith('sender.ipqs')) && c.status === 'skipped' && /not configured/i.test(c.detail ?? '')));

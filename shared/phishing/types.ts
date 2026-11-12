@@ -98,7 +98,8 @@ export const LIMITS = {
 
 /* ------------------------------------------------------------- indicators */
 
-export type IpRole = 'connecting' | 'claimed_origin' | 'x_originating' | 'supplied';
+/** sender_client: the device that sent an internal Microsoft 365 message (recorded by Exchange). */
+export type IpRole = 'connecting' | 'claimed_origin' | 'x_originating' | 'supplied' | 'sender_client';
 export interface IpIndicator { ip: string; role: IpRole; trust: TrustLevel; hop: number | null; note?: string }
 
 export type DomainRole = 'from' | 'return_path' | 'reply_to' | 'sender_header' | 'dkim' | 'spf' | 'message_id' | 'claimed_org' | 'supplied';

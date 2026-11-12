@@ -10,7 +10,7 @@
  */
 import { analyzeHeaders, parseAuthResults, parseHeaderBlock } from '../headers';
 import { normalizeHostname, parseEmail } from '../domain';
-import { normalizeIP } from '../ip';
+import { classifyIP, normalizeIP } from '../ip';
 import { parseAddressList, parseMailbox, decodeMimeWords, type Mailbox } from './addresses';
 import { assessAuthentication, type AuthAssessment } from './auth';
 import { isFreeMail, sameOrg } from './domains';
@@ -38,9 +38,46 @@ export interface HeaderForensics {
   domains: DomainIndicator[];
   emails: EmailIndicator[];
   discrepancies: Discrepancy[];
+  /**
+   * Set when the message never crossed the internet: it was sent by a signed-in user inside the same Microsoft 365
+   * organisation (Exchange marked it AuthAs: Internal and every Received hop is a Microsoft server). SPF / DKIM / DMARC do
+   * not apply to such mail; the sender's own client IP (recorded by Exchange) is the one worth checking.
+   */
+  internal: InternalMessage | null;
   findings: Finding[];
   checks: CheckResult[];
   limits: string[];
+}
+
+export interface InternalMessage {
+  platform: 'microsoft365';
+  /** How Exchange accepted it (X-MS-Exchange-Organization-AuthMechanism / "with mapi" etc.), for the report. */
+  submittedVia: string | null;
+  /** Public IP of the device that submitted the message (x-ms-exchange-organization-originalclientipaddress). */
+  clientIp: string | null;
+}
+
+/** Microsoft 365 / Exchange Online server names (mailbox and transport servers inside Microsoft's datacentres). */
+const MS_INTERNAL_HOST = /(?:^|\.)(?:[a-z0-9-]+\.)*prod\.(?:outlook\.com|exchangelabs\.com)$/i;
+/** Exchange's own name for a transport hop, stripped of the bracketed address it records ("HOST (2603:...)" / "HOST ([fe80::...])"). */
+const hostOf = (s: string | null) => (s ?? '').trim().split(/[\s(]/)[0].toLowerCase();
+
+/**
+ * Internal Microsoft 365 message: all three must hold, so a forged header alone cannot make external mail look internal.
+ *  1. X-MS-Exchange-Organization-AuthAs: Internal. Exchange Online removes X-MS-Exchange-Organization-* headers from mail
+ *     arriving from the internet and sets AuthAs to Anonymous for it.
+ *  2. Every Received hop is from and by a Microsoft 365 server (external mail's first hop is "from <the sender's server>").
+ *  3. No Authentication-Results / Received-SPF: Microsoft adds them to every message that arrives from outside.
+ */
+function detectInternalM365(pairs: [string, string][], hops: { from: string | null; by: string | null; with: string | null }[], hasAuthResults: boolean): InternalMessage | null {
+  const authAs = first(pairs, 'x-ms-exchange-organization-authas')?.trim().toLowerCase();
+  if (authAs !== 'internal' || hasAuthResults || !hops.length) return null;
+  if (!hops.every((h) => MS_INTERNAL_HOST.test(hostOf(h.by)) && MS_INTERNAL_HOST.test(hostOf(h.from)))) return null;
+  const raw = first(pairs, 'x-ms-exchange-organization-originalclientipaddress')?.replace(/[[\]\s]/g, '') ?? null;
+  const ip = raw ? normalizeIP(raw) : null;
+  const cls = ip ? classifyIP(ip) : null;
+  const mapi = hops.some((h) => /\bmapi\b/i.test(h.with ?? ''));
+  return { platform: 'microsoft365', submittedVia: mapi ? 'Outlook / Exchange (MAPI)' : first(pairs, 'x-ms-exchange-organization-authmechanism') ? 'authenticated Exchange submission' : null, clientIp: ip && cls?.public ? ip : null };
 }
 
 const first = (p: [string, string][], name: string) => p.find(([n]) => n.toLowerCase() === name)?.[1] ?? null;
@@ -73,6 +110,7 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
   const xo = first(pairs, 'x-originating-ip')?.replace(/[[\]\s]/g, '') ?? null;
   const { boundary: trust, hops } = determineTrust(base.hops, topAuthservId, xo);
   const auth = assessAuthentication(pairs, trust, fromDomain, returnPath?.domain ?? null);
+  const internal = detectInternalM365(pairs, hops, auth.source !== 'none' || auth.headers.length > 0);
 
   const F = (f: Parameters<typeof makeFinding>[0]) => findings.push(makeFinding(f));
 
@@ -158,7 +196,9 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
   const unverifiedOnly = auth.headers.length > 0 && !auth.headers.some((h) => h.trust === 'receiver_reported');
   if (unverifiedOnly) F({ id: 'auth_results_unverified', dimension: 'authentication', severity: 'low', title: 'Authentication-Results could not be tied to the receiving server', detail: `The header names ${auth.headers[0].authservId ?? 'no server'}, which does not match the server that accepted the message. It may have been added upstream or edited, so it is treated as unverified.`, exactness: 'exact', trust: 'unverified', reliability: 'low' });
   else if (auth.headers.slice(1).length) F({ id: 'auth_results_extra_headers', dimension: 'authentication', severity: 'info', title: `${auth.headers.length - 1} older Authentication-Results header(s) ignored`, detail: 'Only the newest header (added by the receiving server) is used. Older ones were written by earlier systems or by the sender.', exactness: 'exact' });
-  if (pairs.length && auth.source === 'none') {
+  if (internal) {
+    F({ id: 'internal_m365_message', dimension: 'authentication', severity: 'info', title: 'Sent from inside the organisation (Microsoft 365)', detail: `Exchange accepted this message from a signed-in user of the same Microsoft 365 organisation${internal.submittedVia ? ` (${internal.submittedVia})` : ''}, and every hop is a Microsoft server: it never crossed the internet, so SPF, DKIM and DMARC do not apply. The risk with internal mail is a compromised colleague's account, which would pass any authentication check${internal.clientIp ? `; the sending device's IP (${internal.clientIp}) is checked instead` : ''}.`, exactness: 'exact', trust: 'receiver_reported', reliability: 'high', evidence: ['X-MS-Exchange-Organization-AuthAs: Internal', ...hops.slice(0, 1).map((h) => `Received: from ${hostOf(h.from)} by ${hostOf(h.by)}${h.with ? ` with ${h.with}` : ''}`), ...(internal.clientIp ? [`x-ms-exchange-organization-originalclientipaddress: ${internal.clientIp}`] : [])] });
+  } else if (pairs.length && auth.source === 'none') {
     F({ id: 'auth_missing', dimension: 'authentication', severity: 'info', title: 'No authentication results in these headers', detail: 'There is no Authentication-Results or Received-SPF header, so SPF / DKIM / DMARC outcomes cannot be read. Paste the complete headers from the receiving mailbox.' });
   }
 
@@ -210,7 +250,7 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
 
   /* ---- indicators ---- */
   const ipRoles = new Map<string, IpIndicator>();
-  const rank: Record<IpRole, number> = { connecting: 0, claimed_origin: 1, x_originating: 2, supplied: 3 };
+  const rank: Record<IpRole, number> = { sender_client: 0, connecting: 1, claimed_origin: 2, x_originating: 3, supplied: 4 };
   const addIp = (ip: string | null, role: IpRole, trustL: TrustLevel, hop: number | null, note?: string) => {
     const n = ip ? normalizeIP(ip) : null;
     if (!n) return;
@@ -221,6 +261,7 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
   addIp(trust.claimedOriginIp, 'claimed_origin', 'unverified', null, 'Named only in untrusted Received headers');
   addIp(xo && trust.connectingIp !== xo ? xo : null, 'x_originating', 'unverified', null);
   addIp(suppliedIp, 'supplied', 'unverified', null, 'Entered by the analyst');
+  addIp(internal?.clientIp ?? null, 'sender_client', 'receiver_reported', null, 'Device that sent this internal message (recorded by Microsoft 365)');
 
   const domMap = new Map<string, Set<DomainRole>>();
   const addDom = (d: string | null | undefined, role: DomainRole) => {
@@ -243,18 +284,28 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
     ? check('headers.parse', 'headers', 'Header parsing', 'complete', `${pairs.length} headers, ${hops.length} Received hop(s)`)
     : check('headers.parse', 'headers', 'Header parsing', 'failed', null, 'No valid header lines were found.'));
   checks.push(hops.length
-    ? check('headers.trust', 'headers', 'Trusted receiver boundary', 'complete', `${trust.confidence} confidence${trust.connectingIp ? `; connecting IP ${trust.connectingIp}` : '; no public connecting IP'}`, trust.notes.join(' ') || undefined)
+    ? internal
+      ? check('headers.trust', 'headers', 'Trusted receiver boundary', 'complete', `internal Microsoft 365 message${internal.clientIp ? `; sent from ${internal.clientIp}` : ''}`, 'Every hop is inside Microsoft 365; there is no internet connection to trace.')
+      : check('headers.trust', 'headers', 'Trusted receiver boundary', 'complete', `${trust.confidence} confidence${trust.connectingIp ? `; connecting IP ${trust.connectingIp}` : '; no public connecting IP'}`, trust.notes.join(' ') || undefined)
     : check('headers.trust', 'headers', 'Trusted receiver boundary', 'skipped', null, 'No Received headers to analyse.'));
   const label = (t: TrustLevel) => (t === 'receiver_reported' ? 'receiver-reported' : t === 'unverified' ? 'unverified' : t);
+  const NA_INTERNAL = 'Sent inside the organisation\'s Microsoft 365 (never crossed the internet), so this check does not apply.';
+  if (internal && !auth.spf && !auth.dkim.length && !auth.dmarc) {
+    checks.push(check('auth.spf', 'authentication', 'SPF', 'not_applicable', null, NA_INTERNAL));
+    checks.push(check('auth.dkim', 'authentication', 'DKIM', 'not_applicable', null, NA_INTERNAL));
+    checks.push(check('auth.dmarc', 'authentication', 'DMARC', 'not_applicable', null, NA_INTERNAL));
+  } else {
   checks.push(auth.spf ? check('auth.spf', 'authentication', 'SPF', 'complete', `${auth.spf.result} (${label(auth.spf.trust)})`) : check('auth.spf', 'authentication', 'SPF', 'skipped', null, 'No SPF result in the supplied headers.'));
   checks.push(auth.dkim.length ? check('auth.dkim', 'authentication', 'DKIM', 'complete', `${auth.dkim.map((d) => d.result).join(', ')} (${label(auth.dkim[0].trust)})`) : check('auth.dkim', 'authentication', 'DKIM', 'skipped', null, auth.dkimSignatures.length ? 'The message is signed, but the headers carry no verification result.' : 'No DKIM result in the supplied headers.'));
   checks.push(auth.dmarc ? check('auth.dmarc', 'authentication', 'DMARC', 'complete', `${auth.dmarc.result} (${label(auth.dmarc.trust)})`) : check('auth.dmarc', 'authentication', 'DMARC', 'skipped', null, 'No DMARC result in the supplied headers.'));
+  }
   checks.push(auth.arc.present ? check('auth.arc', 'authentication', 'ARC', 'complete', `${auth.arc.instances} hop(s), newest chain ${auth.arc.newestChainValidation ?? 'unknown'}`) : check('auth.arc', 'authentication', 'ARC', 'not_applicable', null, 'No ARC headers: the message was not forwarded through an ARC-aware system.'));
   checks.push(discrepancies.length ? check('headers.supplied', 'headers', 'Supplied values vs headers', 'complete', `${discrepancies.filter((d) => d.kind === 'match').length} of ${discrepancies.length} match`) : check('headers.supplied', 'headers', 'Supplied values vs headers', 'not_applicable', null, 'No sender details were entered.'));
 
   if (pairs.length) {
     limits.push('Authentication results are read from the pasted headers. Spectrix cannot re-run the receiving server\'s SPF check or verify DKIM signatures from headers alone, and pasted headers can be edited.');
-    if (trust.confidence === 'low') limits.push('The sending infrastructure could not be established from these headers.');
+    if (internal) limits.push('This is an internal Microsoft 365 message: authentication checks do not apply, and a message from a compromised colleague\'s account would look exactly like this. Check the sending device\'s IP and confirm unusual requests with the colleague by another channel.');
+    else if (trust.confidence === 'low') limits.push('The sending infrastructure could not be established from these headers.');
   }
 
   return {
@@ -265,7 +316,7 @@ export function analyzeEmailHeaders(raw: string, supplied: SuppliedSender = {}):
     ips: [...ipRoles.values()].sort((a, b) => rank[a.role] - rank[b.role]),
     domains: [...domMap].map(([domain, roles]) => ({ domain, roles: [...roles] })),
     emails: [...emMap].map(([address, roles]) => ({ address, roles: [...roles] })),
-    discrepancies, findings, checks, limits,
+    discrepancies, internal, findings, checks, limits,
   };
 }
 

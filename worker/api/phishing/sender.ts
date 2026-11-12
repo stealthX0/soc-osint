@@ -12,7 +12,7 @@ import { classifyIP, normalizeIP } from '../../../shared/ip';
 import type { IpLookup, WhoisResult, EmailAuth, EmailCheck, EmailReputation } from '../../../shared/types';
 import type { DomainRole, EmailRole, IpRole, TrustLevel } from '../../../shared/phishing/types';
 
-const IP_ROLES: IpRole[] = ['connecting', 'claimed_origin', 'x_originating', 'supplied'];
+const IP_ROLES: IpRole[] = ['connecting', 'claimed_origin', 'x_originating', 'supplied', 'sender_client'];
 const DOMAIN_ROLES: DomainRole[] = ['from', 'return_path', 'reply_to', 'sender_header', 'dkim', 'spf', 'message_id', 'claimed_org', 'supplied'];
 const EMAIL_ROLES: EmailRole[] = ['from', 'return_path', 'reply_to', 'sender_header', 'supplied'];
 const TRUST: TrustLevel[] = ['receiver_reported', 'unverified', 'independently_verified', 'derived'];
