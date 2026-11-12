@@ -302,7 +302,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           <section ref={detail} className={`${activeTab === 'overview' ? 'max-w-[1620px]' : 'max-w-[1222px]'} scroll-mt-4 rounded-xl border border-line/70 bg-[#0c1529] px-5 pb-5 pt-4`}>
             <h3 className="text-lg font-bold text-fg">Detailed Analysis</h3>
             {/* Tab bar */}
-            <div className="mb-5 mt-2 flex gap-2 overflow-x-auto border-b border-line/50" role="tablist">
+            <div className="mb-5 mt-2 flex gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-b border-line/50" role="tablist">
               {ANALYSIS_TABS.map((t) => (
                 <button key={t.id} type="button" role="tab" aria-selected={activeTab === t.id} onClick={() => setActiveTab(t.id)}
                   className={`-mb-px shrink-0 border-b-[3px] px-5 py-2.5 text-sm font-medium transition-colors ${
