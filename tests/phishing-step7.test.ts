@@ -499,13 +499,11 @@ describe('server-render smoke tests: every tab and the form render without throw
     assert.match(out, /Check hash reputation/);
   });
 
-  it('6 Evidence & Timeline', async () => {
+  it('6 Evidence: findings and check status only (no timeline, no raw provider results)', async () => {
     const f = await fixture();
-    const timeline = buildTimeline({ parse: f.r, findings: f.findings, marks: { investigationStartedAt: Date.now() } });
-    const out = html(createElement(EvidenceTab, { findings: f.findings, checks: f.rows, timeline, raw: { sender: [], urls: null, attachments: [] } }));
-    for (const s of ['All findings', 'Check status', 'Timeline', 'Raw provider results', 'Severity', 'Dimension', 'Source', 'Trust', 'Showing']) assert.ok(out.includes(s), s);
-    assert.match(out, /<details/);
-    assert.match(out, /Investigation started/);
+    const out = html(createElement(EvidenceTab, { findings: f.findings, checks: f.rows }));
+    for (const s of ['All findings', 'Check status', 'Severity', 'Dimension', 'Source', 'Trust', 'Showing']) assert.ok(out.includes(s), s);
+    for (const s of ['Timeline', 'Raw provider results', 'Investigation started']) assert.ok(!out.includes(s), s);
     assert.match(out, /skipped|complete/);
   });
 
@@ -516,7 +514,7 @@ describe('server-render smoke tests: every tab and the form render without throw
       { id: 'c', label: 'CCC', stage: 'urls', status: 'skipped', result: null, detail: 'No key' },
       { id: 'd', label: 'DDD', stage: 'urls', status: 'running' },
     ];
-    const out = html(createElement(EvidenceTab, { findings: [], checks: rows, timeline: [], raw: { sender: [], urls: null, attachments: [] } }));
+    const out = html(createElement(EvidenceTab, { findings: [], checks: rows }));
     for (const s of ['✓ complete', '✕ failed', '– skipped', '… running']) assert.ok(out.includes(s), s);
     const row = (label: string) => out.slice(out.indexOf(`>${label}<`), out.indexOf(`>${label}<`) + 700);
     assert.ok(!/text-green|border-green/.test(row('BBB').split('</tr>')[0]), 'failed is not styled green');

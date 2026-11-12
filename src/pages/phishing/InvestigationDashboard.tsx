@@ -6,7 +6,6 @@ import type { PhishingInput, Finding, Severity } from '../../../shared/phishing/
 import type { Verdict, VerdictLabel } from '../../../shared/phishing/verdict';
 import { VERDICT_TEXT } from '../../../shared/phishing/verdict';
 import type { Report } from '../../../shared/phishing/report';
-import type { TimelineEvent } from '../../../shared/phishing/timeline';
 import type { CheckRowX, PipelineChip } from './model';
 import { ExportBar } from './ExportBar';
 import { AnalystLabel } from './AnalystLabel';
@@ -88,7 +87,6 @@ export interface DashboardProps {
   rows: CheckRowX[];
   pipeline: PipelineChip[];
   report: Report;
-  timeline: TimelineEvent[];
   sender: SenderStage;
   links: LinkStage;
   att: AttachmentStage;
@@ -149,7 +147,7 @@ const worst = (fs: Finding[]): Severity | null => fs.reduce<Severity | null>((w,
 /* ═══════════════════════════════════════════════════════════
    THE FULL-PAGE DASHBOARD
    ═══════════════════════════════════════════════════════════ */
-export function InvestigationDashboard({ r, input, verdict, findings, rows, pipeline, report, timeline, sender, links, att, startedAt, onNewAnalysis, initialTab = 'overview' }: DashboardProps) {
+export function InvestigationDashboard({ r, input, verdict, findings, rows, pipeline, report, sender, links, att, startedAt, onNewAnalysis, initialTab = 'overview' }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<AnalysisTab>(initialTab);
   const heading = useRef<HTMLHeadingElement>(null);
   const detail = useRef<HTMLElement>(null);
@@ -374,7 +372,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                       <TabFindings id="ph-content-findings" title="Scored content findings" findings={tabFindings.content ?? []} />
                     </div>
                   )}
-                  {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} timeline={timeline} raw={{ sender: sender.results, urls: links.stage, attachments: att.results }} />}
+                  {activeTab === 'evidence' && <EvidenceTab findings={findings} checks={rows} />}
                 </div>
               )}
             </div>

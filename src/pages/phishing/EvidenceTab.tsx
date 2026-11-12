@@ -1,10 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Badge, DataTable } from '../../components/ui';
 import { dimensionLabel } from '../../../shared/phishing/findings';
-import type { SenderCheckResponse } from '../../../shared/phishing/sender';
-import type { AttachmentHashResponse } from '../../../shared/phishing/attachments';
-import type { UrlStageResult } from '../../../shared/phishing/urlTriage';
-import type { TimelineEvent } from '../../../shared/phishing/timeline';
 import type { Dimension, Finding, Severity, Stage, TrustLevel } from '../../../shared/phishing/types';
 import { FindingDetails, statusText, statusTone, trustLabel, type RowStatus } from './common';
 import type { CheckRowX } from './model';
@@ -14,9 +10,6 @@ const STAGE_ORDER: Stage[] = ['parse', 'headers', 'authentication', 'sender', 'u
 const STAGE_LABEL: Record<Stage, string> = { parse: 'Parse', headers: 'Headers', authentication: 'Authentication', sender: 'Sender intelligence', urls: 'Links', attachments: 'Attachments', content: 'Wording', verdict: 'Verdict' };
 const STATUSES: RowStatus[] = ['complete', 'failed', 'skipped', 'running', 'not_applicable'];
 const sel = 'rounded-md border border-line2 bg-bg2 px-2 py-1 text-xs text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal';
-const RAW_CAP = 60_000;
-
-export interface RawResults { sender: SenderCheckResponse[]; urls: UrlStageResult | null; attachments: AttachmentHashResponse[] }
 
 function Filter({ id, label, value, onChange, options }: { id: string; label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
@@ -30,11 +23,9 @@ function Filter({ id, label, value, onChange, options }: { id: string; label: st
   );
 }
 
-const when = (iso: string) => `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
-const pretty = (x: unknown): string => { const t = JSON.stringify(x, null, 2) ?? ''; return t.length > RAW_CAP ? `${t.slice(0, RAW_CAP)}\n… (truncated)` : t; };
 
-/** All findings (filterable), the check status table (grouped by stage, filterable) and the timeline with the raw provider results. */
-export function EvidenceTab({ findings, checks, timeline, raw }: { findings: Finding[]; checks: CheckRowX[]; timeline: TimelineEvent[]; raw: RawResults }) {
+/** All findings (filterable) and the check status table (grouped by stage, filterable). */
+export function EvidenceTab({ findings, checks }: { findings: Finding[]; checks: CheckRowX[] }) {
   const [sev, setSev] = useState('all');
   const [dim, setDim] = useState('all');
   const [src, setSrc] = useState('all');
@@ -45,7 +36,6 @@ export function EvidenceTab({ findings, checks, timeline, raw }: { findings: Fin
   const shown = findings.filter((f) => (sev === 'all' || f.severity === sev) && (dim === 'all' || f.dimension === dim) && (src === 'all' || f.source === src) && (trust === 'all' || f.trust === trust));
   const rows = checks.filter((c) => status === 'all' || c.status === status);
   const counts = STATUSES.map((s) => [s, checks.filter((c) => c.status === s).length] as const).filter(([, n]) => n > 0);
-  const hasRaw = raw.sender.length > 0 || !!raw.urls || raw.attachments.length > 0;
 
   return (
     <div className="space-y-8">
@@ -85,29 +75,6 @@ export function EvidenceTab({ findings, checks, timeline, raw }: { findings: Fin
         {!rows.length && <p className="text-sm text-muted">No check matches this status.</p>}
       </section>
 
-      <section aria-labelledby="ph-timeline">
-        <h3 id="ph-timeline" className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">Timeline</h3>
-        {timeline.length ? (
-          <ol className="space-y-2">
-            {timeline.map((e, i) => (
-              <li key={`${e.at}${e.label}${i}`} className="grid grid-cols-[max-content_1fr] gap-x-3 rounded-lg border border-line bg-bg2/60 p-2.5 text-sm">
-                <time dateTime={e.at} className="font-mono text-xs text-muted">{when(e.at)}</time>
-                <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Badge>{e.kind}</Badge><span className="font-medium">{e.label}</span></div><p className="text-xs text-muted">{e.detail}</p><p className="text-[11px] text-faint">{e.source}</p></div>
-              </li>
-            ))}
-          </ol>
-        ) : <p className="text-sm text-muted">No dated events yet. Only real timestamps are listed; none are estimated.</p>}
-
-        <details className="mt-4 rounded-xl border border-line bg-panel/60">
-          <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal">Raw provider results (read-only)</summary>
-          <div className="space-y-3 border-t border-line p-4">
-            {!hasRaw && <p className="text-sm text-muted">No provider results yet.</p>}
-            {raw.sender.length > 0 && <div><h4 className="mb-1 text-xs font-semibold text-muted">Sender and infrastructure lookups ({raw.sender.length})</h4><pre className="max-h-96 overflow-auto rounded-lg border border-line bg-bg2 p-3 text-[11px] leading-snug">{pretty(raw.sender.map((s) => s.data))}</pre></div>}
-            {raw.urls && <div><h4 className="mb-1 text-xs font-semibold text-muted">Link lookups ({Object.keys(raw.urls.lookups).length})</h4><pre className="max-h-96 overflow-auto rounded-lg border border-line bg-bg2 p-3 text-[11px] leading-snug">{pretty(raw.urls.lookups)}</pre></div>}
-            {raw.attachments.length > 0 && <div><h4 className="mb-1 text-xs font-semibold text-muted">Attachment hash lookups ({raw.attachments.length})</h4><pre className="max-h-96 overflow-auto rounded-lg border border-line bg-bg2 p-3 text-[11px] leading-snug">{pretty(raw.attachments.map((a) => a.data))}</pre></div>}
-          </div>
-        </details>
-      </section>
     </div>
   );
 }

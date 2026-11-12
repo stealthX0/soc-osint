@@ -3,7 +3,6 @@ import { Spinner } from '../../components/ui';
 import { computeVerdict } from '../../../shared/phishing/verdict';
 import { dedupeFindings, sortFindings } from '../../../shared/phishing/findings';
 import { buildReport } from '../../../shared/phishing/report';
-import { buildTimeline } from '../../../shared/phishing/timeline';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
 import type { PhishingInput } from '../../../shared/phishing/types';
 import { newHistoryId, saveToHistory } from '../../lib/phishingHistory';
@@ -79,10 +78,6 @@ export function FinishedReport({ r, input, sender, links, att, startedAt, histor
   const verdict = useMemo(() => computeVerdict({ parse: r, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, status: c.status, result: c.result ?? null, detail: c.detail })) }), [r, findings, rows]);
   const pipeline = useMemo(() => buildPipeline(rows, { provisional: verdict.provisional, unavailable: verdict.label === 'analysis_unavailable' }), [rows, verdict]);
   const report = useMemo(() => buildReport({ verdict, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, stage: c.stage, status: c.status, result: c.result, detail: c.detail })), parse: r, generatedAt: Date.now() }), [verdict, findings, rows, r]);
-  const timeline = useMemo(() => buildTimeline({
-    parse: r, senderResults: sender.results, attachmentResults: att.results, findings,
-    marks: { investigationStartedAt: startedAt, senderChecksFinishedAt: sender.finishedAt, linksInvestigatedAt: links.investigatedAt },
-  }), [r, sender.results, sender.finishedAt, att.results, findings, startedAt, links.investigatedAt]);
 
   // History: one entry per investigation, updated as lookups complete. Only the exported report is stored.
   const runId = useRef<string>('');
@@ -108,7 +103,7 @@ export function FinishedReport({ r, input, sender, links, att, startedAt, histor
     <div ref={root}>
       <InvestigationDashboard
         r={r} input={input} verdict={verdict} findings={findings} rows={rows}
-        pipeline={pipeline} report={report} timeline={timeline}
+        pipeline={pipeline} report={report}
         sender={sender} links={links} att={att} startedAt={startedAt}
         onNewAnalysis={onNewAnalysis}
       />

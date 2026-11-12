@@ -51,7 +51,7 @@ See the "How the verdict is decided" section of the README for the principles an
 
 ## 4b. Report, history and the dashboard
 
-The result page has six tabs: Overview (verdict, pipeline strip, key facts, top findings, wording analysis, indicators, export), Email Headers, Sender Intelligence, URL Analysis, Attachment Analysis and Evidence & Timeline (all findings with filters, every check with its status, a timeline and the raw provider results).
+The result page has six tabs: Overview (verdict, pipeline strip, key facts, top findings, wording analysis, indicators, export), Email Headers, Sender Intelligence, URL Analysis, Attachment Analysis and Evidence (all findings with filters and every check with its status).
 
 * **Export.** `shared/phishing/report.ts` builds one plain object (`schemaVersion: 1`) from the verdict, findings and checks, and renders it as ticket text, Markdown or JSON (or print / save as PDF). Every URL, domain, IP and address in a report is defanged. A report never contains the pasted body, the headers or attachment content, only summary fields and the short evidence excerpts attached to findings, and it states that the weights are uncalibrated.
 * **History.** The last 20 investigations are kept in this browser's `localStorage` (`spectrix.phishing.history.v1`), as the report object only: the pasted input is never stored. It can be switched off or cleared on the page, and nothing is synced anywhere.

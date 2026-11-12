@@ -94,7 +94,7 @@ export function TabFindings({ id, title, findings, empty }: { id: string; title:
       <h3 id={id} className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">
         {title}{findings.length > 0 && <span className="ml-1.5 font-normal normal-case tracking-normal text-faint">({findings.length})</span>}
       </h3>
-      {sorted.length ? <ul className="grid items-start gap-2 lg:grid-cols-2">{sorted.map((f, i) => <FindingRow key={`${f.id}${f.indicator?.value ?? ''}${i}`} f={f} />)}</ul> : <p className="text-sm text-muted">{empty}</p>}
+      {sorted.length ? <ul className="gap-3 lg:columns-2 [&>*]:mb-3 [&>*]:break-inside-avoid">{sorted.map((f, i) => <FindingRow key={`${f.id}${f.indicator?.value ?? ''}${i}`} f={f} />)}</ul> : <p className="text-sm text-muted">{empty}</p>}
     </section>
   );
 }
