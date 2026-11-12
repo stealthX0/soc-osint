@@ -36,9 +36,8 @@ export interface Env {
   IPQS_DAILY?: string;
   /** Workers AI binding ([ai] in wrangler.toml): machine translation of non-English e-mails, inside the free daily allowance. */
   AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
-  /** "false" switches translation off. TRANSLATE_DAILY overrides the daily message cap (default 40, sized to the free allowance). */
+  /** "false" switches translation off. There is no daily cap: Cloudflare's own allowance limits it. */
   TRANSLATE_CONTENT?: string;
-  TRANSLATE_DAILY?: string;
   /** URL intelligence sources (all optional) */
   /** abuse.ch Auth-Key (free, https://auth.abuse.ch): one key serves URLhaus (URL Intelligence) and MalwareBazaar (File Analysis). */
   ABUSECH_AUTH_KEY?: string;

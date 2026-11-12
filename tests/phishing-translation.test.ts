@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { detectLanguage, chunkText, translateForAnalysis, type Translator } from '../shared/phishing/language';
 import { parseSubmission } from '../shared/phishing/parse';
 import { workersAiTranslator, TRANSLATE_MODEL } from '../worker/_lib/translate';
-import { resetRateLimitMemory, takeProviderBudget } from '../worker/_lib/ratelimit';
+import { resetRateLimitMemory } from '../worker/_lib/ratelimit';
 
 const FR = 'Votre identifiant Cloud a été bloqué. Vos photos et vidéos seront supprimées. Vérifiez votre mot de passe immédiatement pour éviter la suspension de votre compte.';
 const EN = 'Your Cloud ID has been blocked. Your photos and videos will be deleted. Verify your password immediately to avoid the suspension of your account.';
@@ -52,7 +52,7 @@ test('English needs no translation and the translator is never called', async ()
   assert.equal(r.checks.find((c) => c.id === 'content.translate'), undefined);
 });
 
-test('the Workers AI translator: off without the binding, model call shape, failures return null, daily cap', async () => {
+test('the Workers AI translator: off without the binding, model call shape, failures return null, no cap of its own', async () => {
   resetRateLimitMemory();
   assert.equal(workersAiTranslator({} as never), undefined);
   assert.equal(workersAiTranslator({ AI: { run: async () => ({}) }, TRANSLATE_CONTENT: 'false' } as never), undefined);
@@ -62,10 +62,23 @@ test('the Workers AI translator: off without the binding, model call shape, fail
   assert.deepEqual(calls[0], [TRANSLATE_MODEL, { text: 'un', source_lang: 'fr', target_lang: 'en' }]);
   const broken = workersAiTranslator({ AI: { run: async () => { throw new Error('4006: daily free allocation exceeded'); } } } as never)!;
   assert.equal(await broken(['x'], 'fr'), null);
-  resetRateLimitMemory();
-  const t0 = Date.now();
-  for (let i = 0; i < 40; i++) assert.equal((await takeProviderBudget({} as never, 'translate', t0)).ok, true);
-  assert.equal((await takeProviderBudget({} as never, 'translate', t0)).ok, false, 'the 41st message that day is not translated');
+  // no daily cap of the tool's own: the 41st (and every later) message that day still goes to Workers AI
+  let runs = 0;
+  const uncapped = workersAiTranslator({ AI: { run: async () => { runs++; return { translated_text: 'x' }; } } } as never)!;
+  for (let i = 0; i < 60; i++) assert.deepEqual(await uncapped(['y'], 'fr'), ['x']);
+  assert.equal(runs, 60);
+});
+
+test('the 5,000-character limit (2,000 for dense scripts) still applies', async () => {
+  const long = `${FR} `.repeat(60); // ~9,000 characters
+  let sent = 0;
+  const r = await translateForAnalysis(null, long, async (t) => { sent = t.join('').length; return t; });
+  assert.equal(r.partial, true);
+  assert.ok(sent <= 5000 && sent > 4000, String(sent));
+  const ja = 'お支払い情報を更新してください。アカウントは二十四時間以内に停止されます。'.repeat(150);
+  const rj = await translateForAnalysis(null, ja, async (t) => { sent = t.join('').length; return t; });
+  assert.equal(rj.partial, true);
+  assert.ok(sent <= 2000, String(sent));
 });
 
 import { computeVerdict } from '../shared/phishing/verdict';

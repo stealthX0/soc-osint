@@ -107,7 +107,7 @@ Not fixed, for discussion (why most phishing came out Likely legitimate offline)
 
 ## 12 Nov 2026: any-language wording (translation)
 
-- Language is detected locally (`shared/phishing/language.ts`, franc-min plus a common-English-word check so short English notes are not mistaken for Portuguese). Non-English subject and body are machine-translated by Cloudflare Workers AI (`@cf/meta/m2m100-1.2b`) within the free daily allocation (`translate` budget 40 messages/day) before the wording rules run; obfuscation checks use the original text.
+- Language is detected locally (`shared/phishing/language.ts`, franc-min plus a common-English-word check so short English notes are not mistaken for Portuguese). Non-English subject and body are machine-translated by Cloudflare Workers AI (`@cf/meta/m2m100-1.2b`) (no cap of the tool's own; Cloudflare's free daily allowance is the limit, then Chrome / Edge translate on the device) before the wording rules run; obfuscation checks use the original text.
 - **Unread wording is now a critical gap**: a message whose language could not be read or translated is never Likely legitimate (it was a non-critical gap before, and Latin-script foreign languages were silently read with the English rules).
 - Offline run without translation (the sandbox cannot call Workers AI): 87 of the 300 phishing samples are detected as French, Dutch, German, Portuguese or other; phishing cleared as Likely legitimate 197 → 124 (they become Inconclusive), genuine mail 344 → 342 Likely legitimate. With translation in production these messages are read by the rules; their effect has not been measured here.
 

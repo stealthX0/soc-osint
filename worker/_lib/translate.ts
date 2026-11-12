@@ -1,5 +1,4 @@
 import type { Env } from './env';
-import { takeProviderBudget } from './ratelimit';
 import type { Translator } from '../../shared/phishing/language';
 
 /** Cloudflare Workers AI many-to-many translation model (hosted by Cloudflare, zero data retention). */
@@ -11,16 +10,14 @@ const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Prom
 
 /**
  * A Translator backed by Workers AI, or undefined when the AI binding is missing or TRANSLATE_CONTENT is "false".
- * Free by design: one budget unit per message (`translate`, default 40/day, sized to the free 10,000 neurons/day), and
- * on the Workers Free plan Cloudflare refuses calls past the allowance instead of billing. Any failure returns null, so
- * the message is reported as "not translated" rather than failing the investigation.
+ * No cap of our own: every non-English message is sent. On the Workers Free plan Cloudflare refuses calls past the free
+ * 10,000 neurons/day instead of billing (on Workers Paid, usage past the allowance IS billed). Any failure (allowance
+ * used up, model error, timeout) returns null; the browser's built-in translator then takes over where it can.
  */
 export function workersAiTranslator(env: Env): Translator | undefined {
   const ai = env.AI;
   if (!ai || env.TRANSLATE_CONTENT === 'false') return undefined;
   return async (texts, source) => {
-    const budget = await takeProviderBudget(env, 'translate');
-    if (!budget.ok) { console.warn(`[translate] skipped: ${budget.why}`); return null; }
     const out: string[] = new Array(texts.length).fill('');
     try {
       for (let i = 0; i < texts.length; i += PARALLEL) {

@@ -2,8 +2,8 @@
  * Language detection and machine translation for the wording rules (which are written for English).
  *
  * Detection is local and free (franc-min, trigram statistics; no network). Translation is done by a Translator the caller
- * supplies: the Worker passes one backed by Cloudflare Workers AI (`@cf/meta/m2m100-1.2b`) that only runs inside the free
- * daily allocation (see worker/_lib/translate.ts). Tests pass a fake. Without a translator the message is simply reported
+ * supplies: the Worker passes one backed by Cloudflare Workers AI (`@cf/meta/m2m100-1.2b`), limited only by Cloudflare's
+ * own free daily allowance (see worker/_lib/translate.ts). Tests pass a fake. Without a translator the message is simply reported
  * as "language not analysed", as before.
  */
 import { franc } from 'franc-min';
@@ -57,7 +57,7 @@ export function detectLanguage(text: string): DetectedLanguage {
 export type Translator = (texts: string[], source: string) => Promise<string[] | null>;
 
 /**
- * Most text sent for translation per message (the Workers AI free allocation is shared by every investigation). Scripts
+ * Most text sent for translation per message (Cloudflare's free daily allowance is shared by every investigation). Scripts
  * without spaces (Chinese, Japanese, Korean, Thai, …) cost about one token per character, so they get less.
  */
 export const TRANSLATE_MAX_CHARS = 5000;

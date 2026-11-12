@@ -20,7 +20,7 @@ run_worker_first = ["/api/*"]
 # id = "<your-kv-namespace-id>"
 
 # Workers AI: machine translation of non-English e-mails before the wording rules run (worker/_lib/translate.ts).
-# Only the free daily allocation is used (capped at 40 messages/day; TRANSLATE_CONTENT = "false" switches it off).
+# Only the free daily allocation is used (no cap of the tool's own beyond Cloudflare's allowance; TRANSLATE_CONTENT = "false" switches it off).
 [ai]
 binding = "AI"
 
