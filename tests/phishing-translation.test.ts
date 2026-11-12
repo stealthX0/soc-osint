@@ -132,7 +132,7 @@ test('a browser translation for different text, or malformed, is ignored', async
   const r = await parseSubmission({ body: FR }, { pretranslated: wrong });
   assert.equal(r.content.analysis.language?.status, 'unavailable');
   assert.ok(r.translationRequest);
-  for (const bad of [null, 'x', { source: 'fr', pieces: ['a'], out: [] }, { source: '<script>', pieces: ['a'], out: ['b'] }, { source: 'fr', pieces: Array(121).fill('a'), out: Array(121).fill('b') }, { source: 'fr', pieces: ['a'], out: [1] }]) {
+  for (const bad of [null, 'x', { source: 'fr', pieces: ['a'], out: [] }, { source: '<script>', pieces: ['a'], out: ['b'] }, { source: 'fr', pieces: Array(201).fill('a'), out: Array(201).fill('b') }, { source: 'fr', pieces: ['a'], out: [1] }]) {
     assert.equal(validatePretranslated(bad), null, JSON.stringify(bad)?.slice(0, 60));
   }
 });
@@ -204,4 +204,19 @@ test('browser translator: translates when the pack is present, asks first when i
   const det = await translateInBrowser({ ...req, source: null, languageName: 'fin' }, { allowDownload: false });
   assert.ok(det.ok && det.value.source === 'fi');
   b.restore();
+});
+
+test('Chinese, Japanese, Korean and Thai go in smaller pieces so m2m100 does not cut them short', async () => {
+  let longest = 0, count = 0;
+  const spy: Translator = async (t) => { count = t.length; longest = Math.max(...t.map((x) => x.length)); return t; };
+  const ja = 'お支払い情報を更新してください。アカウントは二十四時間以内に停止されます。'.repeat(150);
+  await translateForAnalysis(null, ja, spy);
+  assert.ok(longest <= 150, `ja piece ${longest}`);
+  await translateForAnalysis(null, `${FR} `.repeat(20), spy);
+  assert.ok(longest > 150 && longest <= 700, `fr piece ${longest}`);
+  // the most a dense-script message can produce (20,000 characters) still fits a browser translation
+  const big = 'お支払い情報を更新してください。'.repeat(1300).slice(0, 20_000);
+  const req = (await translateForAnalysis(null, big)).request!;
+  assert.ok(req.pieces.length > 120 && !!validatePretranslated({ source: 'ja', pieces: req.pieces, out: req.pieces }), `${req.pieces.length} pieces`);
+  void count;
 });

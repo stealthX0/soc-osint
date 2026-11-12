@@ -59,6 +59,12 @@ export type Translator = (texts: string[], source: string) => Promise<string[] |
 /** Text sent for translation: all of what the wording rules read (the parse stops at this many characters for every message). */
 export const TRANSLATE_MAX_CHARS = 20_000;
 const CHUNK = 700;
+/**
+ * Scripts written without spaces (Chinese, Japanese, Thai, …) and Korean pack far more meaning per character, so a
+ * 700-character piece can need more than m2m100's ~200-token output and come back cut short. They get smaller pieces.
+ */
+const DENSE_CHUNK = 150;
+const DENSE = new Set(['zh', 'ja', 'ko', 'th', 'my', 'km', 'lo']);
 
 /** Splits text at paragraph, then sentence, then word boundaries into pieces the model handles well. */
 export function chunkText(text: string, max = CHUNK): string[] {
@@ -110,7 +116,7 @@ const BCP47 = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/;
 export function validatePretranslated(raw: unknown): PretranslatedText | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  const strs = (v: unknown) => (Array.isArray(v) && v.length > 0 && v.length <= 120 && v.every((x) => typeof x === 'string' && x.length <= 4000) ? (v as string[]) : null);
+  const strs = (v: unknown) => (Array.isArray(v) && v.length > 0 && v.length <= 200 && v.every((x) => typeof x === 'string' && x.length <= 4000) ? (v as string[]) : null);
   const pieces = strs(r.pieces), out = strs(r.out);
   if (typeof r.source !== 'string' || !BCP47.test(r.source) || !pieces || !out || pieces.length !== out.length) return null;
   return { engine: 'browser', source: r.source, pieces, out };
@@ -148,7 +154,7 @@ export async function translateForAnalysis(subject: string | null, text: string,
   if (!language.code || language.code === 'en') return { ...same, status: 'not_needed', detail: language.code ? 'The message is in English.' : 'Too little text to tell the language.' };
   const max = TRANSLATE_MAX_CHARS;
   const hasSubject = !!subject?.trim();
-  const pieces = [...(hasSubject ? [subject!.trim()] : []), ...chunkText(text.slice(0, max))];
+  const pieces = [...(hasSubject ? [subject!.trim()] : []), ...chunkText(text.slice(0, max), DENSE.has(language.code) ? DENSE_CHUNK : CHUNK)];
   const partial = text.length > max;
   const done = (out: string[], engine: TranslationEngine, lang: DetectedLanguage, how: string): TranslationResult => ({
     language: lang, status: 'translated', engine, partial,
