@@ -15,8 +15,11 @@ const factorTone = { high: 'bad', medium: 'warn', info: 'neutral' } as const;
 
 export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; sender?: SenderStage; findings?: Finding[] }) {
   const fx = r.forensics;
+  const internal = !!fx?.internal;
+  const align = (x: boolean | null) => (internal && x === null ? 'not applicable' : x === null ? 'unknown' : x ? 'yes' : 'no');
   const auth = fx ? (
     <Card title="Authentication">
+      {internal && <p className="mb-3 text-sm text-muted">Internal Microsoft 365 message: it never crossed the internet, so SPF, DKIM and DMARC do not apply.</p>}
       <div className="mb-3 flex flex-wrap gap-2">
         {fx.authentication.spf ? <Badge tone={resTone(fx.authentication.spf.result)}>SPF: {fx.authentication.spf.result}</Badge> : <Badge>SPF: n/a</Badge>}
         {fx.authentication.dkim.length ? fx.authentication.dkim.map((d, i) => <Badge key={i} tone={resTone(d.result)}>DKIM: {d.result}{d.domain ? ` (${d.domain})` : ''}</Badge>) : <Badge>DKIM: n/a</Badge>}
@@ -25,8 +28,8 @@ export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; 
       </div>
       <KV rows={[
         ['From domain', fx.authentication.alignment.fromDomain],
-        ['SPF aligned with From', fx.authentication.alignment.spfAligned === null ? 'unknown' : fx.authentication.alignment.spfAligned ? 'yes' : 'no'],
-        ['DKIM aligned with From', fx.authentication.alignment.dkimAligned === null ? 'unknown' : fx.authentication.alignment.dkimAligned ? 'yes' : 'no'],
+        ['SPF aligned with From', align(fx.authentication.alignment.spfAligned)],
+        ['DKIM aligned with From', align(fx.authentication.alignment.dkimAligned)],
         ['DKIM signatures', fx.authentication.dkimSignatures.map((s) => `${s.domain ?? '?'} (${s.selector ?? '?'})`).join(', ') || null],
         ['ARC', fx.authentication.arc.present ? `${fx.authentication.arc.instances} hop(s), newest chain ${fx.authentication.arc.newestChainValidation ?? 'unknown'}` : null],
       ]} mono />
@@ -43,11 +46,13 @@ export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; 
           <span className="text-xs text-faint">Reputation describes the IP, not this particular message.</span>
         </div>
       )}
-      {/* IP cards and the Authentication card share one grid, so Authentication takes the next free column. */}
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        {ipCards}
-        {auth}
-      </div>
+      {/*
+        Authentication is short and the IP cards are tall, so they do not share a row (that left a large hole under
+        Authentication). Authentication goes first at full width; one IP card is full width with its sections in two
+        columns, several IP cards share a two-column grid with equal-height rows.
+      */}
+      {auth}
+      {ipCards.length === 1 ? ipCards : <div className="grid gap-4 xl:grid-cols-2">{ipCards}</div>}
     </div>
   );
 }
@@ -57,6 +62,7 @@ export function HeadersTab({ r, sender, findings = [] }: { r: ParseStageResult; 
 /** One card per looked-up IP (or a note when there was nothing to look up). */
 function ipIntelligenceCards(sender: SenderStage, findings: Finding[]): ReactNode[] {
   const ipSlots = sender.slots.filter((s) => s.req.check === 'ip');
+  const wide = ipSlots.length === 1;
   if (!ipSlots.length) {
     const skipped = sender.plan.skipped.find((c) => c.id === 'sender.ip');
     return [<Card key="no-ip" title="IP intelligence"><p className="text-sm text-muted">{skipped?.detail ?? 'No IP address was found in the headers, so there was nothing to look up.'}</p></Card>];
@@ -73,7 +79,7 @@ function ipIntelligenceCards(sender: SenderStage, findings: Finding[]): ReactNod
       );
     }
     const ipFindings = findings.filter((f) => f.indicator?.type === 'ip' && f.indicator.value === req.ip);
-    return <IpCard key={req.ip} v={d.value} role={req.role} trust={req.trust} findings={ipFindings} />;
+    return <IpCard key={req.ip} v={d.value} role={req.role} trust={req.trust} findings={ipFindings} wide={wide} />;
   });
 }
 
@@ -99,8 +105,10 @@ const na = <span className="text-faint">not available</span>;
 const pct = (n: number) => `${n}%`;
 const date = (s: string | null | undefined) => (s && !Number.isNaN(Date.parse(s)) ? new Date(s).toLocaleDateString() : '—');
 
-function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust: string; findings: Finding[] }) {
+function IpCard({ v, role, trust, findings, wide = false }: { v: IpLookup; role: string; trust: string; findings: Finding[]; wide?: boolean }) {
   const risk = assessIpRisk(v);
+  /** The device that sent an internal Microsoft 365 message: a person's connection, not a mail server. */
+  const device = role === 'sender_client';
   const rep = v.reputation;
   const vt = v.virustotal;
   const pd = v.pulsedive;
@@ -124,7 +132,7 @@ function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust
       <div className="flex flex-wrap gap-1.5 text-xs">
         <Badge tone="info">{role.replace(/_/g, ' ')}</Badge>
         <Badge tone={trust === 'trusted' ? 'accent' : 'neutral'} title={trust === 'trusted' ? 'Recorded by the receiving organisation' : 'Taken from a header the sender could have written'}>{trust.replace(/_/g, ' ')}</Badge>
-        {risk.sharedProvider && <Badge tone="neutral" title="Shared mail infrastructure: its reputation says little about this message">shared {risk.sharedProvider} infrastructure</Badge>}
+        {risk.sharedProvider && !device && <Badge tone="neutral" title="Shared mail infrastructure: its reputation says little about this message">shared {risk.sharedProvider} infrastructure</Badge>}
         {typeBadges.map((b) => <Badge key={b.label} tone={b.tone}>{b.label}</Badge>)}
       </div>
 
@@ -150,6 +158,7 @@ function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust
         )}
       </Group>
 
+      <div className={wide ? 'grid gap-x-8 lg:grid-cols-2' : ''}>
       <Group title="Reputation">
         <Row k="AbuseIPDB">{rep ? <span className={rep.abuseConfidence >= 75 ? 'text-rose' : rep.abuseConfidence >= 25 ? 'text-amber' : ''}>{pct(rep.abuseConfidence)} confidence · {rep.totalReports} reports · {rep.distinctReporters} reporters</span> : na}</Row>
         {rep && <Row k="Last reported">{rep.lastReportedAt ? date(rep.lastReportedAt) : 'never'}{rep.usageType ? ` · ${rep.usageType}` : ''}</Row>}
@@ -162,10 +171,11 @@ function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust
         <Row k="ASN / organisation">{[v.network?.asn, v.network?.org].filter(Boolean).join(' · ') || '—'}</Row>
         {v.network?.isp && v.network.isp !== v.network.org && <Row k="ISP">{v.network.isp}</Row>}
         {v.network?.prefix && <Row k="Prefix"><span className="font-mono text-xs">{v.network.prefix}</span></Row>}
-        <Row k="Reverse DNS">{v.reverseDns.length ? <span className="font-mono text-xs">{v.reverseDns.slice(0, 2).join(', ')}</span> : <span className="text-amber">none (no PTR record)</span>}</Row>
+        <Row k="Reverse DNS">{v.reverseDns.length ? <span className="font-mono text-xs">{v.reverseDns.slice(0, 2).join(', ')}</span> : <span className={device ? 'text-muted' : 'text-amber'}>none (no PTR record){device ? ' · normal for a user connection' : ''}</span>}</Row>
         {nt?.companyName && <Row k="Hosting company">{nt.companyName}{nt.companyType ? ` (${nt.companyType})` : ''}</Row>}
         <Row k="Location">{[v.geo?.city, v.geo?.region, v.geo?.country ?? v.geo?.countryCode].filter(Boolean).join(', ') || '—'}</Row>
       </Group>
+      </div>
 
       {v.exposure && (v.exposure.ports.length > 0 || v.exposure.vulns.length > 0) && (
         <Group title="Exposure">

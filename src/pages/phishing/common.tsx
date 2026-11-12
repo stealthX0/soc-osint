@@ -86,6 +86,14 @@ export function FindingDetails({ f }: { f: Finding }) {
  * The findings that belong to one analysis tab, most severe first, in a two-column grid on wide screens.
  * Renders `empty` (or nothing) when there are none.
  */
+/**
+ * One or two findings: stacked at full width (side by side, boxes of different heights leave a hole next to the short one).
+ * Three or more: a two-column grid whose rows share one height, with an odd last box spanning both columns, so the block is
+ * always a clean rectangle.
+ */
+export const findingsLayout = (n: number) =>
+  n <= 2 ? 'grid gap-3' : 'grid gap-3 lg:grid-cols-2 lg:[&>*:last-child:nth-child(odd)]:col-span-2';
+
 export function TabFindings({ id, title, findings, empty }: { id: string; title: string; findings: Finding[]; empty?: ReactNode }) {
   if (!findings.length && !empty) return null;
   const sorted = [...findings].sort(bySeverity);
@@ -94,7 +102,7 @@ export function TabFindings({ id, title, findings, empty }: { id: string; title:
       <h3 id={id} className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-muted">
         {title}{findings.length > 0 && <span className="ml-1.5 font-normal normal-case tracking-normal text-faint">({findings.length})</span>}
       </h3>
-      {sorted.length ? <ul className="gap-3 lg:columns-2 [&>*]:mb-3 [&>*]:break-inside-avoid">{sorted.map((f, i) => <FindingRow key={`${f.id}${f.indicator?.value ?? ''}${i}`} f={f} />)}</ul> : <p className="text-sm text-muted">{empty}</p>}
+      {sorted.length ? <ul className={findingsLayout(sorted.length)}>{sorted.map((f, i) => <FindingRow key={`${f.id}${f.indicator?.value ?? ''}${i}`} f={f} />)}</ul> : <p className="text-sm text-muted">{empty}</p>}
     </section>
   );
 }
