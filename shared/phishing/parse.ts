@@ -193,7 +193,7 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
       id: 'bec_payment_reply_redirect', dimension: 'content', severity: 'high',
       title: 'Asks for payment while routing replies to a different organisation',
       detail: 'The message requests money and its Reply-To sends your answer to a mailbox the sender does not control. This is the typical shape of invoice fraud and business-email compromise: any query about the payment reaches the fraudster, not the real company. Confirm through a contact you already hold before paying.',
-      exactness: 'exact', source: 'content-analysis',
+      exactness: 'exact', reliability: 'high', source: 'content-analysis',
       evidence: [...(replyRedirect.evidence ?? []).slice(0, 2), ...moneyAsk.map((f) => f.title)].slice(0, 4),
     }));
   }

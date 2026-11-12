@@ -347,8 +347,11 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   const ev = (c: ContentCategory) => c.matches.map((m) => m.excerpt);
   // specific, high-precision patterns (a request for gift cards, a change of bank details, a crypto threat) are more reliable than general lure wording
   const SPECIFIC = new Set(['content_gift_card_request', 'content_payment_redirection', 'content_payroll_diversion', 'content_extortion', 'content_brand_impersonation', 'content_text_obfuscation']);
+  // Reliability per rule: a deterministic, specific match (look-alike spelling of a key word, "pay via ACH today", a request to
+  // change bank details or buy gift cards) is solid evidence that the text says it; generic lure wording is weak on its own.
+  const DETERMINISTIC = new Set(['content_text_obfuscation', 'content_payment_demand', 'content_payment_redirection', 'content_gift_card_request', 'content_payroll_diversion', 'content_extortion']);
   const F = (id: string, c: ContentCategory, severity: Severity, title: string, detail: string) =>
-    findings.push(makeFinding({ id, dimension: 'content', severity, title, detail, source: 'content-rules', exactness: 'exact', reliability: SPECIFIC.has(id) || (id === 'content_bec_request' && input.fromIsFreeMail) ? 'medium' : 'low', evidence: ev(c) }));
+    findings.push(makeFinding({ id, dimension: 'content', severity, title, detail, source: 'content-rules', exactness: 'exact', reliability: DETERMINISTIC.has(id) && severity !== 'low' && severity !== 'info' ? 'high' : SPECIFIC.has(id) || (id === 'content_bec_request' && input.fromIsFreeMail) ? 'medium' : 'low', evidence: ev(c) }));
   const get = (id: ContentCategoryId) => cats.get(id);
   let c: ContentCategory | undefined;
 

@@ -13,7 +13,7 @@ export const DIMENSION_WEIGHTS: Record<Dimension, number> = {
   infrastructure: 0.2,
   url: 0.3,
   attachment: 0.2,
-  content: 0.1,
+  content: 0.15, // raised from 0.1 (12 Nov): invoice / BEC fraud is decided mostly by wording and Reply-To
 };
 
 /** Used when a finding id has no entry below. The audit trail lists such findings as "unmapped". */
@@ -266,6 +266,11 @@ export const THRESHOLDS = {
   combineFloor: 0.5,
   /** Highest risk a message that no verdict rule calls Malicious can show (Malicious is floored at maliciousFloor). */
   nonMaliciousCap: 84,
+  /** High-risk Suspicious (BEC pattern or convergent evidence) shows at least this risk. */
+  highRiskFloor: 75,
+  /** Convergent evidence: this many areas (3) each scoring at least convergentAreaScore, with risk at least convergentRisk. */
+  convergentAreaScore: 50,
+  convergentRisk: 70,
   maliciousFloor: 85,
   /** Risk at or above this is Suspicious. (28 on the combined scale introduced 12 Nov; the earlier average-based scale used 25.) */
   suspiciousRisk: 28,

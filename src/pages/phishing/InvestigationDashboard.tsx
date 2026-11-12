@@ -260,7 +260,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
               <VerdictGlyph label={verdict.label} />
               <div className="min-w-0">
                 <h2 ref={heading} tabIndex={-1} className={`text-[22px] font-bold leading-tight tracking-tight focus:outline-none ${verdictAccent[verdict.label]}`}>
-                  {verdictTitle[verdict.label]}
+                  {verdict.highRisk ? 'High-Risk Suspicious Email' : verdictTitle[verdict.label]}
                 </h2>
                 <p className="mt-0.5 text-sm text-fg/85">{verdict.headline}</p>
               </div>
@@ -328,7 +328,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
                       {/* Classification: label / value rows, values close to their labels */}
                       <dl className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3.5 text-[15px]">
                         <dt className="text-fg/80">Classification</dt>
-                        <dd><span className={`inline-block rounded-full px-3.5 py-1 text-sm font-semibold ${verdictSolidPill[verdict.label]}`}>{verdictWord[verdict.label]}</span></dd>
+                        <dd><span className={`inline-block rounded-full px-3.5 py-1 text-sm font-semibold ${verdictSolidPill[verdict.label]}`}>{verdictWord[verdict.label]}{verdict.highRisk ? ' · high risk' : ''}</span></dd>
                         <dt className="text-fg/80">Confidence</dt>
                         <dd className="font-bold text-fg" title={verdict.confidence.notes.join(' ') || undefined}>{verdict.confidence.score}% <span className="text-xs font-normal capitalize text-muted">({verdict.confidence.level})</span></dd>
                         <dt className="text-fg/80">Threat Type</dt>

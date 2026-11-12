@@ -38,6 +38,10 @@ export const VERDICT_TEXT: Record<VerdictLabel, { label: string; short: string }
   analysis_unavailable: { label: 'ANALYSIS UNAVAILABLE', short: 'The investigation could not be completed.' },
 };
 
+/** Label text for exports and badges, including the high-risk Suspicious variant. */
+export const HIGH_RISK_LABEL = 'SUSPICIOUS (HIGH RISK)';
+export const labelTextOf = (v: Pick<Verdict, 'label' | 'highRisk'>) => (v.label === 'suspicious' && v.highRisk ? HIGH_RISK_LABEL : VERDICT_TEXT[v.label].label);
+
 /** A check row as shown in the status table; "running" means a lookup has not finished yet. */
 export type CheckRow = { id: string; label: string; status: CheckResult['status'] | 'running'; result?: string | null; detail?: string };
 
@@ -82,6 +86,12 @@ export interface Verdict {
   confidence: { level: 'low' | 'medium' | 'high'; score: number; notes: string[] };
   /** The rule that decided the outcome. */
   rule: RuleHit | null;
+  /**
+   * Set when a Suspicious verdict matches a high-risk pattern (business email compromise with a corroborating sender signal,
+   * or strong evidence from several independent areas). The label stays Suspicious: nothing is confirmed by threat
+   * intelligence, but the message should be handled as a likely attack.
+   */
+  highRisk: { id: 'bec_pattern' | 'convergent_evidence'; title: string; detail: string } | null;
   reasons: Reason[];
   mitigating: string[];
   conflicts: string[];
@@ -176,7 +186,7 @@ function assessCoverage(parse: ParseStageResult, checks: CheckRow[]): Coverage {
 /* ------------------------------------------------------------------ the engine */
 
 const unavailable = (why: string): Verdict => ({
-  label: 'analysis_unavailable', headline: why, risk: 0, confidence: { level: 'low', score: 0, notes: [] }, rule: null, reasons: [], mitigating: [], conflicts: [],
+  label: 'analysis_unavailable', headline: why, risk: 0, confidence: { level: 'low', score: 0, notes: [] }, rule: null, highRisk: null, reasons: [], mitigating: [], conflicts: [],
   gaps: [{ critical: true, text: why }], coverage: 0, provisional: false, dimensions: [], contributions: [], unmapped: [], indicators: [],
   actions: ['Check that the headers or message body were pasted, then try again.'], notes: [],
 });
@@ -327,6 +337,31 @@ export function computeVerdict(input: VerdictInput): Verdict {
   if (findings.some((f) => f.id === 'attachment_hash_known_good')) mitigating.push('An attachment matches a known file in the CIRCL database.');
   if (mitigating.length) notes.push('These show the sender is authenticated, not that the message is harmless: an authenticated sender can still send phishing.');
 
+  /* 8b. high-risk Suspicious: patterns an analyst would act on as an attack although nothing is confirmed by threat intel */
+  let highRisk: Verdict['highRisk'] = null;
+  if (label === 'suspicious') {
+    const has = (id: string, min: Severity = 'low') => findings.some((f) => f.id === id && atLeast(f.severity, min));
+    const SENDER_CORROBORATION: [string, Severity, string][] = [
+      ['sender_address_fraud_score', 'medium', 'the sender address has a high fraud score'],
+      ['sender_address_recent_abuse', 'low', 'the sender address was recently used for abuse'],
+      ['sender_domain_new', 'medium', 'the sender domain is less than 30 days old'],
+      ['sender_domain_lookalike', 'low', 'the sender domain imitates another domain'],
+      ['sender_domain_homograph', 'low', 'the sender domain uses look-alike characters'],
+      ['sender_domain_lookalikes_claimed_org', 'low', 'the sender domain imitates the organisation it claims to be'],
+    ];
+    const corroborated = SENDER_CORROBORATION.filter(([id, min]) => has(id, min)).map(([, , why]) => why);
+    const strongAreas = dims.filter((d) => d.active && d.score >= T.convergentAreaScore);
+    if (has('bec_payment_reply_redirect') && corroborated.length) {
+      highRisk = { id: 'bec_pattern', title: 'High risk: matches business email compromise (invoice / payment fraud)', detail: `The message asks for payment, sends replies to a different organisation, and ${corroborated.slice(0, 2).join(' and ')}.` };
+    } else if (strongAreas.length >= 3 && risk >= T.convergentRisk) {
+      highRisk = { id: 'convergent_evidence', title: 'High risk: strong warning signs from several independent areas', detail: `${strongAreas.map((d) => d.dimension).join(', ')} each point to an attack, although no single item is confirmed by threat intelligence.` };
+    }
+    if (highRisk) {
+      headline = `${highRisk.title}. ${highRisk.detail} Nothing is confirmed by threat intelligence, so it stays Suspicious, but handle it as a likely attack.`;
+      notes.push('High-risk Suspicious: the risk score is raised to at least ' + T.highRiskFloor + '.');
+    }
+  }
+
   /* 9. confidence: how firmly the evidence supports THIS label, not how many checks ran (that is coverage, reported apart).
         It rises with the distance from the decision threshold, with independent areas agreeing and with good sources. */
   const independentDims = new Set(contributions.filter((c) => c.counted >= 5).map((c) => c.dimension)).size;
@@ -345,6 +380,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
     conf = 30 + 30 * margin + 15 * Math.min(1, independentDims / 3) + 10 * quality + 15 * coverage;
     if (margin < 0.35) confNotes.push('The evidence is only just past the Suspicious line.');
     if (independentDims <= 1) confNotes.push('The warning signs come from a single area.');
+    if (highRisk) conf += 5;
   } else if (label === 'likely_legitimate') {
     const margin = span(T.legitimateRisk - risk, 0, T.legitimateRisk);
     conf = 35 + 15 * margin + 40 * coverage + (mitigating.length ? 8 : 0);
@@ -383,8 +419,15 @@ export function computeVerdict(input: VerdictInput): Verdict {
     actions.push('Search for and remove the same message from other mailboxes.');
     actions.push(`If anyone clicked a link or opened a file${hasCred ? ' or entered credentials' : ''}: reset the password, revoke active sessions and review recent sign-ins and mailbox rules.`);
     actions.push('Keep the headers and the indicators below with the incident ticket.');
+  } else if (label === 'suspicious' && highRisk?.id === 'bec_pattern') {
+    actions.push('Do not pay, change bank details or reply to this message.');
+    actions.push('Confirm the invoice and payment details with the supplier using contact details you already hold (not the ones in this e-mail).');
+    actions.push('Alert your finance / accounts-payable team and check whether any payment to these details was already made; if so, contact your bank at once to try to recall it.');
+    actions.push('Block the sender and Reply-To addresses at the mail gateway and search for the same message in other mailboxes.');
+    actions.push('Report it to your security team as attempted business email compromise.');
   } else if (label === 'suspicious') {
     actions.push('Treat the message as unverified: do not click links, open attachments or act on requests in it.');
+    if (highRisk) actions.push('Handle it as a likely attack: block the sender and search for the same message in other mailboxes.');
     actions.push('Confirm the request with the sender through a different channel, using a phone number or address you already know.');
     if (critGaps.length) actions.push('Complete the checks listed under "What is missing": they could confirm or clear it.');
     actions.push('If it looks like a brand or colleague impersonation, report it to your security team.');
@@ -397,7 +440,7 @@ export function computeVerdict(input: VerdictInput): Verdict {
 
   return {
     // The number never contradicts the label: Malicious is at least maliciousFloor, anything else stays below it.
-    label, headline, risk: rule ? clamp(Math.max(risk, ruleFloor)) : Math.min(risk, T.nonMaliciousCap), confidence: { level, score, notes: confNotes }, rule, reasons, mitigating, conflicts, gaps: cov.gaps.sort((a, b) => Number(b.critical) - Number(a.critical)),
+    label, headline, risk: rule ? clamp(Math.max(risk, ruleFloor)) : Math.min(highRisk ? Math.max(risk, T.highRiskFloor) : risk, T.nonMaliciousCap), confidence: { level, score, notes: confNotes }, rule, highRisk, reasons, mitigating, conflicts, gaps: cov.gaps.sort((a, b) => Number(b.critical) - Number(a.critical)),
     coverage, provisional: cov.pending, dimensions: dims, contributions: contributions.sort((a, b) => b.counted - a.counted), unmapped: [...new Set(contributions.filter((c) => !c.mapped).map((c) => c.findingId))],
     indicators, actions, notes,
   };

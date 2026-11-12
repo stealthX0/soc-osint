@@ -1,6 +1,6 @@
 import { Card, Badge, Copyable, DataTable, type Tone } from '../../components/ui';
 import { Icon } from '../../components/icons';
-import { VERDICT_TEXT, type Verdict, type VerdictLabel } from '../../../shared/phishing/verdict';
+import { VERDICT_TEXT, labelTextOf, type Verdict, type VerdictLabel } from '../../../shared/phishing/verdict';
 import { dimensionLabel } from '../../../shared/phishing/findings';
 import type { Severity } from '../../../shared/phishing/types';
 
@@ -19,7 +19,7 @@ export function VerdictCard({ v }: { v: Verdict }) {
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={tone[v.label]}><span className="text-sm font-semibold tracking-wide">{meta.label}</span></Badge>
+            <Badge tone={tone[v.label]}><span className="text-sm font-semibold tracking-wide">{labelTextOf(v)}</span></Badge>
             <Badge tone={v.confidence.level === 'high' ? 'good' : v.confidence.level === 'medium' ? 'warn' : 'neutral'} title={v.confidence.notes.join(' ') || 'How much the evidence supports this outcome'}>confidence: {v.confidence.level} ({v.confidence.score})</Badge>
             <Badge title="Share of the expected checks that completed">coverage {Math.round(v.coverage * 100)}%</Badge>
             {v.provisional && <Badge tone="info">provisional: lookups still running</Badge>}

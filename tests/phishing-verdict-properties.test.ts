@@ -66,3 +66,46 @@ test('confidence describes the label, not just how many checks ran', async () =>
   assert.equal(clear.label, 'suspicious');
   assert.ok(clear.confidence.score > borderline.confidence.score, `${clear.confidence.score} > ${borderline.confidence.score}`);
 });
+
+/* ---- high-risk Suspicious (Sahil, 12 Nov: a corroborated BEC stays Suspicious, flagged high risk) ---- */
+import { buildReport } from '../shared/phishing/report';
+
+const corpusVerdict = async (id: string) => {
+  const s = CORPUS.find((x) => x.id.startsWith(id))!;
+  const r = await parseSubmission(s.input);
+  return computeVerdict({ parse: r, findings: dedupeFindings([...r.findings, ...(s.findings ?? [])]), checks: [...r.checks, ...(s.checks ?? [])] });
+};
+
+test('a BEC with a corroborating sender signal is high-risk Suspicious, never Malicious', async () => {
+  const v = await corpusVerdict('S28');
+  assert.equal(v.label, 'suspicious');
+  assert.equal(v.highRisk?.id, 'bec_pattern');
+  assert.ok(v.risk >= THRESHOLDS.highRiskFloor && v.risk <= THRESHOLDS.nonMaliciousCap, String(v.risk));
+  assert.match(v.headline, /business email compromise/);
+  assert.match(v.actions[0], /Do not pay/);
+});
+
+test('the BEC pattern needs sender corroboration; a plain payment reminder is untouched', async () => {
+  assert.equal((await corpusVerdict('S27')).highRisk, null, 'wording + Reply-To alone stays ordinary Suspicious');
+  const legit = await corpusVerdict('L23');
+  assert.equal(legit.label, 'likely_legitimate');
+  assert.equal(legit.highRisk, null);
+});
+
+test('strong evidence from three independent areas is high-risk Suspicious', async () => {
+  const fs = [lookup('url_lookalike_domain', 'high', 'url', { indicator: { type: 'url', value: 'https://x.example/' } }), lookup('url_homograph_domain', 'high', 'url', { indicator: { type: 'url', value: 'https://y.example/' } }),
+    lookup('attachment_double_extension', 'high', 'attachment', { indicator: { type: 'hash', value: 'a'.repeat(64) } }), lookup('attachment_macro_present', 'high', 'attachment', { indicator: { type: 'hash', value: 'b'.repeat(64) } }),
+    lookup('sender_domain_new', 'high', 'infrastructure'), lookup('sender_ip_abuse_reports', 'high', 'infrastructure', { indicator: { type: 'ip', value: '1.2.3.4' } })];
+  const v = await verdictOf({ headers: mail({ from: 'a@b.example' }), body: 'x https://x.example/ https://y.example/' }, fs, [...SENDER_DONE, ...LINKS_DONE]);
+  assert.equal(v.label, 'suspicious');
+  assert.equal(v.highRisk?.id, 'convergent_evidence');
+});
+
+test('exports carry the high-risk label', async () => {
+  const s = CORPUS.find((x) => x.id.startsWith('S28'))!;
+  const parse = await parseSubmission(s.input);
+  const findings = dedupeFindings([...parse.findings, ...(s.findings ?? [])]);
+  const v = computeVerdict({ parse, findings, checks: [...parse.checks, ...(s.checks ?? [])] });
+  const rep = buildReport({ verdict: v, parse, findings, checks: [] } as never);
+  assert.equal(rep.verdict.labelText, 'SUSPICIOUS (HIGH RISK)');
+});

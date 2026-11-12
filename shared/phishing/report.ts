@@ -9,7 +9,7 @@
  *  - it states that the scoring weights are uncalibrated decision support, and never calls a message "safe" or "clean".
  */
 import { defang } from '../domain';
-import { VERDICT_TEXT, type Verdict, type VerdictLabel } from './verdict';
+import { VERDICT_TEXT, HIGH_RISK_LABEL, labelTextOf, type Verdict, type VerdictLabel } from './verdict';
 import type { ParseStageResult } from './parse';
 import type { Dimension, Finding, Severity, TrustLevel } from './types';
 
@@ -121,7 +121,7 @@ export function buildReport(input: ReportInput): Report {
     tool: REPORT_TOOL,
     generatedAt: iso(input.generatedAt),
     verdict: {
-      label: v.label, labelText: VERDICT_TEXT[v.label].label, headline: d(v.headline, 400) ?? '',
+      label: v.label, labelText: labelTextOf(v), headline: d(v.headline, 400) ?? '',
       risk: Math.max(0, Math.min(100, Math.round(v.risk))),
       confidence: { level: v.confidence.level, score: Math.round(v.confidence.score * 100) / 100, notes: v.confidence.notes.slice(0, 10).map((n) => d(n, 300) ?? '') },
       coverage: Math.round(v.coverage * 100) / 100, provisional: v.provisional, rule: v.rule ? d(v.rule.text, 300) : null,
@@ -182,7 +182,7 @@ export function parseStoredReport(raw: unknown): Report | null {
   return {
     schemaVersion: REPORT_SCHEMA_VERSION, tool: REPORT_TOOL, generatedAt: new Date(raw.generatedAt).toISOString(),
     verdict: {
-      label: v.label as VerdictLabel, labelText: VERDICT_TEXT[v.label as VerdictLabel].label, headline: s(v.headline, 400), risk: Math.round(num(v.risk, 0, 100)),
+      label: v.label as VerdictLabel, labelText: v.label === 'suspicious' && v.labelText === HIGH_RISK_LABEL ? HIGH_RISK_LABEL : VERDICT_TEXT[v.label as VerdictLabel].label, headline: s(v.headline, 400), risk: Math.round(num(v.risk, 0, 100)),
       confidence: { level: (['low', 'medium', 'high'] as const).includes(conf.level as 'low') ? (conf.level as 'low' | 'medium' | 'high') : 'low', score: num(conf.score, 0, 100), notes: strs(conf.notes, 10, 300) },
       coverage: num(v.coverage, 0, 1), provisional: v.provisional === true, rule: sn(v.rule, 300),
     },

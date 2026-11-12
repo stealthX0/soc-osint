@@ -75,3 +75,11 @@ computeVerdict({ parse, findings, checks, tuning: { thresholds: { suspiciousRisk
 - `tests/phishing-verdict-properties.test.ts` checks the properties on every corpus sample: no padding, adding a finding never lowers risk, risk consistent with the label, confidence ordered by strength.
 - Margins are thin: `S02` sits exactly on 28 and `I12` at 26. Real labelled samples are needed before trusting the exact thresholds.
 
+## 12 Nov 2026 (batch 2): high-risk Suspicious, content weight, rule reliability, freshness
+
+- **High-risk Suspicious** (`Verdict.highRisk`), Sahil's decision: a corroborated BEC stays Suspicious, never Malicious. `bec_pattern` = `bec_payment_reply_redirect` plus one of `sender_address_fraud_score` (medium, i.e. 90+), `sender_address_recent_abuse`, `sender_domain_new` (medium/high, under 30 days), `sender_domain_lookalike`, `sender_domain_homograph`, `sender_domain_lookalikes_claimed_org`. `convergent_evidence` = three or more areas scoring at least `convergentAreaScore` 50 with risk at least `convergentRisk` 70. Either raises risk to at least `highRiskFloor` 75 (still capped at 84), adds 5 confidence, rewrites the headline and actions, and exports as `SUSPICIOUS (HIGH RISK)`.
+- **Content weight** 0.10 → 0.15.
+- **Reliability per content rule**: deterministic, specific matches (`content_text_obfuscation`, `content_payment_demand`, `content_payment_redirection`, `content_gift_card_request`, `content_payroll_diversion`, `content_extortion` at medium or above, and `bec_payment_reply_redirect`) are `high`; other specific rules `medium`; generic lure wording `low`.
+- **Freshness**: `sender_ip_abuse_reports` carries AbuseIPDB's last report date and `sender_ip_vt_detections` VirusTotal's last analysis date as `observedAt`, so old reports count less (>30 days 0.9, >90 days 0.8, >1 year 0.6). URL findings do not carry dates yet.
+- Thresholds unchanged (the sweep still selects suspiciousRisk 28, legitimateRisk 15); 80/80 agreement, no bad mail cleared. Only S28 (the real BEC with lookups) is high risk in the corpus.
+
