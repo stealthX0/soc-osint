@@ -9,7 +9,19 @@ export function ContentPanel({ a, subject }: { a: ContentAnalysis; subject: stri
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted">These are indicators for review, not a verdict: genuine password resets, invoices and security alerts use the same words. The strongest signal is several different lure types together, combined with the sender and link evidence.</p>
-      {!a.languageSupported && <p className="rounded-lg border border-amber/30 bg-amber/10 p-2 text-sm text-amber">Most of this message is not in Latin script. The wording rules read English, so the absence of indicators here does not mean the message is clean.</p>}
+      {a.language?.status === 'translated' && (
+        <div className="rounded-lg border border-sky/30 bg-sky/10 p-2 text-sm text-sky">
+          <p>Written in <b>{a.language.name}</b>: machine-translated to English (Cloudflare Workers AI) before the wording rules ran. Quoted wording below is from the translation, which can be imperfect.</p>
+          {a.language.translatedText && (
+            <details className="mt-1.5 text-fg/85">
+              <summary className="cursor-pointer text-xs text-sky">Show the English translation</summary>
+              {a.language.translatedSubject && <p className="mt-1.5 text-xs"><span className="text-muted">Subject: </span>{a.language.translatedSubject}</p>}
+              <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-bg2 p-2 font-sans text-xs">{a.language.translatedText}</pre>
+            </details>
+          )}
+        </div>
+      )}
+      {!a.languageSupported && <p className="rounded-lg border border-amber/30 bg-amber/10 p-2 text-sm text-amber">{a.language && a.language.status !== 'not_needed' ? `${a.language.detail} ` : 'Most of this message is not in Latin script. '}The wording rules read English, so the absence of indicators here does not mean the message is clean.</p>}
       <Card title="Likely intent">
         {recognised.length ? (
           <ul className="space-y-2 text-sm">{recognised.map((i) => <li key={i.id} className="flex flex-wrap items-center gap-2"><Badge tone={confTone[i.confidence]}>{i.confidence}</Badge><span className="font-medium">{i.label}</span><span className="text-xs text-muted">from: {i.reasons.join(', ')}</span></li>)}</ul>

@@ -178,7 +178,8 @@ function assessCoverage(parse: ParseStageResult, checks: CheckRow[]): Coverage {
   const content = byId.get('content.rules');
   cov.content.coverage = content?.status === 'complete' ? (parse.content.analysis.languageSupported ? 1 : 0.3) : 0;
   if (content?.status !== 'complete') gaps.push({ critical: false, text: 'The message wording was not analysed (no body text).' });
-  else if (!parse.content.analysis.languageSupported) gaps.push({ critical: false, text: 'The message wording could not be analysed in this language.' });
+  // Unread wording is not clean wording: a message whose language could not be read (or translated) is never cleared.
+  else if (!parse.content.analysis.languageSupported) gaps.push({ critical: true, text: `The message wording could not be analysed${parse.content.analysis.language?.name && parse.content.analysis.language.name !== 'unknown' ? ` (${parse.content.analysis.language.name}, not translated)` : ' in this language'}, so it cannot be cleared. Have someone who reads the language review it.` });
 
   return { byDimension: cov, gaps, pending };
 }

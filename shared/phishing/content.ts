@@ -38,6 +38,8 @@ export interface ContentAnalysis {
   /** Share of letters that are Latin script. The rules are written for English / Latin-script text. */
   latinShare: number;
   languageSupported: boolean;
+  /** Detected language and whether the text was machine-translated before the rules ran. */
+  language?: { code: string | null; name: string; status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported'; detail: string; translatedText?: string; translatedSubject?: string | null };
   categories: ContentCategory[];
   intents: ContentIntent[];
   notes: string[];
@@ -52,6 +54,11 @@ export interface ContentInput {
   displayName: string | null;
   fromDomain: string | null;
   fromIsFreeMail: boolean;
+  /**
+   * Set when `subject` / `text` are a machine translation: the language result, and the ORIGINAL wording, which is still
+   * used for disguise checks (look-alike letters, invisible characters) that a translation would wash out.
+   */
+  translation?: { language: { code: string | null; name: string }; status: 'not_needed' | 'translated' | 'unavailable' | 'unsupported'; detail: string; original: { subject: string | null; text: string } };
 }
 
 /* ------------------------------------------------- receiver-added banners */
@@ -251,9 +258,18 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
     return { analysis, findings };
   }
 
-  analysis.latinShare = latinShareOf(hay);
-  const letterCount = (hay.match(/\p{L}/gu) ?? []).length;
-  if (letterCount >= 30 && analysis.latinShare < 0.6) {
+  const tr = input.translation;
+  const orig = tr?.status === 'translated' ? `${tr.original.subject ?? ''}\n${tr.original.text}` : hay;
+  if (tr) analysis.language = { code: tr.language.code, name: tr.language.name, status: tr.status, detail: tr.detail, ...(tr.status === 'translated' ? { translatedText: input.text.slice(0, 6000), translatedSubject: input.subject } : {}) };
+  if (tr?.status === 'translated') notes.push(tr.detail);
+  analysis.latinShare = latinShareOf(orig);
+  const letterCount = (orig.match(/\p{L}/gu) ?? []).length;
+  if (tr && (tr.status === 'unavailable' || tr.status === 'unsupported')) {
+    // a Latin-script language other than English used to be read with the English rules and quietly found nothing
+    analysis.languageSupported = false;
+    notes.push(`${tr.detail} The wording rules read English, so few indicators here does NOT mean the message is clean.`);
+    findings.push(makeFinding({ id: 'content_language_not_analysed', dimension: 'content', severity: 'info', title: `Message wording could not be analysed (${tr.language.name})`, detail: 'The wording rules are written for English and the text could not be translated. Judge this message on its sender, links and attachments, or have someone who reads the language review it.', source: 'content-rules', exactness: 'exact', reliability: 'high' }));
+  } else if (tr?.status !== 'translated' && letterCount >= 30 && analysis.latinShare < 0.6) {
     analysis.languageSupported = false;
     notes.push('Most of the text is not in Latin script. The wording rules read English, so few indicators here does NOT mean the message is clean.');
     findings.push(makeFinding({ id: 'content_language_not_analysed', dimension: 'content', severity: 'info', title: 'Message wording could not be analysed in this language', detail: 'The wording rules are written for English. Judge this message on its sender, links and attachments, or have someone who reads the language review it.', source: 'content-rules', exactness: 'exact', reliability: 'high' }));
@@ -269,7 +285,7 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
 
   /* look-alike spellings ("lnvoice"): note them, then read the text as intended so the other rules are not evaded */
   const filenames = input.attachments.filter((a) => !a.inline && a.filename).map((a) => a.filename as string).join(' ');
-  const lookalikes = latinLookalikes(`${hay}\n${filenames}`);
+  const lookalikes = latinLookalikes(`${orig}\n${filenames}`);
   let read = hay;
   for (const [as, meant] of lookalikes) read = read.split(as).join(meant);
 
@@ -313,8 +329,8 @@ export function analyzeContent(input: ContentInput): { analysis: ContentAnalysis
   }
 
   /* obfuscation: look-alike letters and invisible characters inside words */
-  const mixed = mixedScriptWords(hay);
-  const zw = ((input.text ?? '') + (input.subject ?? '')).match(ZERO_WIDTH)?.length ?? 0;
+  const mixed = mixedScriptWords(orig);
+  const zw = (tr?.status === 'translated' ? `${tr.original.text}${tr.original.subject ?? ''}` : `${input.text ?? ''}${input.subject ?? ''}`).match(ZERO_WIDTH)?.length ?? 0;
   if (mixed.length) cats.set('obfuscation', { id: 'obfuscation', label: LABELS.obfuscation, strong: true, matches: [{ rule: 'mixed_script', excerpt: `Words mixing Latin with Cyrillic / Greek letters: ${mixed.join(', ')}` }] });
   else if (lookalikes.length) cats.set('obfuscation', { id: 'obfuscation', label: LABELS.obfuscation, strong: true, matches: [{ rule: 'latin_lookalike', excerpt: `Look-alike spellings: ${lookalikes.map(([a, b]) => `"${a}" (${b})`).join(', ')}` }] });
   else if (zw >= 6) cats.set('obfuscation', { id: 'obfuscation', label: LABELS.obfuscation, strong: false, matches: [{ rule: 'zero_width', excerpt: `${zw} invisible characters inside the text` }] });

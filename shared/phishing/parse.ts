@@ -7,6 +7,7 @@
 import { extractMessage } from './mime';
 import { analyzeIdentity } from './brand';
 import { offlineLinkFindings } from './urlTriage';
+import { translateForAnalysis, type Translator } from './language';
 import { analyzeContent, stripReceiverBanners, RECEIVER_BANNER_LINK, type ContentAnalysis } from './content';
 import { isFreeMail } from './domains';
 import { analyzeEmailHeaders, type HeaderForensics } from './forensics';
@@ -100,7 +101,12 @@ const extOf = (name: string | null) => { const m = name?.toLowerCase().match(/\.
 
 /* ------------------------------------------------------------------- main */
 
-export async function parseSubmission(input: PhishingInput): Promise<ParseStageResult> {
+export interface ParseOptions {
+  /** Machine translation for non-English wording (the Worker supplies Workers AI within its free allowance). */
+  translate?: Translator;
+}
+
+export async function parseSubmission(input: PhishingInput, opts: ParseOptions = {}): Promise<ParseStageResult> {
   const findings: Finding[] = [];
   const checks: CheckResult[] = [];
   const limits: string[] = [];
@@ -177,9 +183,17 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
     findings.push(makeFinding({ id: 'dangerous_link_scheme', dimension: 'url', severity: 'medium', title: `A link uses a ${s.reason.split(':')[0]}: scheme`, detail: 'Links that run script or embed data are not normal in e-mail and are used to evade link scanners.', exactness: 'exact', source: 'link-extraction', evidence: [s.value.slice(0, 120)] }));
   }
 
+  /* language: the wording rules read English, so other languages are machine-translated first (when available) */
+  const tr = await translateForAnalysis(subject, senderText.slice(0, 20_000), opts.translate);
+  if (tr.status !== 'not_needed') {
+    checks.push(check('content.translate', 'content', 'Language and translation', tr.status === 'translated' ? 'complete' : tr.status === 'unsupported' ? 'not_applicable' : 'skipped',
+      tr.status === 'translated' ? `translated from ${tr.language.name}${tr.partial ? ' (partly)' : ''}` : `${tr.language.name}: not translated`, tr.detail));
+  }
+
   /* wording: urgency, credential / payment requests, extortion, QR and other lures (local, deterministic) */
   const wording = analyzeContent({
-    subject, text: senderText, html: senderHtml, linkCount: ext.links.length,
+    subject: tr.subject, text: tr.text, html: senderHtml, linkCount: ext.links.length,
+    translation: { language: { code: tr.language.code, name: tr.language.name }, status: tr.status, detail: tr.detail, original: { subject, text: senderText } },
     attachments: msg.attachments.map((a) => ({ filename: a.filename, inline: a.inline, declaredType: a.declaredType })),
     displayName: forensics?.addresses.from[0]?.display ?? sender.displayName ?? null,
     fromDomain: identityFrom, fromIsFreeMail: isFreeMail(identityFrom),
@@ -200,7 +214,7 @@ export async function parseSubmission(input: PhishingInput): Promise<ParseStageR
   checks.push(!wording.analysis.analysed
     ? check('content.rules', 'content', 'Message wording analysis', 'skipped', null, 'No message text to read.')
     : check('content.rules', 'content', 'Message wording analysis', 'complete', wording.analysis.languageSupported ? `${wording.analysis.categories.length} lure type(s) recognised` : 'language not supported', wording.analysis.notes.join(' ') || 'Pattern rules for urgency, credential and payment requests, extortion, QR and delivery lures. Indicators for review, not a verdict.'));
-  if (!wording.analysis.languageSupported) limits.push('The message is mostly not in Latin script, so the wording rules (written for English) could not assess it.');
+  if (!wording.analysis.languageSupported) limits.push(tr.status === 'not_needed' ? 'The message is mostly not in Latin script, so the wording rules (written for English) could not assess it.' : `${tr.detail} The wording rules (written for English) could not assess it.`);
 
   /* attachments */
   const attachments: AttachmentMeta[] = [];

@@ -19,6 +19,11 @@ run_worker_first = ["/api/*"]
 # binding = "RATE_LIMIT"
 # id = "<your-kv-namespace-id>"
 
+# Workers AI: machine translation of non-English e-mails before the wording rules run (worker/_lib/translate.ts).
+# Only the free daily allocation is used (capped at 40 messages/day; TRANSLATE_CONTENT = "false" switches it off).
+[ai]
+binding = "AI"
+
 [vars]
 RATE_LIMIT_PER_MIN = "60"
 # IPQS calls go through the Vercel relay (relay/ipqs-vercel); the shared secret is the IPQS_RELAY_SECRET secret.

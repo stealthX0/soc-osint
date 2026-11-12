@@ -89,6 +89,9 @@ const PROVIDER_BUDGETS: Record<string, { rpm?: number; daily?: number }> = {
   urlscan: { rpm: 20 }, // anonymous search is limited to ~30/min per source address
   usercheck: {}, // plan quotas differ; set USERCHECK_DAILY to add a cap
   ipqs: { daily: 35 }, // when spent, the sender address check falls back to UserCheck; raise with IPQS_DAILY on a paid plan
+  // Workers AI translation of non-English e-mails: one unit per message. 40 x at most ~140 neurons stays inside the free
+  // 10,000 neurons/day (Free plan: further calls are refused, never billed). Raise with TRANSLATE_DAILY only on purpose.
+  translate: { daily: 40 },
   openphish: { daily: 300 }, // feed downloads only (the parsed feed is reused for ~30 minutes), never per-URL
 };
 
