@@ -543,6 +543,9 @@ describe('server-render smoke tests: every tab and the form render without throw
     assert.match(card, /council@example-corp\.com/);
     assert.ok(!card.includes('Works Council Example SAS'), 'no display name in From');
     assert.match(card, /81\.2\.69\.160/, 'sending device IP shown as Sender IP');
+    assert.ok(!/<div class="[^"]*truncate[^"]*">council@/.test(card), 'the address is never cut off');
+    const aside = /<aside class="([^"]*)"/.exec(out)?.[1] ?? '';
+    assert.ok(!/bg-|border-r/.test(aside), 'the sidebar has no backdrop of its own');
   });
 
   it('while lookups are outstanding the shell renders a progress list and no verdict at all', async () => {

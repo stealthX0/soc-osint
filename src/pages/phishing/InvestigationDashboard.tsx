@@ -220,7 +220,9 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
       <div className="flex flex-1 overflow-hidden">
 
       {/* ═══════════ LEFT SIDEBAR ═══════════ */}
-      <aside className="ph-db-sidebar-scroll hidden h-full w-[280px] shrink-0 overflow-y-auto border-r border-line/50 bg-[#060b18] lg:block">
+      {/* No background or border of its own: the cards sit directly on the page. The width follows the longest value
+          (e.g. a long sender address) between 280 and 400 px; past that the value wraps instead of being cut off. */}
+      <aside className="ph-db-sidebar-scroll hidden h-full w-fit min-w-[280px] max-w-[400px] shrink-0 overflow-y-auto lg:block">
 
         <div className="space-y-3 px-3 py-4">
 
@@ -428,7 +430,7 @@ function InputRow({ icon, iconBg, label, value }: { icon: IconName; iconBg: stri
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] text-muted">{label}</div>
-        <div className="truncate text-xs font-semibold text-fg">{value}</div>
+        <div className="text-xs font-semibold text-fg [overflow-wrap:anywhere]">{value}</div>
       </div>
     </div>
   );
