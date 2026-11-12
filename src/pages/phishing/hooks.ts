@@ -12,7 +12,7 @@ export type Slot = { req: SenderCheckRequest; state: 'running' | 'done'; res?: S
 
 /**
  * Runs the sender / infrastructure lookups one request at a time (3 in parallel), so each call has its own upstream budget.
- * Aborted when the result goes away. Also records when the last lookup returned, for the timeline.
+ * Aborted when the result goes away. Also records when the last lookup returned.
  */
 export function useSenderStage(parse: ParseStageResult) {
   const plan = useMemo(() => planSenderChecks(parse), [parse]);
@@ -85,7 +85,7 @@ export interface LinkStage {
   run: () => Promise<void>;
   /** Candidates that have not had a full lookup yet. */
   remaining: string[];
-  /** When the last investigation request returned (epoch ms), for the timeline. */
+  /** When the last investigation request returned (epoch ms). */
   investigatedAt: number | null;
   /** True once the automatic investigation after parsing has finished (succeeded or failed), or when there are no links. */
   settled: boolean;

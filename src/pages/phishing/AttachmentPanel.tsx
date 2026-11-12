@@ -64,7 +64,7 @@ export interface AttachmentStage {
   checks: CheckResult[];
   /** URLs found inside attachments, ready to feed to the link stage. */
   urls: string[];
-  /** Raw hash-lookup responses (for the evidence tab and the timeline). */
+  /** Raw hash-lookup responses (kept with the attachment results). */
   results: AttachmentHashResponse[];
   panel: ReactNode;
   /** True once the files attached in the form have been inspected and every hash lookup has returned (or failed). */

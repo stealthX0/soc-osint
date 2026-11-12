@@ -16,7 +16,7 @@ export interface ResultsShellProps {
   input: PhishingInput;
   /** Files attached in the form: inspected in the browser and looked up by hash as part of the analysis. */
   files?: File[];
-  /** When the analyst pressed Analyse (epoch ms), for the timeline. */
+  /** When the analyst pressed Analyse (epoch ms), for the analysis time. */
   startedAt: number;
   historyEnabled?: boolean;
   onHistorySaved?: () => void;

@@ -10,7 +10,6 @@ import { dedupeFindings, sortFindings } from '../shared/phishing/findings';
 import {
   REPORT_DISCLAIMERS, buildReport, defangText, parseStoredReport, renderJson, renderMarkdown, renderTicketText, reportFilename, sanitizeFilenameStem, type Report, type ReportCheckInput,
 } from '../shared/phishing/report';
-import { buildTimeline, toIso } from '../shared/phishing/timeline';
 import {
   HISTORY_KEY, HISTORY_MAX, clearHistory, deleteFromHistory, loadHistory, saveToHistory, summarizeEntry, type HistoryStore,
 } from '../src/lib/phishingHistory';
@@ -219,60 +218,6 @@ describe('parseStoredReport', () => {
     const clean = parseStoredReport(tampered)!;
     assert.ok(!('headers' in clean) && !('body' in clean) && !('rawBody' in clean.message));
     assert.ok(!JSON.stringify(clean).includes('RAW BODY'));
-  });
-});
-
-/* ------------------------------------------------------------------ timeline */
-
-describe('buildTimeline', () => {
-  it('lists real timestamps in chronological order', async () => {
-    const { r, findings } = await fixture();
-    const f: Finding[] = [...findings, { id: 'obs', dimension: 'url', severity: 'low', title: 'Seen on a feed', detail: 'd', source: 'OpenPhish', exactness: 'exact', reliability: 'high', trust: 'independently_verified', observedAt: '2026-11-06T09:00:00Z' }];
-    const marks = { investigationStartedAt: Date.parse('2026-11-07T10:00:00Z'), senderChecksFinishedAt: Date.parse('2026-11-07T10:00:05Z'), linksInvestigatedAt: Date.parse('2026-11-07T10:00:20Z') };
-    const t = buildTimeline({ parse: r, findings: f, marks });
-    const times = t.map((e) => e.at);
-    assert.deepEqual([...times].sort(), times, 'ascending');
-    assert.ok(t.some((e) => e.kind === 'message' && /Date header/.test(e.label)));
-    assert.ok(t.some((e) => e.kind === 'delivery'));
-    assert.ok(t.some((e) => e.kind === 'finding' && /Seen on a feed/.test(e.label)));
-    assert.deepEqual(t.filter((e) => e.kind === 'investigation').map((e) => e.label), ['Investigation started', 'Sender checks finished', 'Links investigated']);
-    assert.ok(t.every((e) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(e.at)));
-  });
-
-  it('ignores unparsable dates and invents nothing', async () => {
-    assert.deepEqual(buildTimeline({ parse: null }), []);
-    assert.deepEqual(buildTimeline({ parse: null, marks: {} }), []);
-    assert.deepEqual(buildTimeline({ parse: null, marks: { investigationStartedAt: 'not a date', senderChecksFinishedAt: NaN, linksInvestigatedAt: null } }), []);
-    for (const bad of ['', '12', 'yesterday', 'Tue, 99 Foo 2026', '1850-01-01', '2500-01-01', null, undefined, {}, NaN]) assert.equal(toIso(bad), null, String(bad));
-    assert.equal(toIso('2026-11-07T10:00:00Z'), '2026-11-07T10:00:00.000Z');
-    const { r } = await fixture();
-    const broken = { ...r, forensics: { ...r.forensics!, summary: { ...r.forensics!.summary, date: 'garbage' }, hops: r.forensics!.hops.map((h) => ({ ...h, timestamp: 'garbage' })) } } as ParseStageResult;
-    assert.deepEqual(buildTimeline({ parse: broken }), [], 'no dated source, no events');
-    const none = await parseSubmission({ body: 'hello there, no headers at all' });
-    assert.deepEqual(buildTimeline({ parse: none }), []);
-  });
-
-  it('takes registration, abuse-report and VirusTotal dates from the lookups the page holds', () => {
-    const sender = [
-      { request: {}, checks: [], findings: [], data: { check: 'domain', value: { domain: 'evil.example', registrar: { name: 'Reg Co' }, dates: { registered: '2026-11-01T00:00:00Z' } } } },
-      { request: {}, checks: [], findings: [], data: { check: 'ip', value: { ip: '203.0.113.9', reputation: { lastReportedAt: '2026-11-05T12:00:00Z', totalReports: 4 }, virustotal: { lastAnalysis: '2026-11-04T08:00:00Z', malicious: 3, suspicious: 1 } } } },
-      { request: {}, checks: [], findings: [], data: { check: 'domain', value: { domain: 'nodate.example', dates: { registered: null } } } },
-      { request: {}, checks: [], findings: [], data: null },
-    ];
-    const att = [{ data: { hash: 'a'.repeat(64), virustotal: { observed: true, lastAnalysis: '2026-11-03T08:00:00Z', malicious: 9, suspicious: 0, harmless: 0, undetected: 50 } } }, { data: null }];
-    const t = buildTimeline({ parse: null, senderResults: sender as never, attachmentResults: att as never });
-    assert.deepEqual(t.map((e) => e.kind), ['registration', 'scan', 'scan', 'reputation']);
-    assert.deepEqual(t.map((e) => e.at), ['2026-11-01T00:00:00.000Z', '2026-11-03T08:00:00.000Z', '2026-11-04T08:00:00.000Z', '2026-11-05T12:00:00.000Z']);
-    assert.equal(t.length, 4);
-    assert.ok(t.some((e) => /Domain registered: evil\.example/.test(e.label)));
-    assert.ok(t.some((e) => /Last abuse report for 203\.0\.113\.9/.test(e.label)));
-    assert.ok(t.some((e) => /VirusTotal last analysed attachment aaaaaaaaaaaa/.test(e.label)));
-    assert.ok([...t.map((e) => e.at)].every((x, i, a) => i === 0 || a[i - 1] <= x));
-  });
-
-  it('removes exact duplicates', () => {
-    const f: Finding = { id: 'a', dimension: 'url', severity: 'low', title: 'Same', detail: 'd', source: 's', exactness: 'exact', reliability: 'low', trust: 'derived', observedAt: '2026-11-06T09:00:00Z' };
-    assert.equal(buildTimeline({ parse: null, findings: [f, { ...f }] }).length, 1);
   });
 });
 
