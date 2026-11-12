@@ -48,7 +48,7 @@ const verdictFill: Record<VerdictLabel, string> = {
   malicious: '#ef4444', suspicious: '#fde047', likely_legitimate: '#22c55e', inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictGaugeHex: Record<VerdictLabel, string> = {
-  malicious: '#f87171', suspicious: '#fbbf24', likely_legitimate: '#34d399',
+  malicious: '#ef4444', suspicious: '#fde047', likely_legitimate: '#34d399',
   inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictPillBg: Record<VerdictLabel, string> = {
@@ -112,7 +112,7 @@ function SemiGauge({ score, label }: { score: number; label: VerdictLabel }) {
       <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" strokeWidth={18} stroke={color}
         strokeDasharray={arc} strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 1s ease' }} />
       <text x={cx} y={cy - 6} textAnchor="middle" fill="#f5f7fb" fontSize="25" fontWeight="600">{score} / 100</text>
-      <text x={cx} y={cy + 25} textAnchor="middle" fill="#c7d2e8" fontSize="12.5">Risk Score</text>
+      <text x={cx} y={cy + 17} textAnchor="middle" fill="#c7d2e8" fontSize="12.5">Risk Score</text>
     </svg>
   );
 }
