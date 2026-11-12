@@ -4,7 +4,8 @@ import type { Translator } from '../../shared/phishing/language';
 /** Cloudflare Workers AI many-to-many translation model (hosted by Cloudflare, zero data retention). */
 export const TRANSLATE_MODEL = '@cf/meta/m2m100-1.2b';
 const PER_CALL_MS = 15_000;
-const PARALLEL = 4;
+/** Calls in flight at once (Workers AI allows roughly 720 translation requests a minute per account). */
+const PARALLEL = 8;
 
 const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
@@ -19,18 +20,29 @@ export function workersAiTranslator(env: Env): Translator | undefined {
   if (!ai || env.TRANSLATE_CONTENT === 'false') return undefined;
   return async (texts, source) => {
     const out: string[] = new Array(texts.length).fill('');
+    const started = Date.now();
+    const chars = texts.reduce((n, t) => n + t.length, 0);
+    // Timing only (language, piece count, characters, milliseconds), never any of the e-mail text. Visible in the
+    // Cloudflare dashboard: Workers & Pages > threatlens > Logs, search "[translate]".
+    const log = (ok: boolean, extra = '') =>
+      console.log(`[translate] ${source}->en ${ok ? 'ok' : 'failed'} pieces=${texts.length} chars=${chars} ms=${Date.now() - started} parallel=${PARALLEL}${extra}`);
     try {
-      for (let i = 0; i < texts.length; i += PARALLEL) {
-        await Promise.all(texts.slice(i, i + PARALLEL).map(async (text, k) => {
-          const r = await withTimeout(ai.run(TRANSLATE_MODEL, { text, source_lang: source, target_lang: 'en' }), PER_CALL_MS) as { translated_text?: unknown; result?: { translated_text?: unknown } } | null;
+      // A small pool: PARALLEL calls always in flight, the next piece starts as soon as one finishes.
+      let next = 0;
+      const worker = async () => {
+        while (next < texts.length) {
+          const i = next++;
+          const r = await withTimeout(ai.run(TRANSLATE_MODEL, { text: texts[i], source_lang: source, target_lang: 'en' }), PER_CALL_MS) as { translated_text?: unknown; result?: { translated_text?: unknown } } | null;
           const t = r?.translated_text ?? r?.result?.translated_text;
-          out[i + k] = typeof t === 'string' ? t : '';
-        }));
-      }
+          out[i] = typeof t === 'string' ? t : '';
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PARALLEL, texts.length) }, worker));
     } catch (e) {
-      console.warn(`[translate] ${source}->en failed: ${e instanceof Error ? e.message : String(e)}`);
+      log(false, ` error=${JSON.stringify(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
       return null;
     }
+    log(true);
     return out;
   };
 }

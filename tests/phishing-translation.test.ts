@@ -220,3 +220,25 @@ test('Chinese, Japanese, Korean and Thai go in smaller pieces so m2m100 does not
   assert.ok(req.pieces.length > 120 && !!validatePretranslated({ source: 'ja', pieces: req.pieces, out: req.pieces }), `${req.pieces.length} pieces`);
   void count;
 });
+
+test('Workers AI translator keeps 8 calls in flight, keeps order, and logs timing without any e-mail text', async () => {
+  let inFlight = 0, peak = 0;
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...a: unknown[]) => { lines.push(a.join(' ')); };
+  try {
+    const t = workersAiTranslator({ AI: { run: async (_m: string, i: Record<string, unknown>) => {
+      inFlight++; peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5 + Math.floor(Math.random() * 10)));
+      inFlight--;
+      return { translated_text: `EN:${String(i.text)}` };
+    } } } as never)!;
+    const pieces = Array.from({ length: 20 }, (_, i) => `secret piece ${i}`);
+    const out = await t(pieces, 'ja');
+    assert.deepEqual(out, pieces.map((p) => `EN:${p}`));
+    assert.equal(peak, 8);
+  } finally { console.log = orig; }
+  const line = lines.find((l) => l.startsWith('[translate]'))!;
+  assert.match(line, /ja->en ok pieces=20 chars=\d+ ms=\d+ parallel=8/);
+  assert.ok(!lines.join('\n').includes('secret'), 'no e-mail text in logs');
+});
