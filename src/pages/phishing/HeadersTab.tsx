@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { dmyLocal } from '../../../shared/dates';
 import { Card, Badge, KV, Empty, Spinner, Copyable, type Tone } from '../../components/ui';
 import { navigate } from '../../lib/router';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
@@ -100,7 +101,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 
 const na = <span className="text-faint">not available</span>;
 const pct = (n: number) => `${n}%`;
-const date = (s: string | null | undefined) => (s && !Number.isNaN(Date.parse(s)) ? new Date(s).toLocaleDateString() : '—');
+const date = (s: string | null | undefined) => (s && !Number.isNaN(Date.parse(s)) ? dmyLocal(s) ?? '—' : '—');
 
 function IpCard({ v, role, trust, findings }: { v: IpLookup; role: string; trust: string; findings: Finding[] }) {
   const risk = assessIpRisk(v);

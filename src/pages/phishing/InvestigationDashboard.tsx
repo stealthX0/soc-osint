@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { dmyTimeLocal } from '../../../shared/dates';
 import { Badge, Copyable, type Tone } from '../../components/ui';
 import { Icon, type IconName } from '../../components/icons';
 import type { ParseStageResult } from '../../../shared/phishing/parse';
@@ -212,7 +213,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           <div className="text-base font-bold text-fg leading-snug">Email Investigation Dashboard</div>
         </div>
         <div className="flex items-center gap-4 text-xs text-muted">
-          <span>{new Date(startedAt).toLocaleString()}</span>
+          <span>{dmyTimeLocal(startedAt)}</span>
         </div>
       </header>
 
@@ -233,7 +234,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
             </div>
             <div className="space-y-2.5 px-4 py-3">
               <SFieldRow label="Case ID" value={caseId} mono />
-              <SFieldRow label="Analyzed At" value={new Date(startedAt).toLocaleString()} />
+              <SFieldRow label="Analyzed At" value={dmyTimeLocal(startedAt) ?? ''} />
               <SFieldRow label="Analysis Time" value={`${analysisTime} seconds`} />
             </div>
           </div>

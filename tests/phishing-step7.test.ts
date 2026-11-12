@@ -171,7 +171,7 @@ describe('the three renderers', () => {
     const { report } = await fixture();
     const t = renderTicketText(report);
     assert.match(t, /^SPECTRIX PHISHING INVESTIGATION/);
-    assert.match(t, /Date: 2026-11-07 10:30 UTC/);
+    assert.match(t, /Date: 07\/11\/2026 10:30 UTC/);
     assert.match(t, new RegExp(`Verdict: ${report.verdict.labelText}`));
     assert.match(t, /Risk: \d+\/100 · Confidence: (low|medium|high)/);
     assert.match(t, /\nWHY\n1\. \[/);

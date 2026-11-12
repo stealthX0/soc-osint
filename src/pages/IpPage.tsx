@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, Copyable, IssueList, ProviderStrip, DataTable, Empty } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, Copyable, IssueList, ProviderStrip, DataTable, Empty, fmtDate } from '../components/ui';
 import { Icon } from '../components/icons';
 import { Result } from '../components/Result';
 import { useApi } from '../lib/hooks';
@@ -129,7 +129,7 @@ export default function IpPage() {
                           <div><p className="mb-1 text-xs text-muted">Risk factors</p>
                             <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted">{d.pulsedive.riskFactors.map((r) => <li key={r.description}>{r.description}</li>)}</ul></div>
                         )}
-                        <KV rows={[['Last seen', d.pulsedive.lastSeen], ['Last updated', d.pulsedive.lastUpdated]]} />
+                        <KV rows={[['Last seen', fmtDate(d.pulsedive.lastSeen)], ['Last updated', fmtDate(d.pulsedive.lastUpdated)]]} />
                         <a href={d.pulsedive.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-teal hover:underline">Open in Pulsedive <Icon name="ext" size={13} /></a>
                         <p className="text-[11px] text-faint">Risk is Pulsedive&apos;s own rating from feeds and scans. &quot;Unknown&quot; or &quot;none&quot; means no evidence was found, not that the address is safe.</p>
                       </div>

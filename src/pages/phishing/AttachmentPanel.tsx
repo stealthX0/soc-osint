@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { dmyUtc } from '../../../shared/dates';
 import { Badge, Card, Copyable, DataTable, Empty, Spinner, type Tone } from '../../components/ui';
 import { Icon } from '../../components/icons';
 import { api, ApiClientError } from '../../lib/api';
@@ -36,7 +37,7 @@ const knownToVt = (res: AttachmentHashResponse | null | undefined): string | nul
   const at = vt.lastAnalysis ? Date.parse(vt.lastAnalysis) : NaN;
   if (!Number.isFinite(at) || Date.now() - at > KNOWN_REPORT_MAX_AGE_MS) return null;
   const total = vt.malicious + vt.suspicious + vt.harmless + vt.undetected;
-  return `VirusTotal already scanned this exact file on ${new Date(at).toISOString().slice(0, 10)} (${vt.malicious} of ${total} engines flag it); that report is used instead of a new upload.`;
+  return `VirusTotal already scanned this exact file on ${dmyUtc(at)} (${vt.malicious} of ${total} engines flag it); that report is used instead of a new upload.`;
 };
 const sleep = (ms: number, alive: () => boolean) => new Promise<void>((res) => {
   const end = Date.now() + ms;

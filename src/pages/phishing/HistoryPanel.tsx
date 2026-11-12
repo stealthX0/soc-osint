@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { dmyTimeUtc } from '../../../shared/dates';
 import { Badge, Empty, type Tone } from '../../components/ui';
 import { clearHistory, deleteFromHistory, loadHistory, summarizeEntry, type HistoryEntry } from '../../lib/phishingHistory';
 import { renderJson, renderMarkdown, renderTicketText, reportFilename } from '../../../shared/phishing/report';
@@ -36,7 +37,7 @@ export function HistoryPanel({ enabled, setEnabled, version, onChange }: { enabl
               return (
                 <li key={e.id} className="rounded-lg border border-line bg-bg2/60 p-3">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-mono text-xs text-muted">{row.date.slice(0, 16).replace('T', ' ')} UTC</span>
+                    <span className="font-mono text-xs text-muted">{dmyTimeUtc(row.date)}</span>
                     <Badge tone={labelTone[row.label]}>{row.labelText}</Badge>
                     <Badge>risk {row.risk}/100</Badge>
                     <span className="min-w-0 flex-1 truncate" title={row.subject}>{row.subject}</span>

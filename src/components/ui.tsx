@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { dmyTimeUtc } from '../../shared/dates';
 import { Icon } from './icons';
 import type { ProviderStatus, Issue } from '../../shared/types';
 import type { ApiClientError } from '../lib/api';
@@ -267,7 +268,5 @@ export function Grade({ grade, score }: { grade: string; score?: number }) {
 }
 
 export const fmtDate = (iso: string | null | undefined) => {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toISOString().replace('T', ' ').replace(/:\d\d\.\d+Z$/, ' UTC');
+  return dmyTimeUtc(iso);
 };

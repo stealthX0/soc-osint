@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { dmyUtc } from '../../../shared/dates';
 import { Card, Badge, Empty, Spinner } from '../../components/ui';
 import { navigate } from '../../lib/router';
 import { IPQS_RISKY, IPQS_SUSPICIOUS, idOf, labelOf } from '../../../shared/phishing/sender';
@@ -40,7 +41,7 @@ function IpqsCard({ v }: { v: EmailReputation }) {
       <Metric k="Recent abuse" v={v.recentAbuse ? <Badge tone="bad">yes</Badge> : 'no'} />
       <Metric k="In a data breach" v={v.leaked ? <span title="Context only: many genuine addresses have been in a breach">yes</span> : 'no'} />
       <Metric k="Spam-trap risk" v={v.honeypot ? 'likely spam trap' : v.spamTrapScore ?? 'unknown'} />
-      <Metric k="Domain age" v={v.domainAgeHuman ?? (v.domainRegistered ? v.domainRegistered.slice(0, 10) : 'unknown')} />
+      <Metric k="Domain age" v={v.domainAgeHuman ?? (v.domainRegistered ? dmyUtc(v.domainRegistered) ?? 'unknown' : 'unknown')} />
       <Metric k="First seen by IPQS" v={v.firstSeenHuman ?? 'unknown'} />
       <Metric k="Mail DNS valid" v={yesNo(v.dnsValid)} />
       <Metric k="Deliverability" v={v.deliverability ?? 'unknown'} />

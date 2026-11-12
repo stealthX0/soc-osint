@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { PageHeader, LookupForm, Card, KV, Badge, CopyButton, DataTable, ProviderStrip, Empty, Spinner, ErrorBox, type Tone } from '../components/ui';
+import { PageHeader, LookupForm, Card, KV, Badge, CopyButton, DataTable, ProviderStrip, Empty, Spinner, ErrorBox, type Tone, fmtDate } from '../components/ui';
 import { Icon } from '../components/icons';
 import { Result } from '../components/Result';
 import { NotAvailable } from '../components/NotAvailable';
@@ -140,7 +140,7 @@ function Reputation({ d }: { d: FileReputation }) {
               {(vt.threatLabel || vt.threatNames.length > 0) && (
                 <div className="flex flex-wrap items-center gap-1.5 text-sm"><span className="text-muted">Threat label:</span>{vt.threatLabel && <Badge tone="bad">{vt.threatLabel}</Badge>}{vt.threatNames.map((n) => <Badge key={n} tone="warn">{n}</Badge>)}{vt.threatCategories.map((n) => <Badge key={n}>{n}</Badge>)}</div>
               )}
-              <KV rows={[['Type', vt.typeDescription], ['Common name', vt.meaningfulName], ['Other names', vt.names.filter((n) => n !== vt.meaningfulName).join(', ') || null], ['Size', vt.size !== null ? fmtBytes(vt.size) : null], ['First seen', vt.firstSeen], ['Last analysed', vt.lastAnalysis], ['Submissions', vt.timesSubmitted !== null ? String(vt.timesSubmitted) : null], ['Community score', vt.reputation !== null ? String(vt.reputation) : null], ['Tags', vt.tags.join(', ') || null]]} />
+              <KV rows={[['Type', vt.typeDescription], ['Common name', vt.meaningfulName], ['Other names', vt.names.filter((n) => n !== vt.meaningfulName).join(', ') || null], ['Size', vt.size !== null ? fmtBytes(vt.size) : null], ['First seen', fmtDate(vt.firstSeen)], ['Last analysed', fmtDate(vt.lastAnalysis)], ['Submissions', vt.timesSubmitted !== null ? String(vt.timesSubmitted) : null], ['Community score', vt.reputation !== null ? String(vt.reputation) : null], ['Tags', vt.tags.join(', ') || null]]} />
               <a href={vt.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-teal hover:underline">Open in VirusTotal <Icon name="ext" size={13} /></a>
               <p className="text-[11px] text-faint">Detections come from third-party engines and can include false positives. Zero detections does not prove a file is safe.</p>
             </div>
@@ -152,7 +152,7 @@ function Reputation({ d }: { d: FileReputation }) {
           {d.malwarebazaar ? (d.malwarebazaar.observed ? (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-1.5"><Badge tone="bad">known malware sample</Badge>{d.malwarebazaar.signature && <Badge tone="warn">{d.malwarebazaar.signature}</Badge>}{d.malwarebazaar.tags.map((t) => <Badge key={t}>{t}</Badge>)}</div>
-              <KV rows={[['File name', d.malwarebazaar.fileName], ['Type', d.malwarebazaar.fileType], ['First seen', d.malwarebazaar.firstSeen], ['Reporter', d.malwarebazaar.reporter], ['Delivery', d.malwarebazaar.deliveryMethod], ['Origin', d.malwarebazaar.originCountry], ['ClamAV', d.malwarebazaar.clamav.join(', ') || null]]} />
+              <KV rows={[['File name', d.malwarebazaar.fileName], ['Type', d.malwarebazaar.fileType], ['First seen', fmtDate(d.malwarebazaar.firstSeen)], ['Reporter', d.malwarebazaar.reporter], ['Delivery', d.malwarebazaar.deliveryMethod], ['Origin', d.malwarebazaar.originCountry], ['ClamAV', d.malwarebazaar.clamav.join(', ') || null]]} />
               <a href={d.malwarebazaar.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-teal hover:underline">Open in MalwareBazaar <Icon name="ext" size={13} /></a>
             </div>
           ) : <p className="text-sm text-muted">Not in MalwareBazaar&apos;s database of reported malware samples. That is not a clean verdict.</p>

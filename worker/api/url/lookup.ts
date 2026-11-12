@@ -1,4 +1,5 @@
 import { ok, route } from '../../_lib/respond';
+import { dmyUtc } from '../../../shared/dates';
 import { ApiError, badInput } from '../../_lib/errors';
 import { param } from '../../_lib/input';
 import { cached } from '../../_lib/cache';
@@ -149,7 +150,7 @@ async function virusTotal(env: Env, p: ParsedUrl): Promise<{ data: NonNullable<I
   };
 
   const signals: UrlSignal[] = [];
-  const detail = [engines.length && `Engines: ${engines.slice(0, 5).join(', ')}`, last && `Last analysed ${last.toISOString().slice(0, 10)}`].filter(Boolean).join(' · ');
+  const detail = [engines.length && `Engines: ${engines.slice(0, 5).join(', ')}`, last && `Last analysed ${dmyUtc(last)}`].filter(Boolean).join(' · ');
   const link = data.link ?? undefined;
   if (malicious >= 5) signals.push(sig('virustotal', 'vt-malicious', 'critical', `${malicious} security engines flag this URL as malicious`, detail, { link }));
   else if (malicious >= 2) signals.push(sig('virustotal', 'vt-malicious', 'high', `${malicious} security engines flag this URL as malicious`, detail, { link }));
@@ -233,7 +234,7 @@ async function urlscan(env: Env, p: ParsedUrl): Promise<{ data: NonNullable<Inte
 
   const signals: UrlSignal[] = [];
   if (latest.malicious) {
-    const when = latest.date ? latest.date.slice(0, 10) : 'an earlier date';
+    const when = latest.date ? dmyUtc(latest.date) ?? latest.date : 'an earlier date';
     const detail = [latest.categories.length && `Categories: ${latest.categories.join(', ')}`, latest.brands.length && `Targets: ${latest.brands.join(', ')}`, `Scanned ${when}`].filter(Boolean).join(' · ');
     signals.push(exact.length
       ? sig('urlscan', 'urlscan-malicious', 'high', 'urlscan.io scanned this URL and judged it malicious', detail, { link: resultUrl })

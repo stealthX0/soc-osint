@@ -9,6 +9,7 @@
  *  - it states that the scoring weights are uncalibrated decision support, and never calls a message "safe" or "clean".
  */
 import { defang } from '../domain';
+import { dmyTimeUtc } from '../dates';
 import { VERDICT_TEXT, HIGH_RISK_LABEL, labelTextOf, type Verdict, type VerdictLabel } from './verdict';
 import type { ParseStageResult } from './parse';
 import type { Dimension, Finding, Severity, TrustLevel } from './types';
@@ -205,7 +206,7 @@ export function parseStoredReport(raw: unknown): Report | null {
 
 const SEV_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const day = (isoDate: string) => isoDate.slice(0, 10);
-const utc = (isoDate: string) => `${isoDate.slice(0, 10)} ${isoDate.slice(11, 16)} UTC`;
+const utc = (isoDate: string) => dmyTimeUtc(isoDate) ?? isoDate;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const oneLine = (x: string) => x.replace(/\s+/g, ' ').trim();
 
