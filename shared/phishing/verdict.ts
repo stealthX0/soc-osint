@@ -88,10 +88,11 @@ export interface Verdict {
   rule: RuleHit | null;
   /**
    * Set when a Suspicious verdict matches a high-risk pattern (business email compromise with a corroborating sender signal,
-   * or strong evidence from several independent areas). The label stays Suspicious: nothing is confirmed by threat
-   * intelligence, but the message should be handled as a likely attack.
+   * a security DNS block agreeing with a scanning engine on the same destination, or strong evidence from several
+   * independent areas). The label stays Suspicious: nothing is confirmed by threat intelligence, but the message should
+   * be handled as a likely attack.
    */
-  highRisk: { id: 'bec_pattern' | 'convergent_evidence'; title: string; detail: string } | null;
+  highRisk: { id: 'bec_pattern' | 'convergent_evidence' | 'dns_block_with_engine_hit'; title: string; detail: string } | null;
   reasons: Reason[];
   mitigating: string[];
   conflicts: string[];
@@ -354,8 +355,21 @@ export function computeVerdict(input: VerdictInput): Verdict {
     ];
     const corroborated = SENDER_CORROBORATION.filter(([id, min]) => has(id, min)).map(([, , why]) => why);
     const strongAreas = dims.filter((d) => d.active && d.score >= T.convergentAreaScore);
+    // A reliable categorical DNS blocklist hit and a named scanning engine, agreeing on the exact same destination, are
+    // more than two weak signals happening to coincide — even when the engine consensus alone is too thin (one engine
+    // out of several) to clear the bars that confirmation_url / independent_confirmation require on their own.
+    const dnsBlocked = byId((f) => norm(f.id) === 'url_dns_blocked' && f.exactness === 'exact' && !!f.indicator);
+    const engineHits = byId((f) => norm(f.id) === 'url_engine_detections' && atLeast(f.severity, 'medium') && f.exactness === 'exact' && !!f.indicator);
+    const dnsEngineMatch = dnsBlocked.find((d) => engineHits.some((e) => e.indicator!.value === d.indicator!.value));
     if (has('bec_payment_reply_redirect') && corroborated.length) {
       highRisk = { id: 'bec_pattern', title: 'High risk: matches business email compromise (invoice / payment fraud)', detail: `The message asks for payment, sends replies to a different organisation, and ${corroborated.slice(0, 2).join(' and ')}.` };
+    } else if (dnsEngineMatch) {
+      const matchingEngines = engineHits.filter((e) => e.indicator!.value === dnsEngineMatch.indicator!.value);
+      highRisk = {
+        id: 'dns_block_with_engine_hit',
+        title: 'High risk: a security DNS block and a scanning engine both flag the same link',
+        detail: `A security DNS resolver blocks ${dnsEngineMatch.indicator!.value} as malware or phishing, and ${matchingEngines.length > 1 ? 'scanning engines independently' : 'a scanning engine independently'} flag the same destination, even though the engine consensus alone is not strong enough to confirm it outright.`,
+      };
     } else if (strongAreas.length >= 3 && risk >= T.convergentRisk) {
       highRisk = { id: 'convergent_evidence', title: 'High risk: strong warning signs from several independent areas', detail: `${strongAreas.map((d) => d.dimension).join(', ')} each point to an attack, although no single item is confirmed by threat intelligence.` };
     }

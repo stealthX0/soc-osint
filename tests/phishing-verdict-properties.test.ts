@@ -101,6 +101,41 @@ test('strong evidence from three independent areas is high-risk Suspicious', asy
   assert.equal(v.highRisk?.id, 'convergent_evidence');
 });
 
+/* ---- high-risk Suspicious: a security DNS block agreeing with a weak scanning-engine hit on the same URL (13 Nov) ---- */
+
+test('a security DNS block and a weak scanning-engine hit on the same URL are high-risk Suspicious, never Malicious', async () => {
+  const url = 'https://confirm-account.example/verify';
+  const fs = [
+    lookup('url_dns_blocked', 'high', 'url', { source: 'Cloudflare Security DNS', reliability: 'medium', indicator: { type: 'url', value: url } }),
+    lookup('url_engine_detections', 'medium', 'url', { source: 'VirusTotal', reliability: 'low', indicator: { type: 'url', value: url } }),
+  ];
+  const v = await verdictOf({ headers: mail({ from: 'a@b.example' }), body: `Please confirm: ${url}` }, fs, [...SENDER_DONE, ...LINKS_DONE]);
+  assert.notEqual(v.label, 'malicious');
+  assert.equal(v.label, 'suspicious');
+  assert.equal(v.highRisk?.id, 'dns_block_with_engine_hit');
+  assert.ok(v.risk >= THRESHOLDS.highRiskFloor && v.risk <= THRESHOLDS.nonMaliciousCap, String(v.risk));
+  assert.match(v.headline, /security DNS block/);
+});
+
+test('the DNS-block + engine-hit pattern needs both signals on the same URL; either one alone is ordinary at most', async () => {
+  const url = 'https://a.example/x';
+  const dnsOnly = [lookup('url_dns_blocked', 'high', 'url', { indicator: { type: 'url', value: url } })];
+  const v1 = await verdictOf({ headers: mail({ from: 'a@b.example' }), body: `see ${url}` }, dnsOnly, [...SENDER_DONE, ...LINKS_DONE]);
+  assert.equal(v1.highRisk, null, 'a DNS block with no corroborating engine hit does not trigger the pattern');
+
+  const engineOnly = [lookup('url_engine_detections', 'medium', 'url', { indicator: { type: 'url', value: url } })];
+  const v2 = await verdictOf({ headers: mail({ from: 'a@b.example' }), body: `see ${url}` }, engineOnly, [...SENDER_DONE, ...LINKS_DONE]);
+  assert.equal(v2.highRisk, null, 'a weak engine hit with no DNS block does not trigger the pattern');
+
+  // same two findings, but on two different URLs: must not match across URLs
+  const mismatched = [
+    lookup('url_dns_blocked', 'high', 'url', { indicator: { type: 'url', value: 'https://one.example/' } }),
+    lookup('url_engine_detections', 'medium', 'url', { indicator: { type: 'url', value: 'https://two.example/' } }),
+  ];
+  const v3 = await verdictOf({ headers: mail({ from: 'a@b.example' }), body: 'see https://one.example/ and https://two.example/' }, mismatched, [...SENDER_DONE, ...LINKS_DONE]);
+  assert.equal(v3.highRisk, null, 'the DNS block and the engine hit must be on the exact same URL');
+});
+
 test('exports carry the high-risk label', async () => {
   const s = CORPUS.find((x) => x.id.startsWith('S28'))!;
   const parse = await parseSubmission(s.input);
