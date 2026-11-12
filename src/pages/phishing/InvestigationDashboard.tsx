@@ -52,8 +52,8 @@ const verdictGaugeHex: Record<VerdictLabel, string> = {
   inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictPillBg: Record<VerdictLabel, string> = {
-  malicious: 'bg-[#ef4444]/40 text-white',
-  suspicious: 'bg-[#facc15]/30 text-white',
+  malicious: 'bg-[#ef4444] text-white',
+  suspicious: 'bg-[#facc15] text-[#1f1a00]',
   likely_legitimate: 'bg-green/30 text-white',
   inconclusive: 'bg-sky/30 text-white',
   analysis_unavailable: 'bg-line/60 text-fg',
