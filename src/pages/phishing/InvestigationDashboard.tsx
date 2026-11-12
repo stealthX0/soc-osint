@@ -24,13 +24,13 @@ import type { AttachmentStage } from './AttachmentPanel';
 /* ─── colour maps ─── */
 const verdictTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
 const verdictAccent: Record<VerdictLabel, string> = {
-  malicious: 'text-[#ef4444]', suspicious: 'text-[#fde047]', likely_legitimate: 'text-green',
+  malicious: 'text-[#ef4444]', suspicious: 'text-[#facc15]', likely_legitimate: 'text-green',
   inconclusive: 'text-sky', analysis_unavailable: 'text-muted',
 };
 /** Verdict card: tinted gradient, coloured border and a soft glow in the verdict colour. */
 const verdictBannerBg: Record<VerdictLabel, string> = {
   malicious: 'border-[#ef4444]/80 bg-gradient-to-r from-[#ef4444]/30 via-[#ef4444]/15 to-[#ef4444]/10 shadow-[0_0_24px_-6px_rgba(239,68,68,0.5)]',
-  suspicious: 'border-[#fde047]/70 bg-gradient-to-r from-[#fde047]/22 via-[#fde047]/10 to-[#fde047]/6 shadow-[0_0_24px_-6px_rgba(253,224,71,0.4)]',
+  suspicious: 'border-[#facc15]/70 bg-gradient-to-r from-[#facc15]/25 via-[#facc15]/12 to-[#facc15]/8 shadow-[0_0_24px_-6px_rgba(250,204,21,0.45)]',
   likely_legitimate: 'border-green/70 bg-gradient-to-r from-green/25 via-green/12 to-green/8 shadow-[0_0_24px_-6px_rgba(52,211,153,0.4)]',
   inconclusive: 'border-sky/70 bg-gradient-to-r from-sky/25 via-sky/12 to-sky/8 shadow-[0_0_24px_-6px_rgba(56,189,248,0.4)]',
   analysis_unavailable: 'border-line bg-gradient-to-r from-line/40 to-line/15',
@@ -45,22 +45,22 @@ const verdictTitle: Record<VerdictLabel, string> = {
 };
 /** Solid fill for the verdict icon. */
 const verdictFill: Record<VerdictLabel, string> = {
-  malicious: '#ef4444', suspicious: '#fde047', likely_legitimate: '#22c55e', inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
+  malicious: '#ef4444', suspicious: '#facc15', likely_legitimate: '#22c55e', inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictGaugeHex: Record<VerdictLabel, string> = {
-  malicious: '#ef4444', suspicious: '#fde047', likely_legitimate: '#34d399',
+  malicious: '#ef4444', suspicious: '#facc15', likely_legitimate: '#34d399',
   inconclusive: '#38bdf8', analysis_unavailable: '#56688d',
 };
 const verdictPillBg: Record<VerdictLabel, string> = {
   malicious: 'bg-[#ef4444]/40 text-white',
-  suspicious: 'bg-[#fde047]/30 text-white',
+  suspicious: 'bg-[#facc15]/30 text-white',
   likely_legitimate: 'bg-green/30 text-white',
   inconclusive: 'bg-sky/30 text-white',
   analysis_unavailable: 'bg-line/60 text-fg',
 };
 /** Solid classification pill in the Detailed Analysis overview. */
 const verdictSolidPill: Record<VerdictLabel, string> = {
-  malicious: 'bg-[#b91c1c] text-white', suspicious: 'bg-[#b45309] text-white', likely_legitimate: 'bg-[#15803d] text-white',
+  malicious: 'bg-[#ef4444] text-white', suspicious: 'bg-[#facc15] text-[#1f1a00]', likely_legitimate: 'bg-[#15803d] text-white',
   inconclusive: 'bg-[#0369a1] text-white', analysis_unavailable: 'bg-line text-fg',
 };
 const verdictWord: Record<VerdictLabel, string> = {

@@ -75,7 +75,7 @@ export function KeyFindings({ areas, onOpen }: { areas: AreaState[]; onOpen: (ta
   );
 }
 
-const barFill: Record<Tone, string> = { bad: 'bg-[#ef4444]', warn: 'bg-[#fde047]', good: 'bg-green', info: 'bg-sky', accent: 'bg-teal', neutral: 'bg-line2' };
+const barFill: Record<Tone, string> = { bad: 'bg-[#ef4444]', warn: 'bg-[#facc15]', good: 'bg-green', info: 'bg-sky', accent: 'bg-teal', neutral: 'bg-line2' };
 
 /** How much each area contributed: the dimension scores behind the overall risk score. */
 export function RiskByArea({ areas, onOpen }: { areas: AreaState[]; onOpen: (tab: AnalysisTab) => void }) {
