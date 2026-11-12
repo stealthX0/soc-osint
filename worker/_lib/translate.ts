@@ -7,7 +7,12 @@ const PER_CALL_MS = 15_000;
 /** Calls in flight at once (Workers AI allows roughly 720 translation requests a minute per account). */
 const PARALLEL = 8;
 
-const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+/** Rejects after `ms`; the timer is always cleared, so a finished call leaves nothing running. */
+const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('timeout')), ms); });
+  return Promise.race([p, timeout]).finally(() => { if (timer !== undefined) clearTimeout(timer); });
+};
 
 /**
  * A Translator backed by Workers AI, or undefined when the AI binding is missing or TRANSLATE_CONTENT is "false".

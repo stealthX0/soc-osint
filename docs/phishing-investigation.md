@@ -273,4 +273,4 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 
 ## 9. Tests
 
-`npm test` runs everything. The phishing suites are `tests/phishing-*.test.ts`: parsing and forensics (step1), sender intelligence (step2), URL intelligence (step3), attachments (step4), wording (step5), the verdict engine (step6), the calibration corpus, hardening and fuzzing, and this documentation. `npm run calibrate:phishing` prints the calibration report.
+`npm test` runs everything in one process (about 5 seconds); `npm run test:isolated` runs each file in its own process (slower, about 10 seconds) if a test ever seems to depend on another file's leftovers. The phishing suites are `tests/phishing-*.test.ts`: parsing and forensics (step1), sender intelligence (step2), URL intelligence (step3), attachments (step4), wording (step5), the verdict engine (step6), the calibration corpus, hardening and fuzzing, and this documentation. `npm run calibrate:phishing` prints the calibration report.
