@@ -6,8 +6,9 @@ import { Badge, type Tone } from '../../components/ui';
 import { Icon, type IconName } from '../../components/icons';
 import type { Dimension, Finding, Severity } from '../../../shared/phishing/types';
 import type { Verdict } from '../../../shared/phishing/verdict';
-import { summarizeReasoning, tidy } from '../../../shared/phishing/summary';
+import { summarizeReasoning } from '../../../shared/phishing/summary';
 import { bySeverity, sevTone } from './common';
+import { glance } from './keyFindingGlance';
 
 /** The analysis tabs. Exported so the dashboard and the Key Findings cards agree on ids. */
 export type AnalysisTab = 'overview' | 'sender' | 'urls' | 'attachments' | 'domain' | 'content' | 'evidence';
@@ -15,7 +16,6 @@ export type AnalysisTab = 'overview' | 'sender' | 'urls' | 'attachments' | 'doma
 export const AREA_LABEL: Record<Dimension, string> = {
   authentication: 'Authentication', infrastructure: 'Infrastructure', url: 'Links', attachment: 'Attachments', content: 'Content',
 };
-const AREA_ICON: Record<Dimension, IconName> = { authentication: 'lock', infrastructure: 'globe', url: 'shield', attachment: 'file', content: 'eye' };
 /** Where the detail for each area lives. */
 export const AREA_TAB: Record<Dimension, AnalysisTab> = { authentication: 'domain', infrastructure: 'domain', url: 'urls', attachment: 'attachments', content: 'content' };
 const AREA_ORDER: Dimension[] = ['authentication', 'url', 'attachment', 'infrastructure', 'content'];
@@ -34,11 +34,12 @@ export function areaStates(verdict: Verdict, findings: Finding[]): AreaState[] {
   });
 }
 
-const iconBg: Record<Tone, string> = { bad: 'bg-rose/15 text-rose', warn: 'bg-amber/15 text-amber', good: 'bg-green/15 text-green', info: 'bg-sky/15 text-sky', accent: 'bg-teal/15 text-teal', neutral: 'bg-line/30 text-muted' };
+const glanceIcon: Record<Dimension, IconName> = { authentication: 'mail', infrastructure: 'globe', url: 'link', attachment: 'file', content: 'warn' };
+const glanceColor: Record<Tone, string> = { bad: 'text-[#ef4444]', warn: 'text-[#facc15]', good: 'text-green', info: 'text-sky', accent: 'text-teal', neutral: 'text-muted' };
 
 /**
- * One card per area that has findings or was assessed, strongest first. Each card names the top finding, says how many
- * more there are, and opens the tab that holds the detail.
+ * One card per area that has findings or was assessed, strongest first: a big icon coloured by the area's risk, a short
+ * plain-language headline and one summary line. The technical detail lives in the tab each card opens.
  */
 export function KeyFindings({ areas, onOpen }: { areas: AreaState[]; onOpen: (tab: AnalysisTab) => void }) {
   const shown = areas.filter((a) => a.active || a.findings.length > 0)
@@ -47,27 +48,16 @@ export function KeyFindings({ areas, onOpen }: { areas: AreaState[]; onOpen: (ta
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
       {shown.map((a) => {
-        const top = a.findings[0];
-        const more = a.findings.length - 1;
-        const desc = top?.detail ?? (a.active ? 'No warning signs were found in this area.' : 'Not assessed: the checks for this area returned no data.');
+        const g = glance(a.dim, a.tone, a.active, a.findings);
+        const quiet = a.tone === 'good' || a.tone === 'neutral';
         return (
-          <button key={a.dim} type="button" onClick={() => onOpen(AREA_TAB[a.dim])}
-            className="group flex flex-col justify-start rounded-xl border border-line/60 bg-[#0b1426] p-4 text-left transition-colors hover:border-line2 hover:bg-[#0e1930] focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky">
-            <div className="flex items-start gap-3">
-              <div className={`grid size-10 shrink-0 place-items-center rounded-full ${iconBg[a.tone]}`}><Icon name={AREA_ICON[a.dim]} size={20} /></div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">{AREA_LABEL[a.dim]}</span>
-                  {top && <Badge tone={sevTone[top.severity]}>{top.severity}</Badge>}
-                </div>
-                <div className="mt-1 text-sm font-bold leading-snug text-fg">{top ? tidy(top.title) : AREA_LABEL[a.dim]}</div>
-                <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted">{desc}</p>
-                <div className="mt-2 flex items-center gap-1 text-[11px] text-sky/90 group-hover:text-sky">
-                  {more > 0 ? `+${more} more finding${more === 1 ? '' : 's'}` : 'View details'}
-                  <Icon name="arrow" size={12} />
-                </div>
-              </div>
-            </div>
+          <button key={a.dim} type="button" onClick={() => onOpen(AREA_TAB[a.dim])} title={`Open ${AREA_LABEL[a.dim]} details`}
+            className={`flex items-start gap-4 rounded-xl border border-line/60 bg-[#0f1a31] px-5 py-4 text-left transition-colors hover:border-line2 hover:bg-[#13203b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky ${quiet ? 'opacity-75' : ''}`}>
+            <span className={`mt-0.5 shrink-0 ${glanceColor[a.tone]}`}><Icon name={a.dim === 'content' && quiet ? 'eye' : glanceIcon[a.dim]} size={30} strokeWidth={1.8} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-bold leading-snug text-fg">{g.headline}</span>
+              <span className="mt-1 line-clamp-2 block text-sm leading-relaxed text-fg/75">{g.summary}</span>
+            </span>
           </button>
         );
       })}

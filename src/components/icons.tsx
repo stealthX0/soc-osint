@@ -28,6 +28,7 @@ const P: Record<string, string> = {
   filter: 'M3 5h18l-7 8v6l-4 2v-8z',
   chevron: 'M6 9l6 6 6-6',
   file: 'M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 17h6',
+  link: 'M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2',
 };
 
 export type IconName = keyof typeof P | string;
