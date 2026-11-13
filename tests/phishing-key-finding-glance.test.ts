@@ -55,7 +55,18 @@ test('reputation hits say "Malicious" only when critical, or high on a Malicious
 });
 
 test('factual checks keep strong wording at high severity and soften at medium', () => {
-  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'high', 'x')]).headline, 'Dangerous Attachment');
-  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'medium', 'x')]).headline, 'Risky Attachment Type');
+  assert.equal(glance('authentication', 'warn', true, [f('sender_domain_lookalike', 'high', 'x')]).headline, 'Impersonated Sender');
   assert.equal(glance('authentication', 'warn', true, [f('sender_domain_lookalike', 'medium', 'x')]).headline, 'Possible Impersonation');
+});
+
+test('a file type is described, not judged; a disguise outranks the type; "malware" needs a reputation hit', () => {
+  const exe = f('attachment_dangerous_type', 'high', 'Attachment is a program, script or launcher (.exe)');
+  assert.deepEqual(glance('attachment', 'warn', true, [exe]), { headline: 'Executable Attachment', summary: 'Attachment is a program, script or launcher (.exe)' });
+  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'high', 'Attachment is a program, script or launcher (.ps1)')]).headline, 'Script Attachment');
+  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'medium', 'Attachment is a container or active format often used to evade filters (.zip)')]).headline, 'Archive Attachment');
+  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'medium', 'x (.html)')]).headline, 'Web-Page Attachment');
+  const dbl = f('attachment_double_extension', 'high', 'Double extension ".pdf.exe": a program dressed as a document');
+  assert.equal(glance('attachment', 'warn', true, [exe, dbl]).headline, 'Disguised Attachment');
+  assert.equal(glance('attachment', 'bad', true, [f('attachment_hash_malicious', 'critical', 'x')]).headline, 'Known Malware Attachment');
+  for (const g of [glance('attachment', 'warn', true, [exe]), glance('attachment', 'bad', true, [f('new_thing', 'high', 'x')])]) assert.doesNotMatch(g.headline, /dangerous|malware/i);
 });

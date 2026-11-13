@@ -37,7 +37,7 @@ describe('dashboard verdict area', () => {
     const kf = out.slice(out.indexOf('Key Findings'), out.indexOf('Detailed Analysis'));
     for (const area of ['Authentication', 'Links', 'Attachments', 'Content']) assert.ok(kf.includes(area), area);
     assert.match(kf, /pdf\.exe|program, script or launcher/i, 'the attachment finding reaches Key Findings');
-    for (const h of ['Payment Fraud Request', 'Sender Not Verified', 'Dangerous Attachment', 'Look-alike Link']) assert.ok(kf.includes(h), `plain-language headline: ${h}`);
+    for (const h of ['Payment Fraud Request', 'Sender Not Verified', 'Disguised Attachment', 'Look-alike Link']) assert.ok(kf.includes(h), `plain-language headline: ${h}`);
     assert.doesNotMatch(kf, /The receiving server reported/, 'the long technical detail stays in the tabs');
     assert.doesNotMatch(kf, /looks legitimate/);
   });

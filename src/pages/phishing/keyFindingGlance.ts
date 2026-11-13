@@ -22,8 +22,7 @@ const BY_FINDING: [string, string, string?, boolean?][] = [
   ['attachment_macro_present', 'Macro-Enabled Attachment'],
   ['attachment_double_extension', 'Disguised Attachment'],
   ['attachment_type_mismatch', 'Disguised Attachment'],
-  ['attachment_dangerous_type', 'Dangerous Attachment', 'Risky Attachment Type', true],
-  ['attachment_archive_dangerous_content', 'Dangerous Attachment', 'Risky Attachment Type', true],
+  ['attachment_archive_dangerous_content', 'Executable Inside Archive'],
   ['attachment_password_protected', 'Locked Attachment'],
   ['attachment_hash_suspicious', 'Suspicious Attachment'],
   // links
@@ -111,7 +110,7 @@ const BY_AREA: Record<Dimension, { bad: string; warn: string; minor: string }> =
   authentication: { bad: 'Sender Not Trustworthy', warn: 'Suspicious Sender', minor: 'Minor Sender Notes' },
   infrastructure: { bad: 'Risky Infrastructure', warn: 'Questionable Infrastructure', minor: 'Minor Infrastructure Notes' },
   url: { bad: 'High-Risk Link', warn: 'Suspicious Link', minor: 'Minor Link Notes' },
-  attachment: { bad: 'Dangerous Attachment', warn: 'Suspicious Attachment', minor: 'Minor Attachment Notes' },
+  attachment: { bad: 'High-Risk Attachment', warn: 'Suspicious Attachment', minor: 'Minor Attachment Notes' },
   content: { bad: 'Phishing Wording', warn: 'Suspicious Wording', minor: 'Minor Wording Notes' },
 };
 
@@ -122,8 +121,29 @@ const AREA_NOUN: Record<Dimension, string> = {
 /** Informational findings that still describe the area best (they explain why it scored nothing). */
 const ALWAYS_NAMED = new Set(['internal_m365_message', 'content_language_not_analysed']);
 
+/**
+ * File-type findings say what the file is ("Executable Attachment"), not that it is harmful: legitimate senders do
+ * occasionally send installers or tools. "Malware" wording is kept for files that reputation lookups actually flag.
+ */
+function attachmentTypeHeadline(f: Finding): string {
+  const ext = (/\(\.([a-z0-9]+)\)/i.exec(f.title)?.[1] ?? '').toLowerCase();
+  if (ext === 'lnk') return 'Shortcut Attachment';
+  if (['js', 'jse', 'vbs', 'vbe', 'wsf', 'wsh', 'hta', 'ps1', 'bat', 'cmd', 'reg'].includes(ext)) return 'Script Attachment';
+  if (['zip', 'rar', '7z', 'gz', 'cab'].includes(ext)) return 'Archive Attachment';
+  if (['iso', 'img', 'vhd', 'vhdx'].includes(ext)) return 'Disk Image Attachment';
+  if (['html', 'htm', 'shtml', 'svg'].includes(ext)) return 'Web-Page Attachment';
+  if (['docm', 'xlsm', 'pptm', 'xlam'].includes(ext)) return 'Macro-Enabled Attachment';
+  if (ext === 'one') return 'OneNote Attachment';
+  if (ext) return 'Executable Attachment';
+  return /\b(script|shortcut)\b/i.test(f.title) && !/\bprogram\b/i.test(f.title) ? 'Script Attachment' : 'Executable Attachment';
+}
+
+/** Findings that best explain an area when tied on severity with its top finding (a disguise says more than the type). */
+const PREFERRED = new Set(['attachment_double_extension', 'attachment_type_mismatch']);
+
 function findingHeadline(f: Finding, verdictMalicious: boolean): string | null {
   const n = f.id.toLowerCase();
+  if (n === 'attachment_dangerous_type') return attachmentTypeHeadline(f);
   const sevHigh = f.severity === 'critical' || f.severity === 'high';
   for (const [key, text, softer, factual] of BY_FINDING) {
     if (!(key.endsWith('_') ? n.startsWith(key) : n === key)) continue;
@@ -176,8 +196,9 @@ export function glance(dim: Dimension, tone: Tone, active: boolean, findings: Fi
   const onlyInfo = findings.every((f) => f.severity === 'info');
   if (!named && onlyInfo && (tone === 'good' || !top)) return positive(dim, checks) ?? { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
   if (!top) return { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
+  const lead = findings.find((f) => f.severity === top.severity && PREFERRED.has(f.id.toLowerCase())) ?? top;
   const minor = (top.severity === 'info' || top.severity === 'low') && !named;
   const fallback = dim === 'url' && tone === 'bad' && verdictMalicious ? 'Malicious Link' : BY_AREA[dim][tone === 'bad' ? 'bad' : tone === 'warn' ? 'warn' : 'minor'];
-  const headline = (!minor && findingHeadline(top, verdictMalicious)) || fallback;
-  return { headline, summary: tidy(top.title) };
+  const headline = (!minor && findingHeadline(lead, verdictMalicious)) || fallback;
+  return { headline, summary: tidy(lead.title) };
 }
