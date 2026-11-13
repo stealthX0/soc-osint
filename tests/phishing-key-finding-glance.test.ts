@@ -42,3 +42,20 @@ test('a positive headline never hides a real finding', () => {
   assert.equal(glance('authentication', 'good', true, [f('dkim_weak_algorithm', 'low', 'Weak DKIM key')], auth).headline, 'Minor Sender Notes');
   for (const g of [glance('authentication', 'good', true, [], auth), glance('url', 'good', true, [], [row('urls.deep', 'complete')])]) assert.doesNotMatch(`${g.headline} ${g.summary}`, /safe|clean|legitimate/i);
 });
+
+test('reputation hits say "Malicious" only when critical, or high on a Malicious verdict', () => {
+  const dns = [f('url_dns_blocked', 'high', 'Blocked by Cloudflare Security DNS')];
+  assert.equal(glance('url', 'warn', true, dns, [], false).headline, 'Flagged Link', 'Suspicious verdict: no overclaim');
+  assert.equal(glance('url', 'warn', true, dns, [], true).headline, 'Malicious Link');
+  assert.equal(glance('url', 'warn', true, [f('url_engine_detections', 'medium', 'x')], [], true).headline, 'Flagged Link');
+  assert.equal(glance('url', 'bad', true, [f('url_engine_detections', 'critical', 'x')], [], false).headline, 'Malicious Link');
+  assert.equal(glance('infrastructure', 'warn', true, [f('sender_ip_abuse_reports', 'medium', 'x')]).headline, 'Flagged Sender IP');
+  assert.equal(glance('url', 'bad', true, [f('something_new', 'high', 'x')], [], false).headline, 'High-Risk Link');
+  assert.equal(glance('url', 'bad', true, [f('something_new', 'high', 'x')], [], true).headline, 'Malicious Link');
+});
+
+test('factual checks keep strong wording at high severity and soften at medium', () => {
+  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'high', 'x')]).headline, 'Dangerous Attachment');
+  assert.equal(glance('attachment', 'warn', true, [f('attachment_dangerous_type', 'medium', 'x')]).headline, 'Risky Attachment Type');
+  assert.equal(glance('authentication', 'warn', true, [f('sender_domain_lookalike', 'medium', 'x')]).headline, 'Possible Impersonation');
+});

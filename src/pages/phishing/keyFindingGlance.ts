@@ -8,27 +8,33 @@ import type { Dimension, Finding } from '../../../shared/phishing/types';
 import type { CheckRow } from '../../../shared/phishing/verdict';
 import { tidy } from '../../../shared/phishing/summary';
 
-/** Headline for the strongest finding of an area, matched by finding id (exact id, or an id prefix ending in "_"). */
-const BY_FINDING: [string, string][] = [
+/**
+ * Headline for the strongest finding of an area, matched by finding id (exact id, or an id prefix ending in "_").
+ * A third entry is the softer wording used unless the finding is critical, or high on an email whose verdict is
+ * Malicious, so a single weak detection under a Suspicious verdict reads "Flagged Link", not "Malicious Link".
+ * A fourth entry `true` marks a factual check (file type, look-alike domain): its strong wording holds at high severity
+ * and softens only at medium.
+ */
+const BY_FINDING: [string, string, string?, boolean?][] = [
   // attachments
-  ['attachment_hash_malicious', 'Known Malware Attachment'],
+  ['attachment_hash_malicious', 'Known Malware Attachment', 'Flagged Attachment'],
   ['attachment_html_credential_form', 'Fake Login Attachment'],
   ['attachment_macro_present', 'Macro-Enabled Attachment'],
   ['attachment_double_extension', 'Disguised Attachment'],
   ['attachment_type_mismatch', 'Disguised Attachment'],
-  ['attachment_dangerous_type', 'Dangerous Attachment'],
-  ['attachment_archive_dangerous_content', 'Dangerous Attachment'],
+  ['attachment_dangerous_type', 'Dangerous Attachment', 'Risky Attachment Type', true],
+  ['attachment_archive_dangerous_content', 'Dangerous Attachment', 'Risky Attachment Type', true],
   ['attachment_password_protected', 'Locked Attachment'],
   ['attachment_hash_suspicious', 'Suspicious Attachment'],
   // links
-  ['url_listed_phishing', 'Known Phishing Link'],
-  ['url_listed_malware', 'Known Malware Link'],
-  ['url_engine_detections', 'Malicious Link'],
-  ['url_scan_malicious', 'Malicious Link'],
-  ['url_host_scan_malicious', 'Malicious Link'],
-  ['url_dns_blocked', 'Malicious Link'],
-  ['url_blocklisted_host', 'Malicious Link'],
-  ['url_host_listed', 'Malicious Link'],
+  ['url_listed_phishing', 'Known Phishing Link', 'Possible Phishing Link'],
+  ['url_listed_malware', 'Known Malware Link', 'Possible Malware Link'],
+  ['url_engine_detections', 'Malicious Link', 'Flagged Link'],
+  ['url_scan_malicious', 'Malicious Link', 'Flagged Link'],
+  ['url_host_scan_malicious', 'Malicious Link', 'Flagged Link'],
+  ['url_dns_blocked', 'Malicious Link', 'Flagged Link'],
+  ['url_blocklisted_host', 'Malicious Link', 'Flagged Link'],
+  ['url_host_listed', 'Malicious Link', 'Flagged Link'],
   ['url_brand_mismatch', 'Look-alike Link'],
   ['url_lookalike_domain', 'Look-alike Link'],
   ['url_homograph_domain', 'Look-alike Link'],
@@ -46,12 +52,12 @@ const BY_FINDING: [string, string][] = [
   ['url_obfuscated_ip', 'Link to Raw IP'],
   ['dangerous_link_scheme', 'Dangerous Link'],
   // sender identity (authentication / infrastructure)
-  ['display_name_brand_spoof', 'Impersonated Sender'],
-  ['sender_domain_lookalikes_claimed_org', 'Impersonated Sender'],
-  ['sender_domain_lookalike', 'Impersonated Sender'],
-  ['sender_domain_homograph', 'Impersonated Sender'],
-  ['sender_domain_brand_misuse', 'Impersonated Sender'],
-  ['role_impersonation_freemail', 'Impersonated Sender'],
+  ['display_name_brand_spoof', 'Impersonated Sender', 'Possible Impersonation', true],
+  ['sender_domain_lookalikes_claimed_org', 'Impersonated Sender', 'Possible Impersonation', true],
+  ['sender_domain_lookalike', 'Impersonated Sender', 'Possible Impersonation', true],
+  ['sender_domain_homograph', 'Impersonated Sender', 'Possible Impersonation', true],
+  ['sender_domain_brand_misuse', 'Impersonated Sender', 'Possible Impersonation', true],
+  ['role_impersonation_freemail', 'Impersonated Sender', 'Possible Impersonation', true],
   ['auth_all_failed', 'Sender Not Verified'],
   ['spf_fail', 'Sender Not Verified'],
   ['dkim_fail', 'Sender Not Verified'],
@@ -66,14 +72,14 @@ const BY_FINDING: [string, string][] = [
   ['sender_domain_unregistered', 'Unregistered Domain'],
   ['sender_domain_expired', 'Expired Domain'],
   ['sender_address_disposable', 'Throwaway Address'],
-  ['sender_address_fraud_score', 'Risky Sender Address'],
-  ['sender_address_recent_abuse', 'Risky Sender Address'],
+  ['sender_address_fraud_score', 'Risky Sender Address', 'Flagged Sender Address'],
+  ['sender_address_recent_abuse', 'Risky Sender Address', 'Flagged Sender Address'],
   ['sender_address_', 'Questionable Sender Address'],
-  ['sender_ip_known_abuser', 'Risky Sender IP'],
-  ['sender_ip_abuse_reports', 'Risky Sender IP'],
-  ['sender_ip_vt_detections', 'Risky Sender IP'],
-  ['sender_ip_compromised', 'Risky Sender IP'],
-  ['sender_ip_pulsedive', 'Risky Sender IP'],
+  ['sender_ip_known_abuser', 'Risky Sender IP', 'Flagged Sender IP'],
+  ['sender_ip_abuse_reports', 'Risky Sender IP', 'Flagged Sender IP'],
+  ['sender_ip_vt_detections', 'Risky Sender IP', 'Flagged Sender IP'],
+  ['sender_ip_compromised', 'Risky Sender IP', 'Flagged Sender IP'],
+  ['sender_ip_pulsedive', 'Risky Sender IP', 'Flagged Sender IP'],
   ['sender_ip_tor', 'Sent via Anonymiser'],
   ['sender_ip_anonymizer', 'Sent via Anonymiser'],
   // content
@@ -104,7 +110,7 @@ const BY_FINDING: [string, string][] = [
 const BY_AREA: Record<Dimension, { bad: string; warn: string; minor: string }> = {
   authentication: { bad: 'Sender Not Trustworthy', warn: 'Suspicious Sender', minor: 'Minor Sender Notes' },
   infrastructure: { bad: 'Risky Infrastructure', warn: 'Questionable Infrastructure', minor: 'Minor Infrastructure Notes' },
-  url: { bad: 'Malicious Link', warn: 'Suspicious Link', minor: 'Minor Link Notes' },
+  url: { bad: 'High-Risk Link', warn: 'Suspicious Link', minor: 'Minor Link Notes' },
   attachment: { bad: 'Dangerous Attachment', warn: 'Suspicious Attachment', minor: 'Minor Attachment Notes' },
   content: { bad: 'Phishing Wording', warn: 'Suspicious Wording', minor: 'Minor Wording Notes' },
 };
@@ -116,9 +122,14 @@ const AREA_NOUN: Record<Dimension, string> = {
 /** Informational findings that still describe the area best (they explain why it scored nothing). */
 const ALWAYS_NAMED = new Set(['internal_m365_message', 'content_language_not_analysed']);
 
-function findingHeadline(id: string): string | null {
-  const n = id.toLowerCase();
-  for (const [key, text] of BY_FINDING) if (key.endsWith('_') ? n.startsWith(key) : n === key) return text;
+function findingHeadline(f: Finding, verdictMalicious: boolean): string | null {
+  const n = f.id.toLowerCase();
+  const sevHigh = f.severity === 'critical' || f.severity === 'high';
+  for (const [key, text, softer, factual] of BY_FINDING) {
+    if (!(key.endsWith('_') ? n.startsWith(key) : n === key)) continue;
+    const strong = factual ? sevHigh : f.severity === 'critical' || (f.severity === 'high' && verdictMalicious);
+    return strong || !softer ? text : softer;
+  }
   return null;
 }
 
@@ -158,7 +169,7 @@ function positive(dim: Dimension, checks: CheckRow[]): Glance | null {
 }
 
 /** Short headline and one summary line for an area card. */
-export function glance(dim: Dimension, tone: Tone, active: boolean, findings: Finding[], checks: CheckRow[] = []): Glance {
+export function glance(dim: Dimension, tone: Tone, active: boolean, findings: Finding[], checks: CheckRow[] = [], verdictMalicious = false): Glance {
   const top = findings[0];
   if (!active && !top) return { headline: 'Not Checked', summary: `No data was available to check the ${AREA_NOUN[dim]}.` };
   const named = !!top && ALWAYS_NAMED.has(top.id.toLowerCase());
@@ -166,6 +177,7 @@ export function glance(dim: Dimension, tone: Tone, active: boolean, findings: Fi
   if (!named && onlyInfo && (tone === 'good' || !top)) return positive(dim, checks) ?? { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
   if (!top) return { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
   const minor = (top.severity === 'info' || top.severity === 'low') && !named;
-  const headline = (!minor && findingHeadline(top.id)) || BY_AREA[dim][tone === 'bad' ? 'bad' : tone === 'warn' ? 'warn' : 'minor'];
+  const fallback = dim === 'url' && tone === 'bad' && verdictMalicious ? 'Malicious Link' : BY_AREA[dim][tone === 'bad' ? 'bad' : tone === 'warn' ? 'warn' : 'minor'];
+  const headline = (!minor && findingHeadline(top, verdictMalicious)) || fallback;
   return { headline, summary: tidy(top.title) };
 }
