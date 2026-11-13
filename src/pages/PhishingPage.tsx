@@ -75,10 +75,15 @@ export default function PhishingPage({ active = true }: { active?: boolean } = {
 
   const [dashboardReady, setDashboardReady] = useState(false);
 
+  /** "New analysis": back to an empty form (pasted text, loaded email file and attachments are all cleared). */
   const resetToForm = () => {
     act.reset();
     setSubmitted(null);
     setDashboardReady(false);
+    setF(EMPTY_FORM);
+    setFiles([]);
+    setSkipTranslate(false);
+    window.scrollTo(0, 0);
   };
 
   /* Toggle full-page mode: hide the app's sidebar + header only when the dashboard is fully ready */
