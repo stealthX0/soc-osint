@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PageHeader, Badge, Empty, Spinner, ErrorBox } from '../components/ui';
+import { PageHeader, Empty, Spinner, ErrorBox } from '../components/ui';
 import { useAction } from '../lib/hooks';
 import { api } from '../lib/api';
 import { useStored } from '../lib/storage';
@@ -92,7 +92,7 @@ export default function PhishingPage() {
       {/* ── Input form: visible only before Analyse is pressed ── */}
       {!analysing && (
         <>
-          <PageHeader icon="eye" title="Phishing Investigation" blurb="Paste a suspicious email and collect the evidence: where it really came from, whether it authenticates, and where its links lead." badge={<Badge tone="warn">preview</Badge>} />
+          <PageHeader icon="eye" title="Phishing Investigation" blurb="Paste a suspicious email and collect the evidence: where it really came from, whether it authenticates, and where its links lead." />
           <InputForm f={f} setF={setF} files={files} setFiles={setFiles} onSubmit={submit} busy={act.status === 'loading'} />
           <div className="mb-6"><HistoryPanel enabled={historyOn} setEnabled={setHistoryOn} version={historyVersion} onChange={() => setHistoryVersion((v) => v + 1)} /></div>
           <Empty>Paste at least the email headers, or a sender, link or attachment, then choose Analyse email. Or load the example to see how a report looks.</Empty>
