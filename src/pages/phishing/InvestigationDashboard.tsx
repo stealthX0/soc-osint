@@ -294,7 +294,7 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
           {/* ── KEY FINDINGS ── */}
           <div>
             <h3 className="mb-3 text-lg font-bold text-fg">Key Findings</h3>
-            <KeyFindings areas={areas} onOpen={openTab} />
+            <KeyFindings areas={areas} checks={rows} onOpen={openTab} />
           </div>
 
           {/* ── DETAILED ANALYSIS ── */}

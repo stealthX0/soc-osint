@@ -22,3 +22,23 @@ test('quiet areas say so without calling the message safe', () => {
   assert.equal(glance('authentication', 'good', true, [f('internal_m365_message', 'info', 'Internal Microsoft 365 message')]).headline, 'Internal Message');
   for (const g of [glance('url', 'good', true, []), glance('url', 'neutral', false, [])]) assert.doesNotMatch(`${g.headline} ${g.summary}`, /safe|clean|legitimate/i);
 });
+
+const row = (id: string, status: 'complete' | 'skipped', result: string | null = null) => ({ id, label: id, status, result });
+
+test('a clean area gets a positive headline only from checks that ran and passed', () => {
+  const auth = [row('auth.spf', 'complete', 'pass (receiver)'), row('auth.dkim', 'complete', 'pass, pass (receiver)'), row('auth.dmarc', 'complete', 'pass (receiver)')];
+  assert.deepEqual(glance('authentication', 'good', true, [], auth), { headline: 'Sender Verified', summary: 'SPF, DKIM and DMARC all passed.' });
+  assert.equal(glance('authentication', 'good', true, [], [row('auth.spf', 'complete', 'pass (receiver)'), row('auth.dkim', 'skipped')]).headline, 'Sender Checks Passed');
+  assert.equal(glance('authentication', 'good', true, [], [row('auth.spf', 'complete', 'softfail (receiver)')]).headline, 'No Warning Signs', 'a non-pass result is never called verified');
+  assert.equal(glance('url', 'good', true, [], [row('urls.deep', 'complete', '2 of 2 links')]).headline, 'No Known-Bad Links');
+  assert.equal(glance('url', 'good', true, [], [row('urls.offline', 'complete')]).headline, 'No Link Warnings');
+  assert.equal(glance('attachment', 'good', true, [], [row('attach.0.hash.virustotal', 'complete', 'not found')]).headline, 'No Known Malware');
+  assert.equal(glance('content', 'good', true, [], [row('content.rules', 'complete')]).headline, 'No Phishing Wording');
+});
+
+test('a positive headline never hides a real finding', () => {
+  const auth = [row('auth.spf', 'complete', 'pass (receiver)'), row('auth.dkim', 'complete', 'pass (receiver)'), row('auth.dmarc', 'complete', 'pass (receiver)')];
+  assert.equal(glance('authentication', 'warn', true, [f('reply_to_mismatch', 'medium', 'Replies go elsewhere')], auth).headline, 'Replies Go Elsewhere');
+  assert.equal(glance('authentication', 'good', true, [f('dkim_weak_algorithm', 'low', 'Weak DKIM key')], auth).headline, 'Minor Sender Notes');
+  for (const g of [glance('authentication', 'good', true, [], auth), glance('url', 'good', true, [], [row('urls.deep', 'complete')])]) assert.doesNotMatch(`${g.headline} ${g.summary}`, /safe|clean|legitimate/i);
+});

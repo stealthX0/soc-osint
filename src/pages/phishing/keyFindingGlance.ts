@@ -5,6 +5,7 @@
  */
 import type { Tone } from '../../components/ui';
 import type { Dimension, Finding } from '../../../shared/phishing/types';
+import type { CheckRow } from '../../../shared/phishing/verdict';
 import { tidy } from '../../../shared/phishing/summary';
 
 /** Headline for the strongest finding of an area, matched by finding id (exact id, or an id prefix ending in "_"). */
@@ -123,13 +124,48 @@ function findingHeadline(id: string): string | null {
 
 export interface Glance { headline: string; summary: string }
 
+const done = (checks: CheckRow[], id: string) => checks.find((c) => c.id === id && c.status === 'complete');
+const passed = (c: CheckRow | undefined) => !!c?.result && c.result.split(',').every((x) => /^\s*pass\b/i.test(x));
+
+/**
+ * A positive headline for an area with no warning signs, stated only from checks that actually ran and passed. It never
+ * calls the message safe: it says what was checked and that it raised nothing.
+ */
+function positive(dim: Dimension, checks: CheckRow[]): Glance | null {
+  if (dim === 'authentication') {
+    const rows = (['spf', 'dkim', 'dmarc'] as const).map((k) => ({ k: k.toUpperCase(), c: done(checks, `auth.${k}`) })).filter((x) => x.c);
+    const ok = rows.filter((x) => passed(x.c));
+    if (rows.length === 3 && ok.length === 3) return { headline: 'Sender Verified', summary: 'SPF, DKIM and DMARC all passed.' };
+    if (ok.length && ok.length === rows.length) return { headline: 'Sender Checks Passed', summary: `${ok.map((x) => x.k).join(' and ')} passed.` };
+    return null;
+  }
+  if (dim === 'url') {
+    if (done(checks, 'urls.deep')) return { headline: 'No Known-Bad Links', summary: 'Reputation lookups flagged none of the links.' };
+    if (done(checks, 'urls.openphish') || done(checks, 'urls.offline')) return { headline: 'No Link Warnings', summary: 'Screened locally only; no full reputation lookup yet.' };
+    return null;
+  }
+  if (dim === 'attachment') {
+    if (checks.some((c) => /^attach\.\d+\.(hash|scan|vt)/.test(c.id) && c.status === 'complete')) return { headline: 'No Known Malware', summary: 'Hash and scan lookups flagged none of the attachments.' };
+    if (checks.some((c) => /^attach\.\d+\.static$/.test(c.id) && c.status === 'complete')) return { headline: 'No Attachment Warnings', summary: 'Inspected locally; no reputation result yet.' };
+    return null;
+  }
+  if (dim === 'infrastructure') {
+    if (done(checks, 'sender.ip') || done(checks, 'sender.domain')) return { headline: 'No Infrastructure Warnings', summary: 'The sender IP and domain raised no warnings.' };
+    return null;
+  }
+  if (done(checks, 'content.rules')) return { headline: 'No Phishing Wording', summary: 'The message wording raised no warning signs.' };
+  return null;
+}
+
 /** Short headline and one summary line for an area card. */
-export function glance(dim: Dimension, tone: Tone, active: boolean, findings: Finding[]): Glance {
+export function glance(dim: Dimension, tone: Tone, active: boolean, findings: Finding[], checks: CheckRow[] = []): Glance {
   const top = findings[0];
   if (!active && !top) return { headline: 'Not Checked', summary: `No data was available to check the ${AREA_NOUN[dim]}.` };
-  const minorTop = !top || top.severity === 'info' || top.severity === 'low';
-  if (!top || (tone === 'good' && minorTop && !ALWAYS_NAMED.has(top.id.toLowerCase()))) return { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
-  const minor = (top.severity === 'info' || top.severity === 'low') && !ALWAYS_NAMED.has(top.id.toLowerCase());
+  const named = !!top && ALWAYS_NAMED.has(top.id.toLowerCase());
+  const onlyInfo = findings.every((f) => f.severity === 'info');
+  if (!named && onlyInfo && (tone === 'good' || !top)) return positive(dim, checks) ?? { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
+  if (!top) return { headline: 'No Warning Signs', summary: `The ${AREA_NOUN[dim]} raised no warning signs.` };
+  const minor = (top.severity === 'info' || top.severity === 'low') && !named;
   const headline = (!minor && findingHeadline(top.id)) || BY_AREA[dim][tone === 'bad' ? 'bad' : tone === 'warn' ? 'warn' : 'minor'];
   return { headline, summary: tidy(top.title) };
 }

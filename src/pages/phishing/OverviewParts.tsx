@@ -5,7 +5,7 @@
 import { Badge, type Tone } from '../../components/ui';
 import { Icon, type IconName } from '../../components/icons';
 import type { Dimension, Finding, Severity } from '../../../shared/phishing/types';
-import type { Verdict } from '../../../shared/phishing/verdict';
+import type { CheckRow, Verdict } from '../../../shared/phishing/verdict';
 import { summarizeReasoning } from '../../../shared/phishing/summary';
 import { bySeverity, sevTone } from './common';
 import { glance } from './keyFindingGlance';
@@ -41,19 +41,19 @@ const glanceColor: Record<Tone, string> = { bad: 'text-[#ef4444]', warn: 'text-[
  * One card per area that has findings or was assessed, strongest first: a big icon coloured by the area's risk, a short
  * plain-language headline and one summary line. The technical detail lives in the tab each card opens.
  */
-export function KeyFindings({ areas, onOpen }: { areas: AreaState[]; onOpen: (tab: AnalysisTab) => void }) {
+export function KeyFindings({ areas, checks = [], onOpen }: { areas: AreaState[]; checks?: CheckRow[]; onOpen: (tab: AnalysisTab) => void }) {
   const shown = areas.filter((a) => a.active || a.findings.length > 0)
     .sort((a, b) => (b.active ? b.score : -1) - (a.active ? a.score : -1) || b.findings.length - a.findings.length);
   if (!shown.length) return <p className="text-sm text-muted">No area could be assessed. Paste the raw headers or the message body for a fuller analysis.</p>;
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
       {shown.map((a) => {
-        const g = glance(a.dim, a.tone, a.active, a.findings);
-        const quiet = a.tone === 'good' || a.tone === 'neutral';
+        const g = glance(a.dim, a.tone, a.active, a.findings, checks);
+        const quiet = a.tone === 'neutral';
         return (
           <button key={a.dim} type="button" onClick={() => onOpen(AREA_TAB[a.dim])} title={`Open ${AREA_LABEL[a.dim]} details`}
             className={`flex items-start gap-4 rounded-xl border border-line/60 bg-[#0f1a31] px-5 py-4 text-left transition-colors hover:border-line2 hover:bg-[#13203b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky ${quiet ? 'opacity-75' : ''}`}>
-            <span className={`mt-0.5 shrink-0 ${glanceColor[a.tone]}`}><Icon name={a.dim === 'content' && quiet ? 'eye' : glanceIcon[a.dim]} size={30} strokeWidth={1.8} /></span>
+            <span className={`mt-0.5 shrink-0 ${glanceColor[a.tone]}`}><Icon name={a.dim === 'content' && (quiet || a.tone === 'good') ? 'eye' : glanceIcon[a.dim]} size={30} strokeWidth={1.8} /></span>
             <span className="min-w-0 flex-1">
               <span className="block text-[15px] font-bold leading-snug text-fg">{g.headline}</span>
               <span className="mt-1 line-clamp-2 block text-sm leading-relaxed text-fg/75">{g.summary}</span>
