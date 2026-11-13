@@ -390,13 +390,13 @@ export function InvestigationDashboard({ r, input, verdict, findings, rows, pipe
 
           {/* ── ACTION BAR ── */}
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel/60 px-4 py-2.5">
-            <ExportBar report={report} />
             {onNewAnalysis && (
               <button type="button" onClick={onNewAnalysis}
-                className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-line2 px-4 text-sm text-fg transition-colors hover:border-teal/50">
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-line2 px-4 text-sm text-fg transition-colors hover:border-teal/50">
                 <Icon name="arrow" size={14} className="rotate-180" /> New Analysis
               </button>
             )}
+            <div className="ml-auto"><ExportBar report={report} /></div>
           </div>
 
           {/* ── DISCLAIMER ── */}
