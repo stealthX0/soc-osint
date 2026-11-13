@@ -15,7 +15,8 @@ import { ResultsShell } from './phishing/ResultsShell';
 import { EMPTY_FORM, buildInput, type FormFields } from './phishing/formHelpers';
 import '../styles/phishing.css';
 
-export default function PhishingPage() {
+/** `active` is false while the page is kept alive but hidden behind another tool (see App). */
+export default function PhishingPage({ active = true }: { active?: boolean } = {}) {
   const [f, setF] = useState<FormFields>(EMPTY_FORM);
   const [files, setFiles] = useState<File[]>([]);
   const [historyOn, setHistoryOn] = useStored<boolean>(HISTORY_ENABLED_KEY, true);
@@ -82,10 +83,10 @@ export default function PhishingPage() {
 
   /* Toggle full-page mode: hide the app's sidebar + header only when the dashboard is fully ready */
   useEffect(() => {
-    if (dashboardReady) document.body.classList.add('ph-fullpage');
+    if (dashboardReady && active) document.body.classList.add('ph-fullpage');
     else document.body.classList.remove('ph-fullpage');
     return () => document.body.classList.remove('ph-fullpage');
-  }, [dashboardReady]);
+  }, [dashboardReady, active]);
 
   return (
     <div className={`ph-page ${dashboardReady ? 'ph-page--dashboard' : 'max-w-5xl'}`}>

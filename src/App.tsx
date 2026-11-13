@@ -1,6 +1,6 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Layout } from './components/Layout';
-import { Routes, Link } from './lib/router';
+import { Routes, Link, useLocation } from './lib/router';
 import { Spinner } from './components/ui';
 import { Dashboard } from './pages/Dashboard';
 
@@ -28,6 +28,31 @@ function NotFound() {
   );
 }
 
+/**
+ * The phishing investigation stays mounted once opened, and is only hidden while another tool is showing. Jumping to the
+ * URL, IP or domain tool from a result and coming back keeps the dashboard, the lookups still running and the scroll
+ * position. It is cleared by a browser refresh, closing the tab, or "New analysis".
+ */
+function PersistentPhishingPage() {
+  const { pathname } = useLocation();
+  const active = pathname === '/phishing';
+  const [opened, setOpened] = useState(active);
+  useEffect(() => { if (active) setOpened(true); }, [active]);
+
+  const scrollY = useRef(0);
+  useEffect(() => {
+    if (!active) return;
+    const y = scrollY.current;
+    if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
+    const remember = () => { scrollY.current = window.scrollY; };
+    window.addEventListener('scroll', remember, { passive: true });
+    return () => window.removeEventListener('scroll', remember);
+  }, [active]);
+
+  if (!opened) return null;
+  return <div hidden={!active}><PhishingPage active={active} /></div>;
+}
+
 export function App() {
   return (
     <Layout>
@@ -41,7 +66,7 @@ export function App() {
             { path: '/domain', render: () => <DomainPage /> },
             { path: '/url', render: () => <UrlPage /> },
             { path: '/email', render: () => <EmailPage /> },
-            { path: '/phishing', render: () => <PhishingPage /> },
+            { path: '/phishing', render: () => null }, // rendered by PersistentPhishingPage
             { path: '/file', render: () => <FilePage /> },
             { path: '/network', render: () => <NetworkPage /> },
             { path: '/utilities', render: () => <UtilitiesPage /> },
@@ -50,6 +75,7 @@ export function App() {
             { path: '/playbooks/:id', render: (p) => <PlaybooksPage id={p.id} /> },
           ]}
         />
+        <PersistentPhishingPage />
       </Suspense>
     </Layout>
   );
