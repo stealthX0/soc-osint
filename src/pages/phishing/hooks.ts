@@ -5,8 +5,8 @@ import { assembleUrlStage, type RankedLink, type UrlStageResult } from '../../..
 import type { ParseStageResult } from '../../../shared/phishing/parse';
 import type { PhishingInput } from '../../../shared/phishing/types';
 
-/** Links that get a full lookup per analysis (the server's hard cap is also 3). */
-export const MAX_FULL_LOOKUPS = 3;
+/** Links that get a full lookup per analysis (the server's hard cap is also 4: VirusTotal's free tier allows about 4 requests a minute). The sender domain, when present, is always the first of them. */
+export const MAX_FULL_LOOKUPS = 4;
 
 export type Slot = { req: SenderCheckRequest; state: 'running' | 'done'; res?: SenderCheckResponse; error?: string };
 
@@ -92,7 +92,7 @@ export interface LinkStage {
 }
 
 /**
- * The link investigation. It runs once automatically after parsing (the top 3 links, one full lookup per request), and the analyst can
+ * The link investigation. It runs once automatically after parsing (the sender domain first, then the next-ranked links, up to MAX_FULL_LOOKUPS, one full lookup per request), and the analyst can
  * re-run it or deep-check further links afterwards. One full lookup per request.
  */
 export function useLinkStage(r: ParseStageResult, input: PhishingInput): LinkStage {

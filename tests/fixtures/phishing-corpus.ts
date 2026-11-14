@@ -57,7 +57,7 @@ export function lookup(id: string, severity: Severity, dimension: Dimension, ove
 
 /** Every sender lookup completed. */
 export const SENDER_DONE: CheckRow[] = [ok('sender.ip.x', 'IP intelligence'), ok('sender.domain.x', 'Domain registration'), ok('sender.auth.x', 'Mail security DNS'), ok('sender.spf.x', 'SPF re-check')];
-/** The link investigation ran and finished. */
+/** The link investigation ran and finished. Every message from a non-consumer-mailbox sender has at least one link to investigate: the sender's own domain. */
 export const LINKS_DONE: CheckRow[] = [ok('urls.openphish', 'OpenPhish'), ok('urls.provider.virustotal', 'VirusTotal')];
 /** The only attachment (index 0) was assessed: static analysis and a hash lookup. */
 export const ATTACHMENT_DONE: CheckRow[] = [ok('attach.0.static', 'Static analysis'), ok('attach.0.hash.virustotal', 'VirusTotal hash lookup')];
@@ -77,14 +77,14 @@ const sha = (c: string) => c.repeat(64);
 
 export const CORPUS: CorpusSample[] = [
   /* ------------------------------------------------------------ legitimate */
-  { id: 'L01-partner-authenticated', description: 'Authenticated mail from a known partner, no links', expect: ['likely_legitimate'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365', subject: 'Meeting notes' }), body: 'Notes from today are on the wiki. Thanks, Alice.' }, checks: SENDER_DONE },
-  { id: 'L02-password-reset', description: 'Genuine SaaS password reset (credential wording, aligned DKIM through a mailing service)', expect: ['likely_legitimate'], input: { headers: mail({ from: 'no-reply@accounts.saas.example', returnPath: 'bounce@mail.saas.example', dkimDomain: 'saas.example', subject: 'Reset your password' }), body: 'You asked to reset your password. Choose a new one with the button below. If you did not ask for this, ignore this email.' }, checks: SENDER_DONE },
-  { id: 'L03-newsletter-esp', description: 'Newsletter through a mailing service: Return-Path differs, DKIM aligned, shared platform IP', expect: ['likely_legitimate'], input: { headers: mail({ from: 'news@brand.example', returnPath: 'bounce@esp-mail.example', subject: 'November newsletter' }), body: 'Our November newsletter is out. Unsubscribe any time.' }, findings: [lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('return_path_mismatch', 'info', 'authentication', { trust: 'derived' })], checks: SENDER_DONE },
-  { id: 'L04-internal-invite', description: 'Calendar-style internal note with no links', expect: ['likely_legitimate'], input: { headers: mail({ from: 'bob@corp.example', recv: 'm365', subject: 'Sync tomorrow' }), body: 'Can we move our sync to 3pm tomorrow? Same room.' }, checks: SENDER_DONE },
+  { id: 'L01-partner-authenticated', description: 'Authenticated mail from a known partner, no links', expect: ['likely_legitimate'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365', subject: 'Meeting notes' }), body: 'Notes from today are on the wiki. Thanks, Alice.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+  { id: 'L02-password-reset', description: 'Genuine SaaS password reset (credential wording, aligned DKIM through a mailing service)', expect: ['likely_legitimate'], input: { headers: mail({ from: 'no-reply@accounts.saas.example', returnPath: 'bounce@mail.saas.example', dkimDomain: 'saas.example', subject: 'Reset your password' }), body: 'You asked to reset your password. Choose a new one with the button below. If you did not ask for this, ignore this email.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+  { id: 'L03-newsletter-esp', description: 'Newsletter through a mailing service: Return-Path differs, DKIM aligned, shared platform IP', expect: ['likely_legitimate'], input: { headers: mail({ from: 'news@brand.example', returnPath: 'bounce@esp-mail.example', subject: 'November newsletter' }), body: 'Our November newsletter is out. Unsubscribe any time.' }, findings: [lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('return_path_mismatch', 'info', 'authentication', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
+  { id: 'L04-internal-invite', description: 'Calendar-style internal note with no links', expect: ['likely_legitimate'], input: { headers: mail({ from: 'bob@corp.example', recv: 'm365', subject: 'Sync tomorrow' }), body: 'Can we move our sync to 3pm tomorrow? Same room.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
   { id: 'L05-shipping-notice', description: 'Courier notice with a tracking link, investigated and clean', expect: ['likely_legitimate'], input: { headers: mail({ from: 'tracking@courier.example', subject: 'Your parcel is on its way' }), body: 'Your parcel has shipped and delivery is expected Friday. Track it: https://courier.example/track/123' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
-  { id: 'L06-vendor-invoice', description: 'Invoice from a known vendor with a PDF attachment, hash looked up, nothing found', expect: ['likely_legitimate'], input: { headers: mail({ from: 'billing@vendor.example', subject: 'Invoice 4411' }), body: 'Hello, your invoice 4411 for October is attached. Payment is due on 15 November.', attachments: [{ name: 'invoice-4411.pdf', hash: sha('a') }] }, findings: [lookup('attachment_hash_unknown', 'info', 'attachment', { indicator: { type: 'hash', value: sha('a') } })], checks: [...SENDER_DONE, ok('attach.0.hash.virustotal', 'VirusTotal hash lookup')] },
-  { id: 'L07-hr-calendar', description: 'HR payroll calendar announcement (payroll wording, no request to change anything)', expect: ['likely_legitimate'], input: { headers: mail({ from: 'hr@corp.example', recv: 'm365', subject: 'Payroll calendar' }), body: 'The payroll for November will be processed on the 28th. Salary details are available in the HR portal.' }, checks: SENDER_DONE },
-  { id: 'L08-bad-ip-shared-infra', description: 'Clean authenticated mail whose sending IP (a large shared platform) has abuse reports', expect: ['likely_legitimate'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365', subject: 'Notes' }), body: 'See you at 10.' }, findings: [lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('sender_ip_abuse_reports', 'medium', 'infrastructure')], checks: SENDER_DONE },
+  { id: 'L06-vendor-invoice', description: 'Invoice from a known vendor with a PDF attachment, hash looked up, nothing found', expect: ['likely_legitimate'], input: { headers: mail({ from: 'billing@vendor.example', subject: 'Invoice 4411' }), body: 'Hello, your invoice 4411 for October is attached. Payment is due on 15 November.', attachments: [{ name: 'invoice-4411.pdf', hash: sha('a') }] }, findings: [lookup('attachment_hash_unknown', 'info', 'attachment', { indicator: { type: 'hash', value: sha('a') } })], checks: [...SENDER_DONE, ...LINKS_DONE, ok('attach.0.hash.virustotal', 'VirusTotal hash lookup')] },
+  { id: 'L07-hr-calendar', description: 'HR payroll calendar announcement (payroll wording, no request to change anything)', expect: ['likely_legitimate'], input: { headers: mail({ from: 'hr@corp.example', recv: 'm365', subject: 'Payroll calendar' }), body: 'The payroll for November will be processed on the 28th. Salary details are available in the HR portal.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
+  { id: 'L08-bad-ip-shared-infra', description: 'Clean authenticated mail whose sending IP (a large shared platform) has abuse reports', expect: ['likely_legitimate'], input: { headers: mail({ from: 'alice@partner.example', recv: 'm365', subject: 'Notes' }), body: 'See you at 10.' }, findings: [lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('sender_ip_abuse_reports', 'medium', 'infrastructure')], checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   /* ----------------------------------------------------------- suspicious */
   { id: 'S01-bec-freemail', description: 'Executive-style "are you available?" from a consumer mailbox', expect: ['suspicious'], input: { headers: mail({ from: 'ceo.office@gmail.com', fromName: 'Dana Smith, CEO', subject: 'Quick task' }), body: 'Are you available? I need a quick favor. Keep this confidential.' }, checks: SENDER_DONE },
@@ -114,15 +114,15 @@ export const CORPUS: CorpusSample[] = [
 
   // Pattern: Enron-style internal business discussion (Enron Corpus)
   { id: 'L09-internal-biz-discussion', description: 'Internal business discussion about energy trading (Enron-style)', expect: ['likely_legitimate'],
-    input: { headers: mail({ from: 'john.lavorato@corp.example', recv: 'm365', subject: 'Re: West desk P&L' }), body: 'The west desk is showing $1.2M above plan for October. Can you pull the summary for the Monday meeting? Thanks, John' }, checks: SENDER_DONE },
+    input: { headers: mail({ from: 'john.lavorato@corp.example', recv: 'm365', subject: 'Re: West desk P&L' }), body: 'The west desk is showing $1.2M above plan for October. Can you pull the summary for the Monday meeting? Thanks, John' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   // Pattern: SpamAssassin ham — mailing list (Apache mailing list style)
   { id: 'L10-mailing-list', description: 'Public mailing list post with list headers (SpamAssassin corpus pattern)', expect: ['likely_legitimate'],
-    input: { headers: mail({ from: 'contributor@opensource.example', subject: 'Re: [dev] RFC: new cache layer', extra: 'List-Id: <dev.lists.opensource.example>\nList-Unsubscribe: <mailto:dev-unsubscribe@lists.opensource.example>' }), body: 'I agree with the approach. The LRU eviction policy makes sense for our workload. One concern: should we cap at 512MB or make it configurable?' }, checks: SENDER_DONE },
+    input: { headers: mail({ from: 'contributor@opensource.example', subject: 'Re: [dev] RFC: new cache layer', extra: 'List-Id: <dev.lists.opensource.example>\nList-Unsubscribe: <mailto:dev-unsubscribe@lists.opensource.example>' }), body: 'I agree with the approach. The LRU eviction policy makes sense for our workload. One concern: should we cap at 512MB or make it configurable?' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   // Pattern: Authenticated transactional SaaS notification
   { id: 'L11-saas-usage-alert', description: 'SaaS usage alert (authenticated, no action required)', expect: ['likely_legitimate'],
-    input: { headers: mail({ from: 'alerts@monitoring.saas.example', dkimDomain: 'saas.example', subject: 'Storage usage: 80% of quota' }), body: 'Your team workspace has reached 80% of the 50 GB storage quota. Consider archiving old files. This is an informational message; no action is required.' }, checks: SENDER_DONE },
+    input: { headers: mail({ from: 'alerts@monitoring.saas.example', dkimDomain: 'saas.example', subject: 'Storage usage: 80% of quota' }), body: 'Your team workspace has reached 80% of the 50 GB storage quota. Consider archiving old files. This is an informational message; no action is required.' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   // Pattern: Legitimate marketing from ESP (SendGrid/Mailchimp-style)
   { id: 'L12-marketing-esp', description: 'Marketing email through ESP with clean link investigated', expect: ['likely_legitimate'],
@@ -131,7 +131,7 @@ export const CORPUS: CorpusSample[] = [
 
   // Pattern: Authenticated ticket update from support system
   { id: 'L13-support-ticket', description: 'Support ticket update from authenticated helpdesk system', expect: ['likely_legitimate'],
-    input: { headers: mail({ from: 'support@helpdesk.vendor.example', recv: 'm365', dkimDomain: 'vendor.example', subject: 'Re: [Ticket #8891] API rate limit question' }), body: 'Hi, your rate limit has been increased to 10,000 requests/hour as requested. The change is effective immediately. Please let us know if you have any further questions. — Support Team' }, checks: SENDER_DONE },
+    input: { headers: mail({ from: 'support@helpdesk.vendor.example', recv: 'm365', dkimDomain: 'vendor.example', subject: 'Re: [Ticket #8891] API rate limit question' }), body: 'Hi, your rate limit has been increased to 10,000 requests/hour as requested. The change is effective immediately. Please let us know if you have any further questions. — Support Team' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   // Pattern: GitHub/GitLab notification (platform notification)
   { id: 'L14-github-notification', description: 'Legitimate GitHub-style platform notification about PR merge', expect: ['likely_legitimate'],
@@ -313,7 +313,7 @@ export const CORPUS: CorpusSample[] = [
   // Pattern: Legitimate email with reply-to mismatch (support ticketing system)
   { id: 'L20-legit-replyto-different', description: 'Support email with Reply-To pointing to ticket system (common in helpdesks)', expect: ['likely_legitimate'],
     input: { headers: mail({ from: 'support@vendor.example', replyTo: 'ticket-8891@helpdesk.vendor.example', dkimDomain: 'vendor.example', subject: 'Your ticket has been updated' }), body: 'Your support ticket #8891 has been updated. Our engineer has posted a response. Reply to this email to add a comment.' },
-    findings: [lookup('reply_to_mismatch', 'low', 'authentication', { trust: 'derived' })], checks: SENDER_DONE },
+    findings: [lookup('reply_to_mismatch', 'low', 'authentication', { trust: 'derived' })], checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   // Pattern: Legitimate bulk mail that triggers urgency heuristic
   { id: 'L21-legit-deadline-notice', description: 'Authenticated conference registration deadline notice (triggers urgency but is legitimate)', expect: ['likely_legitimate'],
@@ -362,7 +362,7 @@ export const CORPUS: CorpusSample[] = [
     findings: [lookup('sender_ip_abuse_reports', 'medium', 'infrastructure'), lookup('sender_infra_shared_provider', 'info', 'infrastructure'), lookup('sender_address_fraud_score', 'medium', 'authentication'), lookup('sender_domain_new', 'low', 'infrastructure')], checks: SENDER_DONE },
   // Counterpart: a genuine payment reminder from a known supplier must not be pushed up by the new payment wording.
   { id: 'L23-invoice-reminder', description: 'Authenticated supplier reminder with a due date, no Reply-To change', expect: ['likely_legitimate', 'inconclusive'],
-    input: { headers: mail({ from: 'accounts@supplier.example', subject: 'Invoice INV-2231 reminder' }), body: 'Hi, a reminder that invoice INV-2231 for $1,200.00 is due on 30 November. You can pay by bank transfer to the account on file. Thanks, Accounts' }, checks: SENDER_DONE },
+    input: { headers: mail({ from: 'accounts@supplier.example', subject: 'Invoice INV-2231 reminder' }), body: 'Hi, a reminder that invoice INV-2231 for $1,200.00 is due on 30 November. You can pay by bank transfer to the account on file. Thanks, Accounts' }, checks: [...SENDER_DONE, ...LINKS_DONE] },
 
   /* ---- malicious edge cases ---- */
 

@@ -11,7 +11,7 @@ import { translateForAnalysis, TRANSLATE_MAX_CHARS, type PretranslatedText, type
 import { analyzeContent, stripReceiverBanners, RECEIVER_BANNER_LINK, type ContentAnalysis } from './content';
 import { isFreeMail } from './domains';
 import { analyzeEmailHeaders, type HeaderForensics } from './forensics';
-import { extractLinks, type ExtractedLink, type SkippedLink } from './links';
+import { extractLinks, senderDomainLink, withSenderLink, type ExtractedLink, type SkippedLink } from './links';
 import { check, dedupeFindings, makeFinding, sortFindings } from './findings';
 import { parseHeaderBlock } from '../headers';
 import { normalizeHostname, parseEmail } from '../domain';
@@ -175,8 +175,11 @@ export async function parseSubmission(input: PhishingInput, opts: ParseOptions =
   const ext = extractLinks({ text: senderText, html: senderHtml, manual: input.urls });
   const bannerLinks = ext.links.filter((l) => RECEIVER_BANNER_LINK.test(l.normalized) && !l.sources.includes('manual' as never));
   if (bannerLinks.length) ext.links = ext.links.filter((l) => !bannerLinks.includes(l));
+  /* the sender's own domain is investigated like any link in the message: listed first, looked up first */
+  const senderLink = senderDomainLink(identityFrom);
+  ext.links = withSenderLink(ext.links, senderLink);
   const bannerNote = banner.removed || htmlBanner.removed || bannerLinks.length ? `Ignored a notice added by the receiving mail system (such as "You don't often get email from…" or an external-sender caution)${bannerLinks.length ? ` and its ${bannerLinks.length} link(s)` : ''}.` : '';
-  checks.push(check('parse.links', 'parse', 'Link extraction', 'complete', `${ext.links.length} unique link(s)${ext.skipped.length ? `, ${ext.skipped.length} skipped` : ''}`, [ext.truncated ? `Only the first ${LIMITS.links} links were kept.` : '', bannerNote].filter(Boolean).join(' ') || undefined));
+  checks.push(check('parse.links', 'parse', 'Link extraction', 'complete', `${ext.links.filter((l) => l.sources.some((s) => s !== 'sender')).length} unique link(s)${ext.skipped.length ? `, ${ext.skipped.length} skipped` : ''}`, [senderLink ? `The sender domain (${senderLink.host}) is also investigated as a link.` : '', ext.truncated ? `Only the first ${LIMITS.links} links were kept.` : '', bannerNote].filter(Boolean).join(' ') || undefined));
   if (ext.truncated) limits.push(`The message has more links than could be analysed (at most ${LIMITS.links} unique links are kept). Review the rest manually: a bad link can hide among many harmless ones.`);
   if (ext.links.length) {
     const roles = ['from', 'return_path', 'dkim', 'sender_header'];
@@ -207,7 +210,7 @@ export async function parseSubmission(input: PhishingInput, opts: ParseOptions =
 
   /* wording: urgency, credential / payment requests, extortion, QR and other lures (local, deterministic) */
   const wording = analyzeContent({
-    subject: tr.subject, text: tr.text, html: senderHtml, linkCount: ext.links.length,
+    subject: tr.subject, text: tr.text, html: senderHtml, linkCount: ext.links.filter((l) => l.sources.some((s) => s !== 'sender')).length,
     translation: { language: { code: tr.language.code, name: tr.language.name }, status: tr.status, engine: tr.engine, detail: tr.detail, original: { subject, text: senderText } },
     attachments: msg.attachments.map((a) => ({ filename: a.filename, inline: a.inline, declaredType: a.declaredType })),
     displayName: forensics?.addresses.from[0]?.display ?? sender.displayName ?? null,
@@ -261,7 +264,8 @@ export async function parseSubmission(input: PhishingInput, opts: ParseOptions =
     emails: forensics?.emails ?? [],
     domains: forensics?.domains ?? [],
     ips: forensics?.ips ?? [],
-    urls: ext.links.map((l) => l.normalized),
+    // The sender domain is investigated as a link but is not a URL that appeared in the message: it is already an indicator under `domains`.
+    urls: ext.links.filter((l) => l.sources.some((s) => s !== 'sender')).map((l) => l.normalized),
     attachments: attachments.map<AttachmentRef>((a) => ({ filename: a.filename, hash: a.hash, hashType: a.hashType, size: a.size, origin: a.origin, declaredType: a.declaredType })),
   };
   if (!forensics) {

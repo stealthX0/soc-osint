@@ -62,7 +62,7 @@ async function verdict(input: Parameters<typeof parseSubmission>[0], extra: { fi
 
 describe('calibration corpus: legitimate mail', () => {
   it('a genuine authenticated message with full coverage is likely legitimate, with supporting evidence listed', async () => {
-    const { v } = await verdict({ headers: M365, body: 'Notes from today are on the wiki. Thanks, Alice.' }, { checks: senderOk });
+    const { v } = await verdict({ headers: M365, body: 'Notes from today are on the wiki. Thanks, Alice.' }, { checks: [...senderOk, ...linksChecked] });
     assert.equal(v.label, 'likely_legitimate');
     assert.ok(v.mitigating.length >= 2);
     assert.ok(v.risk < 12);
@@ -70,17 +70,17 @@ describe('calibration corpus: legitimate mail', () => {
   });
   it('a real password-reset notice (credential wording, no other signals) is not flagged', async () => {
     const body = 'You recently asked to reset your password. Use the button below to choose a new one. If you did not make this request, ignore this email.';
-    const { v } = await verdict({ headers: M365.replace('Subject: Meeting notes', 'Subject: Reset your password'), body }, { checks: senderOk });
+    const { v } = await verdict({ headers: M365.replace('Subject: Meeting notes', 'Subject: Reset your password'), body }, { checks: [...senderOk, ...linksChecked] });
     assert.equal(v.label, 'likely_legitimate');
   });
   it('a bulk mailer with a different Return-Path but aligned DKIM is not suspicious', async () => {
     const f = [F('return_path_mismatch', 'info', 'authentication'), F('sender_infra_shared_provider', 'info', 'infrastructure')];
-    const { v } = await verdict({ headers: M365, body: 'Our November newsletter is out.' }, { findings: f, checks: senderOk });
+    const { v } = await verdict({ headers: M365, body: 'Our November newsletter is out.' }, { findings: f, checks: [...senderOk, ...linksChecked] });
     assert.equal(v.label, 'likely_legitimate');
   });
   it('a bad-reputation IP on shared mail infrastructure does not sink an otherwise clean message', async () => {
     const f = [F('sender_infra_shared_provider', 'info', 'infrastructure'), F('sender_ip_abuse_reports', 'medium', 'infrastructure', { exactness: 'exact' })];
-    const { v } = await verdict({ headers: M365, body: 'See you at 10.' }, { findings: f, checks: senderOk });
+    const { v } = await verdict({ headers: M365, body: 'See you at 10.' }, { findings: f, checks: [...senderOk, ...linksChecked] });
     assert.equal(v.label, 'likely_legitimate');
     assert.ok(v.contributions.find((c) => c.findingId === 'sender_ip_abuse_reports')!.multipliers.context < 1);
   });

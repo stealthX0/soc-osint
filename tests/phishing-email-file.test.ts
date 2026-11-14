@@ -44,7 +44,8 @@ describe('email file loading', () => {
     assert.equal(r.attachments[0].size, 4002);
     const parsed = await parseSubmission({ headers: r.headers, body: r.body });
     assert.equal(parsed.content.subject, 'Invoice attached');
-    assert.deepEqual(parsed.links.map((l) => l.url), ['https://paypa1-secure.example/verify']);
+    assert.deepEqual(parsed.links.filter((l) => !l.sources.includes('sender')).map((l) => l.url), ['https://paypa1-secure.example/verify']);
+    assert.equal(parsed.links.filter((l) => l.sources.includes('sender')).length, 1, 'the sender domain is added as one extra link');
     assert.deepEqual(parsed.content.warnings, []);
   });
 

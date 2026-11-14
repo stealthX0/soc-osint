@@ -1,8 +1,9 @@
 import { Card, Badge, DataTable, type Tone } from '../../components/ui';
-import type { Report } from '../../../shared/phishing/report';
+import type { Report, SenderDomainResult } from '../../../shared/phishing/report';
 import type { VerdictLabel } from '../../../shared/phishing/verdict';
 import { sevTone, statusText, statusTone, trustLabel } from './common';
 
+const senderTone: Record<SenderDomainResult, Tone> = { malicious: 'bad', suspicious: 'warn', no_detections: 'good', not_assessed: 'neutral', heuristics_only: 'neutral', lookup_failed: 'bad' };
 const labelTone: Record<VerdictLabel, Tone> = { malicious: 'bad', suspicious: 'warn', likely_legitimate: 'good', inconclusive: 'info', analysis_unavailable: 'neutral' };
 
 /** Read-only view of an exported (defanged) report, used for stored history entries. */
@@ -29,6 +30,24 @@ export function ReportView({ report }: { report: Report }) {
       {report.reasons.length > 0 && <Card title="Why"><ul className="space-y-1.5">{report.reasons.map((r, i) => <li key={i}><Badge tone={sevTone[r.severity]}>{r.severity}</Badge> <span className="font-medium">{r.title}</span> <span className="text-muted">{r.detail}</span></li>)}</ul></Card>}
       {report.gaps.length > 0 && <Card title="What is missing"><ul className="list-disc space-y-1 pl-5">{report.gaps.map((g, i) => <li key={i}>{g.critical && <Badge tone="warn">important</Badge>} {g.text}</li>)}</ul></Card>}
       {report.actions.length > 0 && <Card title="Recommended actions"><ul className="list-disc space-y-1 pl-5">{report.actions.map((a, i) => <li key={i}>{a}</li>)}</ul></Card>}
+      {report.senderDomain && (() => {
+        const sd = report.senderDomain;
+        return (
+          <Card title="Sender domain (looked up like a link)">
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="break-all font-mono text-xs">{sd.url}</code>
+              <Badge tone={senderTone[sd.result]} title={sd.summary ?? undefined}>{sd.resultText}{sd.sourcesAttempted !== null ? ` · ${sd.sourcesChecked}/${sd.sourcesAttempted} sources` : ''}</Badge>
+              {sd.openphish === 'listed' && <Badge tone="bad">OpenPhish: listed</Badge>}
+              {sd.openphish === 'host_listed' && <Badge tone="warn">OpenPhish: host listed</Badge>}
+            </div>
+            {sd.summary && <p className="mt-1 text-xs text-muted">{sd.summary}</p>}
+            {sd.domainAgeDays !== null && <p className="mt-1 text-xs text-muted">Domain age: {sd.domainAgeDays} days{sd.finalUrl ? ` · redirects to ${sd.finalUrl}` : ''}</p>}
+            {sd.reasons.length > 0 && <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted">{sd.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>}
+            {sd.signals.length > 0 && <ul className="mt-2 space-y-1">{sd.signals.map((x, i) => <li key={i}><Badge tone={sevTone[x.severity]}>{x.severity}</Badge> <span className="font-medium">{x.title}</span> <span className="text-xs text-faint">{x.source}</span></li>)}</ul>}
+            {sd.error && <p className="mt-1 text-xs text-red">{sd.error}</p>}
+          </Card>
+        );
+      })()}
       {report.indicators.length > 0 && <Card title={`Indicators (defanged, ${report.indicators.length})`}><ul className="space-y-1 font-mono text-xs">{report.indicators.map((i, k) => <li key={k} className="break-all"><span className="text-muted">{i.type}</span> {i.value}</li>)}</ul></Card>}
       <Card title={`Findings (${report.findings.length})`}>
         <ul className="space-y-2">{report.findings.map((f, i) => (

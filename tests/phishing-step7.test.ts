@@ -74,7 +74,7 @@ describe('buildReport', () => {
     assert.equal(report.schemaVersion, 1);
     assert.equal(report.generatedAt, '2026-11-07T10:30:00.000Z');
     assert.match(report.tool, /Spectrix/);
-    assert.deepEqual(Object.keys(report).sort(), ['actions', 'checkSummary', 'checks', 'conflicts', 'disclaimers', 'findings', 'gaps', 'generatedAt', 'indicators', 'message', 'mitigating', 'reasons', 'schemaVersion', 'tool', 'verdict'].sort());
+    assert.deepEqual(Object.keys(report).sort(), ['actions', 'checkSummary', 'checks', 'conflicts', 'disclaimers', 'findings', 'gaps', 'generatedAt', 'indicators', 'message', 'mitigating', 'reasons', 'schemaVersion', 'senderDomain', 'tool', 'verdict'].sort());
   });
 
   it('defangs every indicator type, everywhere in the report', async () => {

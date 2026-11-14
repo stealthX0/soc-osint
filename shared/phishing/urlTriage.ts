@@ -20,9 +20,9 @@ import type { LinkSource } from './links';
 
 /* ------------------------------------------------------------------ types */
 
-export const LINK_SOURCES: readonly LinkSource[] = ['text', 'anchor', 'image', 'form', 'area', 'manual'];
+export const LINK_SOURCES: readonly LinkSource[] = ['text', 'anchor', 'image', 'form', 'area', 'manual', 'sender'];
 /** Full lookups per request. Each one fans out into ~10-40 outbound subrequests, so the cap is deliberately small. */
-export const DEEP_HARD_CAP = 3;
+export const DEEP_HARD_CAP = 4;
 export const DEEP_DEFAULT = 2;
 /** A link scoring at least this much is worth a full lookup (the single top-ranked link always is). */
 export const DEEP_MIN_SCORE = 10;
@@ -257,6 +257,9 @@ export function brandMismatchOf(parsed: ParsedUrl | { host: string; registrableD
 const POINTS: Record<UrlSeverity, number> = { critical: 70, high: 40, medium: 20, low: 8, info: 0 };
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
+/** The sender's own domain (added by the parse stage as a link with source 'sender'): always ranked first and always looked up. */
+const isSenderLink = (it: { sources: readonly string[] }): boolean => it.sources.includes('sender');
+
 interface Merged { parsed: ParsedUrl; text: string | null; sources: Set<LinkSource>; wrapped: boolean; count: number; variants: number; order: number }
 
 export function triageLinks(inputs: LinkInput[], ctx: TriageContext): { items: TriagedLink[]; skipped: { value: string; reason: string }[]; claimed: ClaimedBrand[]; merged: number } {
@@ -286,8 +289,10 @@ export function triageLinks(inputs: LinkInput[], ctx: TriageContext): { items: T
 
   const items: TriagedLink[] = [...map.values()].map((m) => {
     const p = m.parsed;
+    const fromSender = m.sources.has('sender');
     const signals = analyzeUrlHeuristics(p);
     const reasons: string[] = [];
+    if (fromSender) reasons.push('Sender domain (From address): looked up first, like a link in the message');
     let score = signals.reduce((n, s) => n + POINTS[s.severity], 0);
     for (const s of signals) if (s.severity !== 'info' && reasons.length < 4) reasons.push(s.title);
 
@@ -297,11 +302,12 @@ export function triageLinks(inputs: LinkInput[], ctx: TriageContext): { items: T
     if (signals.some((s) => s.id === 'shortener')) score += 12;
     if (m.text && ACTION_RE.test(m.text)) { score += 10; reasons.push(`Call-to-action text (“${m.text.slice(0, 40)}”)`); }
 
-    const mismatch = brandMismatchOf(p, claimed);
+    // The sender domain versus the claimed brand is the identity analysis's job (and would only restate it here).
+    const mismatch = fromSender ? null : brandMismatchOf(p, claimed);
     if (mismatch) { score += 35; reasons.push(`Not a ${mismatch} domain, but the message is about ${mismatch}`); }
 
     // Links back to the sender's own organisation are the least interesting, unless something else is wrong with them.
-    if (p.registrableDomain && senderRegs.has(p.registrableDomain) && score < 40) score -= 15;
+    if (!fromSender && p.registrableDomain && senderRegs.has(p.registrableDomain) && score < 40) score -= 15;
 
     return {
       rank: 0, url: p.lookupUrl, host: p.host, registrableDomain: p.registrableDomain, platform: p.platform, score: clamp(score), tier: 'heuristic' as const,
@@ -310,18 +316,18 @@ export function triageLinks(inputs: LinkInput[], ctx: TriageContext): { items: T
     };
   });
 
-  items.sort((a, b) => b.score - a.score || b.count - a.count || (map.get(canonicalKey(a.parsed))!.order - map.get(canonicalKey(b.parsed))!.order));
+  items.sort((a, b) => Number(isSenderLink(b)) - Number(isSenderLink(a)) || b.score - a.score || b.count - a.count || (map.get(canonicalKey(a.parsed))!.order - map.get(canonicalKey(b.parsed))!.order));
   items.forEach((it, i) => { it.rank = i + 1; });
   return { items, skipped, claimed, merged };
 }
 
-/** Links worth a full lookup, best first: the top-ranked link always, then anything scoring at least DEEP_MIN_SCORE. */
-export function deepCandidatesOf(items: { url: string; score: number }[]): string[] {
-  return items.filter((it, i) => i === 0 || it.score >= DEEP_MIN_SCORE).map((it) => it.url);
+/** Links worth a full lookup, best first: the sender domain and the top-ranked link always, then anything scoring at least DEEP_MIN_SCORE. */
+export function deepCandidatesOf(items: { url: string; score: number; sources?: readonly string[] }[]): string[] {
+  return items.filter((it, i) => i === 0 || it.score >= DEEP_MIN_SCORE || (it.sources ? isSenderLink({ sources: it.sources }) : false)).map((it) => it.url);
 }
 
 /** Chooses what to look up in this request: the caller's explicit picks, else the best candidates up to `max`. */
-export function selectDeep(items: { url: string; score: number }[], forced: string[], max: number): string[] {
+export function selectDeep(items: { url: string; score: number; sources?: readonly string[] }[], forced: string[], max: number): string[] {
   const known = new Set(items.map((i) => i.url));
   const picked = forced.filter((u, i) => known.has(u) && forced.indexOf(u) === i).slice(0, DEEP_HARD_CAP);
   if (picked.length) return picked;
@@ -488,7 +494,7 @@ export function assembleUrlStage(input: Omit<UrlStageResult, 'findings' | 'check
   const byUrl = new Map(ranked.map((r) => [r.url, r]));
 
   // Offline evidence for the links that matter; the long tail is summarised in the check rows instead.
-  for (const l of ranked.filter((r) => r.score >= DEEP_MIN_SCORE || r.rank === 1).slice(0, FINDING_LINK_CAP)) {
+  for (const l of ranked.filter((r) => r.score >= DEEP_MIN_SCORE || r.rank === 1 || isSenderLink(r)).slice(0, FINDING_LINK_CAP)) {
     for (const s of l.signals) { const f = signalFinding(s, l.url); if (f) findings.push(f); }
     if (l.displayMismatch) findings.push(textMismatchFinding(l));
     if (l.brandMismatch) findings.push(brandMismatchFinding(l, claimed, 'link'));

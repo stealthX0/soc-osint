@@ -208,7 +208,8 @@ describe('parseSubmission', () => {
     ].join('\n');
     const headers = PHISH.replace('Content-Type: text/html; charset=utf-8', 'Content-Type: multipart/mixed; boundary="X"');
     const r = await parseSubmission({ headers, body, urls: ['https://second.example/a'], attachments: [{ name: 'x.exe', hash: 'a'.repeat(64) }, { hash: 'nothex' }], sender: { domain: 'amazon.com' } });
-    assert.equal(r.links.length, 2);
+    assert.equal(r.links.filter((l) => !l.sources.includes('sender')).length, 2);
+    assert.ok(r.links[0].sources.includes('sender'), 'the sender domain is investigated as a link, listed first');
     assert.equal(r.links.find((l) => l.host === 'evil.example')!.displayMismatch, true);
     assert.equal(r.attachments.length, 3);
     const emb = r.attachments.find((a) => a.origin === 'embedded')!;
@@ -222,7 +223,8 @@ describe('parseSubmission', () => {
   });
   it('accepts a pasted .eml in the headers box (body after the blank line)', async () => {
     const r = await parseSubmission({ headers: `From: a@x.example\nSubject: hi\nContent-Type: text/plain\n\nVisit https://x.example/p` });
-    assert.equal(r.links.length, 1);
+    assert.equal(r.links.filter((l) => !l.sources.includes('sender')).length, 1);
+    assert.deepEqual([r.links[0].host, r.links[0].sources], ['x.example', ['sender']], 'a@x.example: x.example is looked up as the sender domain');
     assert.equal(r.content.subject, 'hi');
   });
   it('works without headers, keeping supplied sender data as unverified indicators', async () => {

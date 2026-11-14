@@ -12,7 +12,7 @@ The page runs small stages and merges what each returns. Every stage returns the
 |---|---|---|---|---|
 | Parse | `POST /api/phishing/parse` | none | 2 | Header forensics (trusted receiver boundary, labelled SPF/DKIM/DMARC), MIME body, links with gateway unwrapping, attachment hashes and static analysis, local link screening, sender identity (brand / look-alike), wording analysis |
 | Sender | `POST /api/phishing/sender` | one lookup per call | 2 | IP intelligence, domain registration, mail-security DNS, independent SPF re-check, sender address reputation (IPQualityScore first, UserCheck fallback). Reuses `/api/ip/lookup`, `/api/domain/whois`, `/api/email/auth` |
-| Links | `POST /api/phishing/urls` | OpenPhish feed + at most 3 full lookups | 8 | Ranks links from offline evidence, checks all against the OpenPhish feed, runs the existing URL intelligence on the top few. Runs automatically after Analyse (full lookup on the top 3 links) |
+| Links | `POST /api/phishing/urls` | OpenPhish feed + at most 4 full lookups (the sender domain first) | 8 | Ranks links from offline evidence, checks all against the OpenPhish feed, runs the existing URL intelligence on the top few. Runs automatically after Analyse (full lookup on the top 3 links) |
 | Attachments | `POST /api/phishing/attachments` | one hash per call | 2 | Hash reputation through `/api/file/hash` |
 | Verdict | none (in the browser, `shared/phishing/verdict.ts`) | none | | Rules, scoring, coverage, confidence |
 
@@ -277,3 +277,15 @@ Every finding a stage can emit and how the engine scores it. Base points are bef
 ## 9. Tests
 
 `npm test` runs every file in its own process (about 10 seconds). `npm run test:fast` runs them all in one process (about 5 seconds) for quick checks while working, but it can miss a file that fails while loading, so `npm test` is the one to trust before a push. The phishing suites are `tests/phishing-*.test.ts`: parsing and forensics (step1), sender intelligence (step2), URL intelligence (step3), attachments (step4), wording (step5), the verdict engine (step6), the calibration corpus, hardening and fuzzing, and this documentation. `npm run calibrate:phishing` prints the calibration report.
+
+## Sender domain as a link
+
+The parse stage adds the From domain (`xyz@abcd.com` gives `https://abcd.com/`) to the message's links with source `sender`. From there it is treated exactly like a URL found in the body: it is ranked, checked against OpenPhish, gets the same full lookup against every provider, appears in the Links tab, and its findings feed the verdict like any other link finding.
+
+- **Always first.** A `sender` link is ranked #1 and is always a full-lookup candidate, so it is the first of the (at most 4) full lookups per analysis, even when a body link scores higher.
+- **Consumer mailbox providers are included** (gmail.com, outlook.com ...): every sender domain is looked up. Those domains have a clean reputation of their own, so the result says little about the individual sender; the useful signals there are the other checks (authentication, display name, content).
+- **Not an IOC URL.** It is not listed under `indicators.urls` (it is already under `indicators.domains`), and it is not counted in the "Link extraction" total, which counts URLs found in the message.
+- **No brand-mismatch finding for it.** Sender domain versus claimed brand is already covered by the sender identity analysis; the link-level look-alike, reputation and domain-age checks do apply.
+- **Active check.** Like every URL check, the lookup requests the domain from Cloudflare's network (headers only), so the sender can in principle see it was probed. Paste headers only when that is acceptable.
+- **Verdict coverage.** Because it is a link, an unchecked sender domain counts as an unchecked link, which prevents a "likely legitimate" result until the link investigation has run.
+

@@ -9,7 +9,7 @@ import { decodeEntities, eachTag, htmlToText, parseAttrs } from './html';
 import { registrableOf } from './domains';
 import { LIMITS } from './types';
 
-export type LinkSource = 'text' | 'anchor' | 'image' | 'form' | 'area' | 'manual';
+export type LinkSource = 'text' | 'anchor' | 'image' | 'form' | 'area' | 'manual' | 'sender';
 
 export interface LinkWrapper { service: string; wrapperUrl: string; /** true when the original could only be recovered approximately */ approximate?: boolean }
 
@@ -228,4 +228,32 @@ export function extractLinks(input: { text?: string; html?: string | null; manua
   }
 
   return { links: [...map.values()], skipped, truncated };
+}
+
+/**
+ * The sender's own domain as a link, so it is investigated exactly like a URL found in the message body (same triage, same
+ * OpenPhish check, same full lookup against every provider) and its findings flow into the verdict the same way.
+ * Consumer mailbox providers (gmail.com, outlook.com ...) are included on purpose: the analyst asked for every sender
+ * domain to be looked up. Returns null when the domain cannot be turned into a web URL.
+ */
+export function senderDomainLink(domain: string | null | undefined): ExtractedLink | null {
+  const d = domain?.trim().toLowerCase().replace(/\.$/, '');
+  if (!d) return null;
+  const parsed = parseTargetUrl(`https://${d}/`);
+  if (!parsed.ok) return null;
+  const p = parsed.value;
+  return {
+    url: p.url, normalized: p.lookupUrl, host: p.host, registrableDomain: p.registrableDomain, isIp: p.isIp, ipObfuscated: p.ipObfuscated,
+    hasUserinfo: p.hasUserinfo, scheme: p.scheme, text: null, displayedUrl: null, displayedHost: null, displayMismatch: false,
+    sources: ['sender'], wrapper: null, count: 1,
+  };
+}
+
+/** Puts the sender-domain link first, merging it into an identical body link instead of listing the same URL twice. */
+export function withSenderLink(links: ExtractedLink[], sender: ExtractedLink | null): ExtractedLink[] {
+  if (!sender) return links;
+  const same = links.find((l) => l.normalized === sender.normalized);
+  if (!same) return [sender, ...links];
+  if (!same.sources.includes('sender')) same.sources.push('sender');
+  return [same, ...links.filter((l) => l !== same)];
 }

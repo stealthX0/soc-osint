@@ -77,7 +77,7 @@ export function FinishedReport({ r, input, sender, links, att, startedAt, histor
   const rows = useMemo(() => allCheckRows({ parse: r.checks, skipped: sender.plan.skipped, slots: sender.slots, links: links.stage?.checks ?? [], attachments: att.checks }), [r.checks, sender.plan.skipped, sender.slots, links.stage, att.checks]);
   const verdict = useMemo(() => computeVerdict({ parse: r, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, status: c.status, result: c.result ?? null, detail: c.detail })) }), [r, findings, rows]);
   const pipeline = useMemo(() => buildPipeline(rows, { provisional: verdict.provisional, unavailable: verdict.label === 'analysis_unavailable' }), [rows, verdict]);
-  const report = useMemo(() => buildReport({ verdict, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, stage: c.stage, status: c.status, result: c.result, detail: c.detail })), parse: r, generatedAt: Date.now() }), [verdict, findings, rows, r]);
+  const report = useMemo(() => buildReport({ verdict, findings, checks: rows.map((c) => ({ id: c.id, label: c.label, stage: c.stage, status: c.status, result: c.result, detail: c.detail })), parse: r, urlStage: links.stage, generatedAt: Date.now() }), [verdict, findings, rows, r, links.stage]);
 
   // History: one entry per investigation, updated as lookups complete. Only the exported report is stored.
   const runId = useRef<string>('');

@@ -20,7 +20,8 @@ describe('POST /api/phishing/parse', () => {
     assert.equal(res.status, 200);
     assert.equal(json.ok, true);
     assert.equal(json.data.forensics.trust.connectingIp, '45.33.32.156');
-    assert.equal(json.data.links[0].host, 'evil.example');
+    assert.deepEqual([json.data.links[0].host, json.data.links[0].sources], ['bank.example', ['sender']], 'sender domain first');
+    assert.equal(json.data.links[1].host, 'evil.example');
     assert.deepEqual(json.data.indicators.urls, ['https://evil.example/login']);
     assert.ok(json.data.findings.some((f: { id: string }) => f.id === 'auth_all_failed'));
   });

@@ -23,13 +23,13 @@ describe('validateUrlRequest', () => {
     assert.equal(validateUrlRequest({ links: [] }).ok, false);
     assert.equal(validateUrlRequest({ links: [{ nope: 1 }] }).ok, false);
     assert.equal(validateUrlRequest({ links: Array.from({ length: 201 }, (_, i) => ({ url: `https://a${i}.example/` })) }).ok, false);
-    const r = validateUrlRequest({ links: [{ url: 'https://a.example/', sources: ['form', 'bogus'], count: 9999 }], maxDeep: 99, deep: ['a', 'b', 'c', 'd', 'e'] });
+    const r = validateUrlRequest({ links: [{ url: 'https://a.example/', sources: ['form', 'bogus'], count: 9999 }], maxDeep: 99, deep: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] });
     assert.ok(r.ok);
     if (r.ok) {
       assert.deepEqual(r.value.links[0].sources, ['form']);
       assert.equal(r.value.links[0].count, 1000);
-      assert.equal(r.value.maxDeep, 3);
-      assert.equal(r.value.deep.length, 3);
+      assert.equal(r.value.maxDeep, 4);
+      assert.equal(r.value.deep.length, 4);
     }
     assert.equal(validateUrlRequest({ links: [{ url: 'https://a.example/' }], maxDeep: -1 }).ok, false);
   });

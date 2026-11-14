@@ -12,6 +12,7 @@ import { defang } from '../domain';
 import { dmyTimeUtc } from '../dates';
 import { VERDICT_TEXT, HIGH_RISK_LABEL, labelTextOf, type Verdict, type VerdictLabel } from './verdict';
 import type { ParseStageResult } from './parse';
+import type { UrlStageResult } from './urlTriage';
 import type { Dimension, Finding, Severity, TrustLevel } from './types';
 
 export const REPORT_SCHEMA_VERSION = 1 as const;
@@ -25,6 +26,8 @@ export interface ReportInput {
   findings: Finding[];
   checks: ReportCheckInput[];
   parse: ParseStageResult;
+  /** The link investigation, when it ran: the sender domain's result is read from it. */
+  urlStage?: UrlStageResult | null;
   generatedAt?: Date | string | number;
 }
 
@@ -33,6 +36,38 @@ export interface ReportFinding {
   evidence: string[]; indicator: { type: string; value: string } | null; observedAt: string | null;
 }
 export interface ReportCheck { id: string; label: string; stage: string; status: ReportStatus; result: string | null; detail: string | null }
+
+/** How the dashboard words a full lookup's outcome (Links tab), plus the two states where there is no lookup result. */
+export type SenderDomainResult = 'malicious' | 'suspicious' | 'no_detections' | 'not_assessed' | 'heuristics_only' | 'lookup_failed';
+export const SENDER_RESULT_TEXT: Record<SenderDomainResult, string> = {
+  malicious: 'malicious', suspicious: 'suspicious', no_detections: 'no detections', not_assessed: 'not assessed',
+  heuristics_only: 'heuristics only (no full lookup)', lookup_failed: 'lookup failed',
+};
+const SENDER_RESULTS = Object.keys(SENDER_RESULT_TEXT) as SenderDomainResult[];
+
+/** The sender domain's link-analysis result, exactly as the Links tab shows it (defanged). */
+export interface ReportSenderDomain {
+  url: string;
+  result: SenderDomainResult;
+  resultText: string;
+  /** Sources that answered / were attempted in the full lookup (null without one). */
+  sourcesChecked: number | null;
+  sourcesAttempted: number | null;
+  /** The full lookup's own score (0-100) and one-line summary. */
+  lookupScore: number | null;
+  summary: string | null;
+  /** Local triage: the attention score and the reasons it was ranked where it was. */
+  attentionScore: number;
+  reasons: string[];
+  openphish: 'listed' | 'host_listed' | 'not_listed' | 'not_checked';
+  finalUrl: string | null;
+  redirects: number | null;
+  domainAgeDays: number | null;
+  /** Risks the lookup raised (info-level context left out), worst first. */
+  signals: { severity: Severity; source: string; title: string; detail: string | null }[];
+  providers: { name: string; status: 'ok' | 'failed' | 'skipped' }[];
+  error: string | null;
+}
 
 export interface Report {
   schemaVersion: typeof REPORT_SCHEMA_VERSION;
@@ -49,6 +84,8 @@ export interface Report {
   gaps: { critical: boolean; text: string }[];
   actions: string[];
   message: { from: string | null; fromDomain: string | null; subject: string | null; date: string | null; connectingIp: string | null; linkCount: number; attachmentCount: number; headersSupplied: boolean };
+  /** The sender's own domain, investigated as a link. null when there was none (no From domain). */
+  senderDomain: ReportSenderDomain | null;
   indicators: { type: string; value: string; reason: string | null; severity: Severity | null }[];
   findings: ReportFinding[];
   checks: ReportCheck[];
@@ -87,6 +124,37 @@ export const REPORT_DISCLAIMERS: readonly string[] = [
   'Indicators are defanged (hxxp, [.], [@]) so they cannot be opened or clicked by accident.',
   'This report contains no message body, no full headers and no attachment content: only summary fields and the short evidence excerpts attached to findings.',
 ];
+
+/* ------------------------------------------------------- sender domain result */
+
+const SIGNAL_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+/** The sender domain's row of the Links tab, as report data. null when the message had no sender link. */
+export function senderDomainOf(parse: ParseStageResult, stage: UrlStageResult | null | undefined): ReportSenderDomain | null {
+  const link = parse.links.find((l) => l.sources.includes('sender'));
+  if (!link) return null;
+  const ranked = stage?.ranked.find((l) => l.url === link.normalized);
+  const lk = stage?.lookups[link.normalized];
+  const err = stage?.lookupErrors[link.normalized];
+  const known = lk && SENDER_RESULTS.includes(lk.verdict as SenderDomainResult) ? (lk.verdict as SenderDomainResult) : lk ? 'not_assessed' : null;
+  const result: SenderDomainResult = known ?? (err ? 'lookup_failed' : 'heuristics_only');
+  const op = ranked?.openphish;
+  return {
+    url: defangText(clip(link.normalized, 300)),
+    result, resultText: SENDER_RESULT_TEXT[result],
+    sourcesChecked: lk ? lk.checked : null, sourcesAttempted: lk ? lk.attempted : null,
+    lookupScore: lk ? Math.round(lk.score) : null,
+    summary: d(lk?.summary, 300),
+    attentionScore: Math.round(ranked?.score ?? 0),
+    reasons: (ranked?.reasons ?? []).slice(0, 6).map((x) => d(x, 200) ?? ''),
+    openphish: !stage || stage.openphish.status !== 'ok' ? 'not_checked' : op?.exact ? 'listed' : (op?.hostMatches ?? 0) > 0 ? 'host_listed' : 'not_listed',
+    finalUrl: d(lk?.finalUrl, 300), redirects: lk ? lk.redirects : null, domainAgeDays: lk?.domainAgeDays ?? null,
+    signals: [...(lk?.signals ?? [])].filter((x) => x.severity !== 'info').sort((a, b) => SIGNAL_ORDER[a.severity] - SIGNAL_ORDER[b.severity]).slice(0, 12)
+      .map((x) => ({ severity: x.severity as Severity, source: s(x.source, 40), title: d(x.title, 240) ?? '', detail: d(x.detail, 300) })),
+    providers: (lk?.providers ?? []).slice(0, 20).map((p) => ({ name: s(p.name, 60), status: p.skipped ? 'skipped' as const : p.ok ? 'ok' as const : 'failed' as const })),
+    error: d(err, 200),
+  };
+}
 
 /* -------------------------------------------------------------- build report */
 
@@ -137,6 +205,7 @@ export function buildReport(input: ReportInput): Report {
       date: dateIso, connectingIp: d(fx?.trust.connectingIp ?? null, 60),
       linkCount: parse.links.length, attachmentCount: parse.attachments.filter((a) => !a.inline).length, headersSupplied: parse.received.headerBytes > 0,
     },
+    senderDomain: senderDomainOf(parse, input.urlStage),
     indicators,
     findings: input.findings.slice(0, 150).map((f) => ({
       id: f.id, severity: f.severity, dimension: f.dimension, title: d(f.title, 240) ?? '', detail: d(f.detail, 600) ?? '', source: f.source, trust: f.trust, exactness: f.exactness,
@@ -163,6 +232,22 @@ const sn = (x: unknown, n: number): string | null => (typeof x === 'string' ? cl
 const num = (x: unknown, lo: number, hi: number): number => (typeof x === 'number' && Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo);
 const arr = (x: unknown, max: number): unknown[] => (Array.isArray(x) ? x.slice(0, max) : []);
 const strs = (x: unknown, max: number, n: number): string[] => arr(x, max).filter((i): i is string => typeof i === 'string').map((i) => clip(i, n));
+
+function parseSenderDomain(x: unknown): ReportSenderDomain | null {
+  if (!isObj(x) || !SENDER_RESULTS.includes(x.result as SenderDomainResult)) return null;
+  const result = x.result as SenderDomainResult;
+  const nn = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.max(lo, Math.min(hi, v))) : null);
+  const op = (['listed', 'host_listed', 'not_listed', 'not_checked'] as const).find((o) => o === x.openphish) ?? 'not_checked';
+  return {
+    url: s(x.url, 300), result, resultText: SENDER_RESULT_TEXT[result],
+    sourcesChecked: nn(x.sourcesChecked, 0, 100), sourcesAttempted: nn(x.sourcesAttempted, 0, 100), lookupScore: nn(x.lookupScore, 0, 100), summary: sn(x.summary, 300),
+    attentionScore: nn(x.attentionScore, 0, 100) ?? 0, reasons: strs(x.reasons, 6, 200), openphish: op,
+    finalUrl: sn(x.finalUrl, 300), redirects: nn(x.redirects, 0, 1000), domainAgeDays: nn(x.domainAgeDays, 0, 100000),
+    signals: arr(x.signals, 12).filter(isObj).map((g) => ({ severity: SEVS.includes(g.severity as Severity) ? (g.severity as Severity) : 'info', source: s(g.source, 40), title: s(g.title, 240), detail: sn(g.detail, 300) })),
+    providers: arr(x.providers, 20).filter(isObj).map((p) => ({ name: s(p.name, 60), status: (['ok', 'failed', 'skipped'] as const).find((o) => o === p.status) ?? 'skipped' })),
+    error: sn(x.error, 200),
+  };
+}
 
 /**
  * Rebuilds a Report from untrusted JSON (local storage, a file): checks the schema, clips every string and DROPS every
@@ -192,6 +277,7 @@ export function parseStoredReport(raw: unknown): Report | null {
     gaps: arr(raw.gaps, 30).filter(isObj).map((g) => ({ critical: g.critical === true, text: s(g.text, 300) })),
     actions: strs(raw.actions, 20, 300),
     message: { from: sn(m.from, 200), fromDomain: sn(m.fromDomain, 120), subject: sn(m.subject, 200), date: sn(m.date, 80), connectingIp: sn(m.connectingIp, 60), linkCount: Math.round(num(m.linkCount, 0, 100000)), attachmentCount: Math.round(num(m.attachmentCount, 0, 1000)), headersSupplied: m.headersSupplied === true },
+    senderDomain: parseSenderDomain(raw.senderDomain),
     indicators: arr(raw.indicators, 200).filter(isObj).map((i) => ({ type: s(i.type, 20), value: s(i.value, 300), reason: sn(i.reason, 200), severity: SEVS.includes(i.severity as Severity) ? (i.severity as Severity) : null })),
     findings: arr(raw.findings, 150).filter(isObj).map((f) => ({
       id: s(f.id, 80), severity: sev(f.severity), dimension: dim(f.dimension), title: s(f.title, 240), detail: s(f.detail, 600), source: s(f.source, 80),
@@ -228,6 +314,17 @@ export function renderTicketText(r: Report): string {
   if (r.conflicts.length) { L.push('', 'CONFLICTING EVIDENCE'); r.conflicts.forEach((x) => L.push(`- ${x}`)); }
   if (r.gaps.length) { L.push('', 'WHAT IS MISSING'); r.gaps.forEach((x) => L.push(`- ${x.critical ? '[important] ' : ''}${x.text}`)); }
   if (r.actions.length) { L.push('', 'RECOMMENDED ACTIONS'); r.actions.forEach((x) => L.push(`- ${x}`)); }
+  if (r.senderDomain) {
+    const sd = r.senderDomain;
+    L.push('', 'SENDER DOMAIN (looked up like a link in the message)', `- ${sd.url}: ${sd.resultText}${sd.sourcesAttempted !== null ? ` · ${sd.sourcesChecked}/${sd.sourcesAttempted} sources` : ''}${sd.lookupScore !== null ? ` · lookup score ${sd.lookupScore}/100` : ''}`);
+    if (sd.summary) L.push(`  ${oneLine(sd.summary)}`);
+    if (sd.openphish !== 'not_checked') L.push(`  OpenPhish: ${sd.openphish.replace(/_/g, ' ')}`);
+    if (sd.domainAgeDays !== null) L.push(`  Domain age: ${sd.domainAgeDays} days`);
+    if (sd.finalUrl) L.push(`  Redirects to: ${sd.finalUrl}`);
+    sd.reasons.forEach((x) => L.push(`  Ranked: ${oneLine(x)}`));
+    sd.signals.forEach((x) => L.push(`  [${x.severity}] ${oneLine(x.title)} (${x.source})`));
+    if (sd.error) L.push(`  Lookup error: ${oneLine(sd.error)}`);
+  }
   if (r.indicators.length) { L.push('', 'INDICATORS (defanged)'); r.indicators.slice(0, 40).forEach((i) => L.push(`- ${i.type}: ${i.value}${i.reason ? ` (${i.reason})` : ''}`)); if (r.indicators.length > 40) L.push(`- … ${r.indicators.length - 40} more in the JSON export`); }
   const cs = r.checkSummary;
   L.push('', 'CHECKS', `${cs.total} total: ${cs.complete} complete, ${cs.failed} failed, ${cs.skipped} skipped, ${cs.running} running, ${cs.not_applicable} not applicable`);
@@ -257,6 +354,22 @@ export function renderMarkdown(r: Report): string {
   section('Conflicting evidence', r.conflicts);
   section('What is missing', r.gaps.map((g) => `${g.critical ? '**Important:** ' : ''}${g.text}`));
   section('Recommended actions', r.actions);
+  if (r.senderDomain) {
+    const sd = r.senderDomain;
+    L.push('## Sender domain', '', 'Looked up like a link in the message (the same sources as any URL).', '', '| Field | Value |', '| --- | --- |',
+      `| Domain URL | \`${mdCell(sd.url).replace(/`/g, "'")}\` |`,
+      `| Result | **${mdCell(sd.resultText)}**${sd.sourcesAttempted !== null ? ` · ${sd.sourcesChecked}/${sd.sourcesAttempted} sources` : ''} |`);
+    if (sd.lookupScore !== null) L.push(`| Lookup score | ${sd.lookupScore}/100 |`);
+    if (sd.summary) L.push(`| Summary | ${mdCell(sd.summary)} |`);
+    L.push(`| OpenPhish | ${sd.openphish.replace(/_/g, ' ')} |`);
+    if (sd.domainAgeDays !== null) L.push(`| Domain age | ${sd.domainAgeDays} days |`);
+    if (sd.finalUrl) L.push(`| Redirects to | \`${mdCell(sd.finalUrl).replace(/`/g, "'")}\` |`);
+    if (sd.error) L.push(`| Lookup error | ${mdCell(sd.error)} |`);
+    L.push('');
+    if (sd.reasons.length) L.push('Why it ranked here:', '', ...sd.reasons.map((x) => `- ${mdText(x)}`), '');
+    if (sd.signals.length) L.push('Risks detected:', '', ...sd.signals.map((x) => `- **[${x.severity}]** ${mdText(x.title)} (${mdText(x.source)})`), '');
+    if (sd.providers.length) L.push(`Sources: ${sd.providers.map((p) => `${mdText(p.name)} ${p.status}`).join(', ')}`, '');
+  }
   if (r.indicators.length) { L.push('## Indicators (defanged)', '', '| Type | Value | Note |', '| --- | --- | --- |', ...r.indicators.map((i) => `| ${mdCell(i.type)} | \`${mdCell(i.value).replace(/`/g, "'")}\` | ${mdCell(i.reason)} |`), ''); }
   if (r.findings.length) {
     L.push('## Findings', '');

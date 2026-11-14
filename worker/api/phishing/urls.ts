@@ -41,7 +41,7 @@ function summarise(l: UrlLookup, cached: boolean, ms: number, finalOp: LookupSum
  * Stage 3 of the phishing investigation. Links come from /api/phishing/parse (or are typed in).
  *
  *  - Every link is normalised, de-duplicated, ranked and checked offline and against the OpenPhish feed.
- *  - Only the best few (maxDeep, hard cap 3; or the ones named in `deep`) get a full lookup through the existing
+ *  - Only the best few (maxDeep, hard cap 4; or the ones named in `deep`; a link with source 'sender' is always first) get a full lookup through the existing
  *    /api/url/lookup endpoint, called in-process so its caching, SSRF guard and provider quota budgets all apply.
  *    Callers fetch the next batch with another request naming them in `deep`: each request is its own Worker invocation
  *    with its own subrequest allowance, which is why this is not one giant fan-out.

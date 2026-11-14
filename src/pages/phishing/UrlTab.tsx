@@ -17,7 +17,7 @@ export function UrlTab({ r, links }: { r: ParseStageResult; links: LinkStage }) 
             <button onClick={() => void links.run()} disabled={links.busy} className="inline-flex h-9 items-center gap-2 rounded-lg bg-teal px-4 text-sm font-semibold text-[#04202a] hover:brightness-110 disabled:opacity-50"><Icon name="search" size={14} strokeWidth={2.4} /> {stage ? 'Re-run link investigation' : 'Investigate links'}</button>
             {links.busy && <Spinner label="Investigating links" />}
           </div>
-          <p className="mt-2 text-xs text-muted">Every link is ranked and checked against the OpenPhish feed; the top 3 also get a full lookup (URLhaus, Safe Browsing, VirusTotal, Pulsedive, urlscan, redirect trace, domain age). <strong>This is an active check:</strong> full URLs are sent to the enabled providers and the destination is requested from Cloudflare’s network, which a recipient-specific link may reveal to the sender. Do not run it on links containing private tokens.</p>
+          <p className="mt-2 text-xs text-muted">Every link is ranked and checked against the OpenPhish feed; the sender domain and the next-ranked links (up to 4 in all) also get a full lookup (URLhaus, Safe Browsing, VirusTotal, Pulsedive, urlscan, redirect trace, domain age). <strong>This is an active check:</strong> full URLs are sent to the enabled providers and the destination is requested from Cloudflare’s network, which a recipient-specific link may reveal to the sender. Do not run it on links containing private tokens.</p>
         </div>
       )}
       {links.error && <p role="alert" className="rounded-lg border border-red/30 bg-red/10 p-2 text-sm text-red">{links.error}</p>}
